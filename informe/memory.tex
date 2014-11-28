@@ -1,0 +1,93 @@
+\section{Mapa de memoria}
+\label{sec::memory}
+
+Luego de realizar la configuraci\'on de la GDT e IDT (que omitimos explicar en este trabajo
+puesto que lo consideramos cubierto por el contenido de la materia), el siguiente paso
+consiste en configurar la administraci\'on de la memoria RAM de la computadora, en base
+al esquema de memoria que se obtuvo de GRUB.
+
+La administraci\'on de la memoria f\'isica per se (es decir, la RAM realmente en la m\'aquina)
+se hace en marcos de p\'agina, unidades contiguas de 4 KB. Esto es porque se utiliza paginaci\'on
+de a 4 KB mediante la MMU (Memory Management Unit) de procesador, correspondiente a uno de los esquemas
+de paginaci\'on que disponemos por la arquitectura IA-32.
+
+Para administrar estos marcos de p\'agina se utiliza una estructura denominada \textit{bitmap} o mapa
+de bits. El mismo consiste en mantener una larga tira de bits, uno para cada marco de p\'agina disponible
+para el procesador. El estado del bit correspondiente a un marco indica si esta en uso o no. Tambi\'en
+se mantiene un contador entero para cada marco de p\'agina que indica cuantos esquemas de paginaci\'on (es
+decir, cuantos directorios y tablas de p\'agina) lo estan usando (esto se usa, como veremos posteriormente
+para implementar una pol\'itica de \textit{copy-on-write}).
+
+La razon de tener un bitmap separado (se podr\'ia usar directamente el contador para determinar si un frame
+esta o no en uso) es eficiencia: al mantener el bitmap separado puede escanearse muy r\'apidamente por un
+frame libre utilizando la siguiente estrategia: Vamos levantando de a 32 bits (correspondiente al tama\~no
+de un registro de prop\'osito general en IA-32) y apenas encontramos un valor diferente a $2^{32} - 1$ (una
+tira de 32 unos) escaneamos el valor del registro para determinar el \'indice. De esta manera el escaneo se
+realiza 32 veces m\'as r\'apido que escanear de a un entero por vez. Adicionalmente, existe una instrucci\'on
+dedicada del procesador que se puede prefijar para realizar este escaneo: \texttt{repnz scasd}, y una instrucci\'on,
+\texttt{bsr}, que permiten realizar los dos pasos mencionados y que en nuestros experimentos optimiz\'o apreciablemente 
+el tiempo de asignaci\'on de marcos de p\'agina por sobre una funci\'on programada en C. Los detalles de funcionamiento
+de estas funciones no son de inter\'es para este informe, referimos el lector al manual 2 de la arquitectura~\cite{intel2}
+y al c\'odigo fuente en \texttt{bitset\_search.asm}.
+
+Algunos frames se desperdician para estas estructuras, y tambi\'en se pierden algunos frames para que la memoria administrada
+este siempre alineada a p\'agina (como ser\'ia deseable). La perdida de memoria incurrida es m\'inima (Con 4 Kb de un frame se
+pueden administrar 512 megabytes de memoria, por lo tanto usando paginaci\'on estandar gastariamos unos 32 Kb en frames lo cual
+consideramos despreciable) por lo tanto se utiliz\'o esta opci\'on por su simplicidad de implementaci\'on y su buena performance.
+
+Con esta funci\'on disponible, podemos mantener la administraci\'on de los frames encapsulada mediante las funciones \texttt{frame\_alloc},
+\texttt{frame\_free}. Tambi\'en incluimos una funci\'on \texttt{frame\_add\_alias} cuyo proposito explicaremos posteriormente.
+
+Para mantener una abstracci\'on sobre los recursos de la computadora, en este caso la memoria RAM, queremos darle la ilusi\'on a los
+procesos de usuario de que disponen de todo el espacio de direcciones de memoria. Para ello es que usamos memoria virtual mediante paginaci\'on.
+Sin embargo, nos interesa mantener una visi\'on unificada y cohesiva del Sistema Operativo de manera que los procesos puedan interactuar con
+el mismo.
+
+Para resolver este problema, se resolvi\'o utilizar un esquema de memoria para los procesos en el que, adem\'as de sus secciones de c\'odigo
+y datos pertinentes, los procesos tienen:
+
+\begin{itemize}
+	\item El c\'odigo y estructura iniciales del kernel mapeadas con \textit{identity mapping} a las ubicaciones en memoria f\'isica, de
+	manera que todos saben donde esta el c\'odigo de kernel. Se utiliza el esquema de protecci\'on propio de paginaci\'on de manera que
+	solo se pueda acceder a estas p\'aginas en anillo 0, es decir en modo kernel.
+	\item Se mantiene una secci\'on especial de memoria de datos del kernel para estructuras necesarias (como puede ser, estructuras de
+	procesos, objetos para representar archivos, etc.) mediante el uso de memoria din\'amica. Esta secci\'on tambi\'en es com\'un a todos
+	los procesos puesto que por ejemplo en cambios de contexto es necesario que, cuando el procesador cambie de modo usuario a modo kernel,
+	el esquema de memoria con el que venia corriendo el proceso tenga acceso a la lista de procesos a schedulear. Este pedazo de la memoria
+	virtual se denominar\'a heap de kernel.
+	\item Una secci\'on de pila de usuario, con una cantidad de p\'aginas est\'atica.
+	\item Una secci\'on de pila de kernel, con una cantidad tambi\'en est\'atica de p\'aginas asignadas.
+\end{itemize}
+
+La heap de kernel, si bien se corresponde directamente con un espacio de memoria f\'isico, se administra a nivel virtual, es decir considerando
+paginaci\'on. La administraci\'on se realiza mediante el uso de bloques de listas enlazadas: Cada secci\'on de la memoria mantiene su tama\~no
+y el puntero a la siguiente posici\'on libre de memoria. Si bien esto desperdicia algo de espacio, nuevamente, este es m\'inimo, y el algoritmo
+en si es relativamente sencillo. La asignaci\'on de memoria sigue la implementaci\'on de~\cite{kr} con algunas modificaciones menores para
+mejorar la detecci\'on de errores. 
+
+Tambi\'en implementamos una funci\'on que obtiene memoria alineada a p\'agina (lo cual se usa para por ejemplo para obtener directorios de p\'agina para los procesos, ya que la arquitectura requiere que los directorios de p\'agina esten alineados a p\'agina). Dado que el inicio de la heap de kernel es en los 3 GB, la direcci\'on virtual y la f\'isica est\'an alineadas a p\'agina. Lo que se hace para lograr esto es simplemente
+pedir 4095 bytes (4 KB - 1) m\'as de espacio. De esta manera, nos aseguramos (por aritm\'etica modular) que hay una secci\'on continua del
+tama\~no que queremos y que esta alineada (tiene resto 0) a 4 K. Para evitar desperdiciar esta memoria, la devolvemos a la heap de kernel. Si
+bien esto puede llegar a contribuir a la fragmentaci\'on de la memoria, no consideramos esto un requisito y por lo tanto decidimos utilizar
+esta soluci\'on.
+
+Para mantener la heap de kernel siempre mapeada, preasignamos una cantidad adecuada de tablas de p\'aginas de manera que tengamos el espacio
+inicial de heap asignado (ya que necesitariamos de otra manera conseguir memoria para las tablas de p\'aginas para poder administrar memoria,
+teniendo una dependencia circular).
+
+Por \'ultimo, en esta secci\'on describimos el esquema de \texttt{copy-on-write} utilizado. Cuando una tarea usa la llamada de sistema
+\texttt{fork}, no se duplica el espacio de memoria directamente. En particular, por ejemplo, las paginas de kernel se linkean directamente,
+no se obtienen marcos de p\'agina para duplicar. En el caso de las p\'aginas de usuario, tampoco se obtiene directamente memoria. Lo que se
+hace es utilizar uno de los bits disponibles de las entradas de p\'agina para marcar la p\'agina como \texttt{copy-on-write}, y se mantiene
+el identificador de marco de p\'agina. La p\'agina se marca adem\'as como de solo lectura. De esta manera, no se incurre en ning\'un costo
+al acceder a la p\'agina para leerla, y no se hace la copia. En cambio, si se trata de escribir, la unidad de memoria detecta que la p\'agina
+esta como solo lectura y se dispara una excepci\'on 14 (Page Fault). En ese momento toma el control el manejador de esta excepci\'on, que
+usa el bit de \texttt{copy-on-write} para determinar que se tiene que copiar el marco de p\'agina, asigna un nuevo marco, lo copia, desmarca
+el marco original y luego le permite al proceso retornar su ejecuci\'on. Esto no solo simplifica el c\'odigo necesario para que las tareas
+realicen \texttt{fork} sino que tambi\'en mejora mucho la performance (es una optimizaci\'on implementada en Linux). Por esto decidimos
+implementarla.
+
+Sin embargo, las p\'aginas de la pila de kernel no se manejan con este esquema: Recordemos que el manejador de la excepcion necesita una
+pila v\'alida para trabajar, y que si la propia pila de kernel necesita del manejador de page fault entonces se produce una dependencia
+circular que deriva en Triple Fault de procesador. Esta motivaci\'on lleva a que la pila de kernel de cada proceso se maneje por separado:
+usar una pila com\'un es una soluci\'on que es imposible hacer escalar (en una posible continuaci\'on de este tp) a un kernel preempteable.

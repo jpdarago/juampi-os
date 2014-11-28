@@ -1,0 +1,64 @@
+\section{Mecanismos de multitarea}
+\label{sec::multitask}
+
+El prop\'osito del Sistema Operativo en si es servir como capa de abstraci\'on de la
+computadora para los procesos de nivel de usuario, y permitir adem\'as la multiplexaci\'on
+de estos recursos entre multiples instancias de programas de usuario en ejecuci\'on. Lo que
+buscamos en este Trabajo Pr\'actico fue proveer una capa b\'asica de interfaz para las tareas
+de usuario. En este apartado describimos el mecanismo de multitarea provisto.
+
+La implementaci\'on sigue la l\'inea estandar de cambios de contexto por hardware. Para esto
+utilizamos fuertemente la estructura de TSS (Task State Segment) del procesador, lo cual
+simplifica mantener al procesador en un estado consistente seg\'un la tarea en ejecuci\'on.
+No incluimos una explicaci\'on detallada del uso de esta estructura pues es parte del programa
+de la materia.
+
+El tiempo de uso de CPU de cada proceso es un \textit{quantum} fijo. El scheduler entonces provee
+una serie de funciones para manejar las tareas en modo \textit{round-robin}: El orden de ejecuci\'on
+de las tareas es circular y no existen diferencias de prioridad de tareas. Para tener una noci\'on
+de tiempo asociada a cada uno de estos procesos, utilizamos el PIT (Programmable Interrupt Timer).
+
+El PIT es un reloj de cuarzo que env\'ia cada cierto intervalo de tiempo una interrupcci\'on por la l\'inea
+1 del chip del Programmable Interrupt Controller. Esta interrupcci\'on nos sirve entonces como medida de paso
+del tiempo. Para ajustarla a una cantidad determinada de milisegundos, lo configuramos mediante el uso del
+puerto de comando $0x43$ y enviando la nueva frecuencia en dos bytes al puerto $0x40$ como esta detallado en 
+\texttt{timer.c}. De esta manera tenemos manejo de cuanto tiempo pertimos correr a cada proceso.
+
+Si bien no existen prioridades para los procesos, un proceso puede decidir dejar el procesador voluntariamente
+mediante la llamada a sistema \texttt{sleep}. Esta es tambi\'en la \'unica manera que el procesador puede liberar
+la computadora si se encuentra en modo kernel. Dado que el scheduler no puede retirar una tarea si esta se encuentra
+en modo kernel, este es no preemteable. Sin embargo, si es posible interrumpir al kernel, como veremos posteriormente
+cuando se explique la implementaci\'on del driver de terminal.
+
+Para crear y manejar tareas se utiliza un esquema similar a las llamadas de Sistema Operativo cl\'asicas de UNIX y POSIX, \texttt{fork},
+\texttt{exec}, \texttt{wait} y \texttt{exit}.
+
+\begin{itemize}
+	\item \texttt{fork} crea un duplicado del proceso actual, con el mismo mapa de memoria, archivos abiertos y directorio de trabajo.
+	La relaci\'on entre el nuevo proceso y el proceso del cual se obtuvo es de padre e hijo: en particular como veremos posteriormente
+	un proceso puede esperar por uno de sus hijos dado su n\'umero identificador de proceso (PID).
+	\item \texttt{exec} sobreescribe la im\'agen del proceso con la im\'agen de proceso obtenida del archivo en disco duro pasado por
+	par\'ametro, efectivamente entonces poniendo a ejecutar un proceso con una nueva secci\'on de texto y datos. \texttt{exec} cierra
+	todos los archivos abiertos por esta nueva imagen exceptuando entrada y salida estandar. La relaci\'on padre e hijo se mantiene.
+	\item \texttt{wait} bloquea un proceso hasta que uno de sus hijos (dado por el n\'umero PID pasado por par\'ametro) llama a la
+	system call \texttt{exit}. Esto se usa por ejemplo en el shell para permitir la ejecuci\'on de una tarea y luego volver el control
+	a la consola.
+	\item \texttt{exit} Termina la ejecuci\'on del proceso y libera sus recursos. Adicionalmente, se desbloquea su padre si lo estaba
+	esperando. Cuando un proceso hace \texttt{exit} sus hijos son reasignados a su padre en caso de tenerlo (se asume de todos modos que
+	el proceso inicial \texttt{init} nunca hace exit).
+\end{itemize}
+
+La implementaci\'on, si bien en funcionalidad es cruda, demuestra como se podr\'ia estructurar este mecanismo para permitir multitarea.
+
+Adicionalmente, se implement\'o como experimento un sistema b\'asico de manejo de se\~nales entre procesos. Las mismas se manejan solamente
+en modo usuario y se dispone de un subconjunto de se\~nales: SIGSTOP, SIGCONT, SIGKILL y SIGSTOP. El kernel anota si las se\~nales fueron
+recibidas en modo kernel y registra esto para manejarlas apenas retorna a modo usuario. Se permite adem\'as registrar handlers particulares
+para se\~nales excepto para SIGSTOP SIGCONT y SIGKILL. 
+Para que todos las funciones manejadoras de se\~nales se ejecuten en modo usuario, los handlers por default para cada una de estas se\~nales
+se mantienen en una p\'agina especial de kernel que se mapea con permisos de usuario. Para bloquear un proceso ante la recepci\'on de
+SIGSTOP, se implementa una syscall especial denominada \texttt{do\_coma} que bloquea permanentemente a un proceso. Esto solo se deshace ante
+la recepci\'on de la se\~nal SIGCONT, cuyo handler no realiza acci\'on alguna. 
+
+Cada proceso tiene asociada una estructura, adem\'as de la TSS, que controla que archivos tiene abiertos, su directorio
+de trabajo actual, una lista enlazada (que casualmente es la implementaci\'on de lista enlazada intrusiva que utiliza el kernel de Linux)
+de sus procesos hijos, su n\'umero de identificaci\'on, un puntero a la estructura de su padre (o NULL si es el proceso init).

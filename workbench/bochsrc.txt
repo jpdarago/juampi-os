@@ -1,0 +1,8 @@
+megs: 32
+romimage: file=$BXSHARE/BIOS-bochs-latest
+vgaromimage: file=$BXSHARE/VGABIOS-lgpl-latest
+boot: floppy
+floppya: 1_44="/dev/loop0", status=inserted
+magic_break: enabled=1
+mouse: enabled=0
+keyboard_mapping: enabled=1, map=/home/jpdarago/bochs/share/bochs/keymaps/x11-pc-es.map

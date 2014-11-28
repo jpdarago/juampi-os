@@ -1,0 +1,98 @@
+\documentclass[10pt, a4paper,english,spanish]{article}
+\usepackage{subfig}
+
+\parindent=20pt
+\parskip=8pt
+\usepackage[width=15.5cm, left=3cm, top=2.5cm, height= 24.5cm]{geometry}
+
+\usepackage{ccfonts,eulervm} 
+\usepackage[T1]{fontenc}
+\usepackage{epigraph}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{fancyhdr}
+\usepackage[activeacute, spanish]{babel}
+\usepackage{cancel}
+\usepackage[utf8]{inputenc}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{afterpage}
+\usepackage{caratula}
+\usepackage{url}
+\usepackage{fancyhdr}
+
+\floatname{algorithm}{Algoritmo}
+
+\newtheorem{theorem}{Teorema}[section]
+\newtheorem{lemma}[theorem]{Lema}
+\newtheorem{proposition}[theorem]{Proposici\'on}
+\newtheorem{corollary}[theorem]{Corolario}
+
+\newcommand{\Var}{\textbf{var }}
+\newcommand{\True}{\textbf{true }}
+\newcommand{\False}{\textbf{false }}
+\newcommand{\Break}{\textbf{break }}
+\newcommand{\Continue}{\textbf{continue }}
+\newcommand{\Param}{\textbf{param }}
+
+\newenvironment{proof}[1][Demostraci\'on]{\begin{trivlist}
+\item[\hskip \labelsep {\bfseries #1}]}{\end{trivlist}}
+\newenvironment{definition}[1][Definici\'on]{\begin{trivlist}
+\item[\hskip \labelsep {\bfseries #1}]}{\end{trivlist}}
+\newenvironment{example}[1][Ejemplo]{\begin{trivlist}
+\item[\hskip \labelsep {\bfseries #1}]}{\end{trivlist}}
+\newenvironment{remark}[1][Observaci\'on]{\begin{trivlist}
+\item[\hskip \labelsep {\bfseries #1}]}{\end{trivlist}}
+
+\newcommand{\qed}{\nobreak \ifvmode \relax \else
+      \ifdim\lastskip<1.5em \hskip-\lastskip
+      \hskip1.5em plus0em minus0.5em \fi \nobreak
+      \vrule height0.75em width0.5em depth0.25em\fi}
+
+\parindent 0em
+\algrenewcommand{\algorithmiccomment}[1]{//\textit{#1} }
+
+\pagestyle{fancy}
+\thispagestyle{fancy}
+\addtolength{\headheight}{1pt}
+\lhead{ORGA 2 - TP FINAL}
+\rhead{Grupo 2}
+\cfoot{\thepage}
+\renewcommand{\footrulewidth}{0.4pt}
+\newcommand{\hblacksquare}{\hfill \blacksquare}
+%FIN COPYPASTE EL INFORME DEL INFO
+\begin{document}
+
+\materia{Organizaci\'on del Computador II - Trabajo Pr\'actico Final}
+\submateria{Primer Cuatrim\'estre de 2012}
+\titulo{Prototipo de Sistema Operativo}
+\subtitulo{Informe}
+\integrante{Juan Pablo Darago}{272/10}{jpdarago@gmail.com}
+
+\maketitle
+\pagebreak
+
+\tableofcontents
+\pagebreak
+
+\include{introduccion}
+
+\include{general}
+
+\include{grub}
+
+\include{memory}
+
+\include{multitask}
+
+\include{disk}
+
+\include{filesystem}
+
+\include{conclusiones}
+
+\addcontentsline{toc}{section}{Referencias}
+\include{biblio}
+
+\end{document}

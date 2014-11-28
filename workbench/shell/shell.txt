@@ -1,0 +1,18 @@
+Caracteristicas
+================================================================================
+
+* Comandos con argumentos
+* Pipes
+* Ctrl+C para terminar procesos
+* Outputear a archivo y leer de archivo
+
+Gramatica
+================================================================================
+command: program_list | program_list "&"
+program_list: 
+	program_call | program_call "|" program_list
+program_call:
+	program arguments (> output) (< input)
+
+argument_list:
+	" " | string argument_list

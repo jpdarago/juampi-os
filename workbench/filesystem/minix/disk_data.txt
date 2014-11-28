@@ -1,0 +1,6 @@
+5376 inodes
+16128 blocks
+Firstdatazone=173 (173)
+Zonesize=1024
+Maxsize=268966912
+

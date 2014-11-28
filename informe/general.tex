@@ -1,0 +1,67 @@
+\section{Consideraciones generales}
+
+El Sistema Operativo implementado consiste de un conjunto de m\'odulos,
+que se explicar\'an por separado en una secci\'on para cada uno.
+En esta secci\'on se detalla en general cada uno de los m\'odulos, y se se\~nalan
+que m\'odulos no se explican y el motivo de ello.
+
+\begin{itemize}
+	\item Bootloader: Para este trabajo, se decidi\'o utilizar el bootloader
+	GRUB, y por lo tanto se implement\'o la especificaci\'on \textit{multiboot}.
+	GRUB en particular nos permite varias cosas: cargar modulos din\'amicos (por
+	ejemplo el proceso init que es el que forkea al shell) y adem\'as se ocupa de
+	dejar al procesador en modo protegido con la l\'inea A20 habilitada y en un
+	estado coherente, permitiendonos continuar el desarrollo directamente en C.
+	Los detalles de como se integr\'o GRUB se detallan en la secci\'on~\ref{sec::grub}
+
+	\item Mapa de memoria: Se utilizan dos tipos de asignadores de memoria:
+	asignador de marcos de p\'agina y asignador de espacio de memoria virtual de
+	kernel. Tambi\'en se emplea un esquema de \textit{copy on write} para manejar
+	las p\'aginas compartidas. Adicionalmente se maneja una pila de usuario y una pila
+	de kernel para las tareas. Los detalles del mapa de memoria se encuentran en la
+	secci\'on ~\ref{sec::memory}.
+
+	\item Multitarea: El sistema maneja tareas en nivel de privilegio 3 (correspondiente
+	al nivel de privilegio de usuario en la arquitectura IA-32). El salto de tarea se realiza
+	por hardware mediante el uso del registro TR y la estructura TSS (Task State Segment) que
+	nos provee la arquitectura. Adicionalmente, se maneja un mapa de memoria para cada proceso,
+	una serie de funciones para el manejo de señales e informaci\'on sobre la estructura del arbol
+	de procesos, usandose listas intrusivas. Los detalles de este m\'odulo se incluyen en la secci\'on
+	~\ref{sec::multitask}.
+
+	\item Driver de disco: Se dispone de un primitivo driver de disco IDE mediante ATA PIO, que maneja
+	sectores de 512 bytes. Este driver utiliza busy waiting para realizar las lecturas y escrituras de
+	y hacia (segun corresponda) buffers de memoria. Esta capa se mantuvo lo m\'as primitiva posible para
+	poderse implementar y testear el sistema de archivos simulando los accesos a disco mediante la memoria
+	RAM. Los detalles de este driver se incluyen en la secci\'on~\ref{sec::disk}.
+
+	\item Sistema de archivos: Se implemento un subconjunto de funcionalidad del sistema de archivos MINIX 1.
+	Se eligi\'o este sistema de archivos por su simplicidad y por soportar el concepto de inodos, lo cual nos
+	permiti\'o definir una capa de Virtual Filesystem (VFS) muy similar a la disponible en Linux 2.6, y manejar
+	la abstracci\'on de que los drivers son tambi\'en archivos jerarquicos. Se consider\'o implementar VFAT 16
+	pero motivos de implementaci\'on motivaron el cambio. 
+	Adicionalmente se implemento un esquema de cache de buffers en memoria RAM para mantener la consistencia del
+	sistema de archivos y permitir abstraer la escritura al mismo como secuencial.
+
+	Ambos m\'odulos se detallan en la secci\'on~\ref{sec::filesystem}.
+	\item Interfaz de llamadas a sistema, interrupcciones y excepciones: Se implement\'o una interfaz de acceso
+	al Sistema Operativo similar al que utiliza Linux, empleandose un Interrupt Gate asociada a la interrupcci\'on
+	$0x80$. Asimismo, los par\'ametros se pasan por los registros. Se implementaron adem\'as un conjunto de llamadas
+	a sistema inspiradas en las llamadas POSIX usuales. Los detalles se incluyen en la secci\'on~\ref{sec::syscalls}.
+
+	\item Driver de teclado, video y reloj: Se program\'o un primitivo driver de teclado mediante interrupcciones que
+	nos permite bufferear teclas. Asimismo se implemento un driver sencillo de terminal usandose para ello la memoria
+	de video en modo texto. Ambos se combinaron en un driver con interfaz al sistema de archivos de terminal, utilizado
+	por el programa shell para controlar la entrada salida. Por \'ultimo, se implementaron funciones b\'asicas de uso
+	del reloj CMOS de sistema para obtener la fecha y hora. No se implement\'o un driver para este dispositivo por simplicidad.
+	Los detalles se incluyen en la secci\'on~\ref{sec::drivers}.
+
+	\item Shell y tareas a nivel de usuario: Se implementaron un subconjunto de tareas que permitiera evidenciar las facilidades
+	del sistema operativo. Con el proposito de simplificar esto todo lo posible, se busco que se pudiera linkear est\'aticamente
+	un conjunto de librer\'ias que usaran la interfaz del Sistema Operativo junto con c\'odigo de l\'ogica algoritmica espefico a la
+	tarea. Tambi\'en se busc\'o permitir el uso de buffers de memoria est\'atica (las conocidas 
+	\texttt{section .rodata} y \texttt{section .bss}). Con esto en mente, se busc\'o que el kernel soportara la lectura de tareas en
+	formato ELF est\'atico de 32 bits ejecutable. Los detalles de la implementaci\'on de estos m\'odulos dentro del kernel y de los
+	programas de usuario en si (en especial el shell de sistema operativo) se incluyen en la secci\'on~\ref{sec::shell}.
+
+\end{itemize}

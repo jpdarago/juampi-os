@@ -1,0 +1,554 @@
+\section{Resultados}
+\label{sec::resultados}
+
+Para las siguientes secciones, analizaremos la complejidad en peor caso
+de cada m\'etodo, adem\'as de elegir los par\'ametros de la 
+b\'squeda local y la metaheur\'istica GRASP.
+
+Posteriormente comparar\'emos los distintos m\'etodos entre usando para
+ello instancias espec\'ificas de grafos, donde mostraremos no solo cuan
+buena fue la soluci\'on obtenida sino que adem\'as veremos en que tiempo
+la obtuvo cada m\'etodo.
+
+Para medir la cantidad de  operaciones, tomamos el tiempo en ticks del 
+reloj propio del sistema. Para ello utilizamos la funci\'on 
+\texttt{clock} que es parte de la librer\'ia estandar de C++, que 
+devuelve la cantidad de ticks de reloj que ha ejecutado el programa 
+desde su inicio. Llamando a esta funci\'on al principio y al final de 
+comenzar a resolver el grafo (desconsiderando el costo de leer el grafo 
+y escribir la respuesta), tenemos una medida del tiempo insumido por el 
+programa, en este caso en milisegundos puesto que un tick de reloj esta
+definido como un mil\'esimo de segundo . Los resultados se tomaron sobre 
+un promedio de 10 mediciones en todos los casos.
+
+En todos los casos presentados la cantidad de aristas del grafo es 
+$O(n)$ con $n$ la cantidad de v\'ertices y los mismos son conexos.
+
+Esto se eligi\'o puesto que no nos result\'o posible encontrar ejemplos 
+de grafos donde la cantidad de aristas  del grafo fuese cuadr\'atica 
+en la cantidad de nodos y resultaran de inter\'es: A mayor n\'umero de 
+aristas m\'as sencillo es para los m\'etodos presentados encontrar 
+una soluci\'on \'optima r\'apida. Por ejemplo, si tomamos el caso de un
+grafo completo $K_n$, el algoritmo exacto se llamar\'a recursivamente 
+una vez al tomar cualquier nodo (puesto que esto constituye una 
+soluci\'on) y encontrar\'a que esto es un conjunto dominante. Luego, al
+mejorar la cota de cantidad de nodos del conjunto dominante a 1, se 
+reduce muy dr\'asticamente (a $O(n)$ de hecho) la cantidad de llamadas
+recursivas, puesto que ahora el algoritmo solo continuar\'a si la 
+cantidad de elementos del conjunto dominante a examinar es 0 (
+lo cual es imposible).
+
+Por otro lado la raz\'on por la cual consideramos solamente grafos 
+conexos es que un grafo conexo es siempre peor caso temporal para nuestros
+algoritmos. Esto se debe a que las cotas de complejidad obtenidas son
+en todos los casos peores que lineal, con lo cual el costo de iterar 
+sobre todas las componentes conexas (que es lineal por hacerse mediante 
+un algoritmo Depth-First Search) es acotable por el costo mismo de 
+resolver cada componetne conexa. Veremos esto m\'as formalmente en
+el an\'alisis de cada caso. 
+
+Adicionalmente, si bien el distanciamiento entre las soluciones en un
+grafo disconexo que en uno conexo puede aumentarse incrementando la
+cantidad de componentes conexas, eso no nos result\'o de inter\'es para
+el trabajo puesto que este comportamiento, si bien implica que si existe
+un grafo conexo tal que un m\'etodo devuelva una soluci\'on sub\'optima, 
+se puede crear un grafo uniendo componentes que sea arbitrariamente
+sub\'optimo, el error relativo no es distinto (puesto que aumentamos
+el error de una sola componente $c$ veces pero la cantidad de nodos 
+aumenta $c$ veces tambi\'en) por lo cual no tenemos comportamiento 
+distinto en ese aspecto, y para el otro aspecto ya tenemos los grafos 
+que examinaremos a continuaci\'on.
+
+\subsection{Algoritmo exacto}
+
+En primer lugar analizaremos experimentalmente la complejidad 
+del algoritmo exacto para resolver el problema de m\'inimo 
+conjunto dominante.
+
+Primero observamos que el peor caso para el
+algoritmo presentado consiste en un grafo conexo. Como vimos en la 
+secci\'on~\ref{sec::exacto}, la complejidad del algoritmo para un grafo
+conexo de $n$ v\'ertices y $m$ aristas es $O(m2^n)$. Supongamos que un
+grafo tiene $c$ componentes conexas, con $n_1,n_2,\dots,n_c$ nodos y 
+$m_1,m_2, \dots m_c$ aristas cada una. Tenemos que la complejidad de
+resolver el problema con este m\'etodo es igual a la complejidad de 
+obtener cada componente con DFS (lo cual es linear en la cantidad de 
+nodos y aristas del gr\'afo) y luego resolver cada componente por 
+separado. Adem\'as tenemos que
+
+\[
+\displaystyle \sum_{i = 1}^{c} m_i 2^n_i < \left (\sum_{i = 1}^{c} m_i \right )2^{\left ( \sum_{i = 1}^{c} 2^{n_i} \right )}
+\]
+
+Por lo tanto, como $O(n+m+m2^n) = O(m2^n)$, podemos considerar como 
+peor caso el costo \'unicamente de aplicar m\'etodo explicado 
+directamente sobre un grafo conexo de $n$ v\'ertices y $m$ aristas.
+
+En base a este argumento elegimos como primer caso de estudio de peor
+caso a la familia de grafos de camino: Un grafo de $n$ nodos y $m$ 
+aristas es camino si cada nodo esta conectado con su anterior y 
+siguiente en \'orden de ind\'ices (ver figura~\ref{fig::camino}).
+
+\begin{figure}[H]
+	\caption{Grafo camino de $n = 6$ nodos. Se utiliz\'o como ejemplo
+	para mostrar el comportamiento exponencial del algoritmo exacto.}
+	\label{fig::camino}
+	\centering
+	\includegraphics[width=0.2\textwidth]{img/camino.pdf}
+\end{figure} 
+
+Observemos que en este caso en particular, la cantidad de aristas del 
+grafo es $O(n)$, al ser exactamente $n-1$. Por lo tanto, el an\'alisis
+para este caso se puede hacer en funci\'on de $n$.
+
+Para corroborar entonces nuestro an\'alisis te\'orico, corrimos el 
+algoritmo sobre un conjunto de instancias de esta familia de grafos, 
+$\forall n : n \geq 20 \wedge n \leq 36$.  
+No fue posible en este caso realizar una cantidad de 
+mediciones muy significativa, puesto que al ser la complejidad 
+exponencial para $n \geq 36$ el algoritmo tardaba demasiado en terminar.
+Al mismo tiempo, no se consideraron resultados con $n < 20$ puesto que 
+el la cantidad de ciclos entre dos valores resulta insignificante 
+frente a casos m\'as grandes.
+
+El resultado puede verse en la Figura~\ref{fig::peorCasoExacto}. 
+Incluimos tambi\'en una funci\'on de la familia $O(m2^n)$, para 
+mostrar que efectivamente la cota te\'orica obtenida es v\'alida. 
+Observese que no es asint\'oticamente \'optima, lo cual es consistente
+con el an\'alisis realizado anteriormente (si consideramos que la 
+cota tomada para la cantidad de llamadas recursivas al algoritmo de 
+b\'usuqeda exhaustiva no es la mejor posible).
+
+\begin{figure}[H]
+	\caption{Cantidad de operaciones, medidas en ticks de reloj, 
+	para el caso de un grafo camino de $n$ nodos y 
+	$m = n-1$ aristas, en funci\'on de $n$. Se incluye una funci\'on
+	de la familia $O(m2^n)$ para mostrar la validez de la cota en este caso.
+	La escala del eje $y$ es logar\'itmica.}
+	\label{fig::peorCasoExacto}
+	\centering
+	\includegraphics[width=\textwidth]{img/peorCasoExacto.pdf}
+\end{figure} 
+
+Para el caso del algoritmo exacto de resoluci\'on, no realizamos un 
+estudio en profundida de la correctitud del mismo, puesto que la misma
+es trivial por definici\'on de algoritmo de b\'usqueda exhaustiva: 
+Siempre devuelve una soluci\'on correcta pues explora todo el espacio 
+de soluciones posibles y se queda con la mejor que encuentra.
+
+\subsection{Algoritmo goloso}
+
+El algoritmo goloso requiere de realizar dos an\'alisis emp\'iricos: 
+La complejidad (experimental) del mismo, y la correctitud de las 
+soluciones.
+
+Para corroborar experimentalmente la complejidad en peor caso de este
+m\'etodo tomamos la familia de grafos \textit{split graph} de $n$ nodos
+independientes y $n$ nodos del completo. Un ejemplo de este tipo de 
+grafo puede verse en la figura~\ref{fig::splitgraph}. Este grafo 
+consiste de un grafo completo de $n$ nodos, y adem\'as cada uno de estos
+$n$ nodos tiene un vecino del cual es el \'unico vecino.
+
+\begin{figure}[H]
+	\caption{Splitgraph de $n = 8$ nodos, $4$ en un conjunto 
+	independiente y $4$ unidos en un clique.}
+	\label{fig::splitgraph}
+	\centering
+	\includegraphics[width=0.4\textwidth]{img/splitgraph.pdf}
+\end{figure} 
+
+Nuevamente, consideramos esta familia de grafos conexos puesto que, al
+ser la complejidad peor que lineal, tenemos que la misma empeora si
+hay menos componentes conexas (de manera parecida a como mostramos que
+ocurre para el algoritmo exacto).
+
+Este caso es malo para el algoritmo puesto que el mismo debe iterar $n$
+veces (porque debe ir agregando un nodo a la vez para dominar los nodos 
+sueltos) y eso implica recorrer el grafo entero, que es casi un 
+completo, cada vez que realiza esto.
+
+Esta vez tomamos el grafo para $n,500 \leq n \leq 5000$, a 
+intervalos de 200. Los resultados pueden verse en la 
+figura~\ref{fig::peorCasoGoloso}, junto con un ajuste mediante una 
+funci\'on de la familia $O(nm + n^2)$.
+
+\begin{figure}[H]
+	\caption{Cantidad de operaciones, medidas en ticks de reloj, para el 
+	caso de un splitgraph de $n$ nodos, en funci\'on de 
+	$n$. Se incluye una funci\'on de la familia $O(mn+n^2)$ para mostrar 
+	la validez de la cota en este caso.}
+	\label{fig::peorCasoGoloso}
+	\centering
+	\includegraphics[width=\textwidth]{img/peorCasoGoloso.pdf}
+\end{figure} 
+
+Vemos entonces que para el caso considerado, el tiempo de ejecuci\'on
+esta acotado por una funci\'on de la familia $O(mn+n^2)$ como predijimos
+te\'oricamente.
+
+Veamos ahora la calidad de la soluci\'on. Para ello, graficamos para 
+el caso del contraejemplo presentado en la secci\'on~\ref{sec::greedy}
+para la heur\'istica golosa constructiva, haciendo variar el $k$ de la
+cantidad de nodos en el primer subnivel del \'arbol entre 500 y 2000,
+a intervalos de 250.
+
+Los resultados se presentan en la Figura~\ref{fig::calidadGoloso}. El 
+tama\~no de la soluci\'on \'optima fue obtenido a mano (como ya 
+describimos en la secci\'on~\ref{sec::greedy}). Como se puede ver, la 
+soluci\'on devuelta por el algoritmo goloso no es correcta y se 
+distancia en tama\~no de la soluci\'on correcta. 
+Esto concuerda con lo predicho te\'oricamente en la secci\'on~\ref{sec::greedy}.
+
+\begin{figure}[H]
+	\caption{Histograma del tama\~no de la soluci\'on devuelta por el
+	algoritmo goloso constructivo, con respecto al tama\~no de la
+	soluci\'on exacta, para instancias del grafo \'arbol 
+	(ver Figura~\ref{fig::contragreedy}) con la cantidad de nodos 
+	indicada.}
+	\label{fig::calidadGoloso}
+	\centering
+	\includegraphics[width=\textwidth]{img/calidadGoloso.pdf}
+\end{figure} 
+
+\subsection{Algoritmo de b\'usqueda local}
+
+Para el caso de la b\'usqueda local, puesto que hemos dejado libre el 
+par\'ametro de la cantidad de iteraciones m\'aximas sin mejorar de la 
+misma, hemos de analizar el equilibrio entre el impacto de este valor
+en la cantidad de iteraciones, y el impacto que esto tiene en la 
+calidad de la soluci\'on.
+
+Se intent\'o con varias familias de grafos, como por ejemplo la familia
+de los grafos de Petersen generalizados y la familia de grafos de torres.
+Elegimos presentar los resultados correspondientes a la familia de los
+grafos grilla cuadrados, ya que obtuvimos para estos grafos resultados 
+donde la cantidad de iteraciones de la b\'usqueda local tiene un 
+fuerte impacto en la calidad de la soluci\'on, adem\'as de ser esta no 
+igual a la exacta en varios casos.
+
+La familia de grafos a considerar es la familia de grafos grilla 
+cuadrados, como por ejemplo el grafo de la Figura~\ref{fig::grilla}
+que corresponde al caso $n = 16$. Estos grafos tienen la particularidad
+de que es muy dif\'icil conseguir el n\'umero exacto de dominancia. 
+Para los casos con $n \leq 29$, pudimos consultar estos valores en la
+tabla dada al final del paper~\cite{gridgraphs}. Como se puede ver
+adem\'as al final del trabajo citado, las configuraciones para cada
+grafo grilla son distintas y algunas son muy complicadas, lo cual lo
+hace ideal como caso de estudio para los algoritmos presentados.
+
+\begin{figure}[H]
+	\caption{Grafo grilla cuadriculado de $n = 16$ nodos.}
+	\label{fig::grilla}
+	\centering
+	\includegraphics[width=0.3\textwidth]{img/grilla.pdf}
+\end{figure} 
+
+Empezaremos estudiando los valores obtenidos de la calidad de la 
+soluc\'on de la b\'usqueda local en el caso del grafo grilla. 
+Con los datos obtenidos para estos grafos tomamos la decisi\'on de que
+cantidad de iteraciones utilizar, por haber sido esta familia la
+\'unica que logramos encontrar donde este par\'ametro ten\'ia un 
+impacto.
+
+Presentamos, por su particularidad inter\'es, el gr\'afico de la calidad
+de soluci\'on en funci\'on de la cantidad de iteraciones para el caso de
+un grafo grilla de $12 \times 12$, junto con el valor exacto para esa 
+grilla, obtenida del paper. 
+
+\begin{figure}[H]
+	\caption{Tama\~no del conjunto soluci\'on devuelto por la b\'usqueda
+	local, en funci\'on de la cantidad de iteraciones, para el caso de
+	un grafo grilla cuadrado de $12 \times 12$. Se incluye la 
+	cardinalidad tambi\'en el m\'inimo conjunto dominante.}
+	\label{fig::peorCasoCalidadLocal}
+	\centering
+	\includegraphics[width=\textwidth]{img/peorCasoLocalCalidad.pdf}
+\end{figure} 
+
+Se cort\'o en esa cantidad de iteraciones puesto que para todas las
+iteraciones posteriores no se percibi\'o diferencia en el tiempo de
+ejecuci\'on del algoritmo ni en la calidad de la soluci\'on. Como 
+podemos ver, la cantidad de iteraciones influye en la soluci\'on final y
+de todos modos esta no alcanza a ser \'optima.
+
+En el siguiente gr\'afico (Figura~\ref{fig::comparacionMejorLocalGrilla})
+incluimos tambi\'en, para grillas de distintos tama\~nos, cual fue la 
+mejor soluci\'on obtenida (tomando como medida de esto el tama\~no de 
+la soluci\'on alcanzada). En la Figura~\ref{fig::comparacionEntreLocalesGrilla}
+ponemos una comparaci\'on de con cual cantidad de iteraciones se 
+alcanz\'o la mejor soluci\'on observada. Estos gr\'aficos se realizaron
+tomando como grafos de entrada los grafos grilla cuadrados de 
+dimensiones entre 11 y 20 inclusive.
+
+\begin{figure}[H]
+	\caption{Comparaci\'on entre la mejor soluci\'on (es decir, con la 
+	m\'axima cantidad de iteraciones intentada) mediante el m\'etodo de
+	b\'usqueda local, frente al tama\~no de la soluci\'on exacta.}
+	\label{fig::comparacionMejorLocalGrilla}
+	\centering
+	\includegraphics[width=\textwidth]{img/comparacionEntreLocalesGrilla.pdf}
+\end{figure}
+
+\begin{figure}[H]
+	\caption{Cantidad de iteraciones necesarias para que la b\'usqueda
+	local obtuviera la mejor soluci\'on posible (es decir, que 
+	incrementando la cantidad de iteraciones no se obtuviera una 
+	soluci\'on mejor).}
+	\label{fig::comparacionEntreLocalesGrilla}
+	\centering
+	\includegraphics[width=\textwidth]{img/comparacionEntreLocalesGrilla.pdf}
+\end{figure}
+
+Como se puede observar, no hay a simple vista una correlaci\'on entre la 
+cantidad de iteraciones necesarias y la cantidad de nodos del grafo grilla
+cuadrado a resolver. Tampoco observamos que la soluci\'on obtenida por la 
+b\'usqueda local empeore a medida que aumentan la cantidad de nodos del
+grafo sobre el cual aplicamos la b\'usqueda local.
+
+En base a esto, decidimos utilizar como criterio de parada de la 
+b\'usqueda local, para an\'alisis futuros particularmente, la cantidad
+de $\frac{n}{5}$. La elecci\'on de este valor es que es la fracci\'on
+m\'as peque\~na de la cantidad de nodos de los grafo grilla vistos que
+nos permite converger a la mejor soluci\'on (en especial considerando el
+caso de un grafo grilla de $19 \times 19$).
+
+Habiendo entonces tomado esta decisi\'on en base al experimento 
+realizado, procedemos entonces a corroborar la cota de complejidad 
+presentada anteriormente.
+
+Para ello usamos nuevamente como experimento el grafo grilla cuadrado.
+El motivo fue que las dem\'as familias analizadas (analizamos 
+tambi\'en las familias de grafos presentadas anteriormente para esta
+parte) no presentaban un caso de complejidad puesto que en la mayor\'ia
+de los casos pod\'ian resolverse simplemente removiendo nodos del grafo,
+lo cual implicaba adem\'as que se obten\'ia una soluci\'on exacta. Como
+para los grafos grilla vistos no se obtiene una soluci\'on exacta, y la
+calidad de la soluci\'on depende de la cantidad de iteraciones, 
+decidimos tomarlo como el grafo para el cual examinamos el tiempo de
+ejecuci\'on del algoritmo.
+
+Esta vez tomamos como dimensi\'on de la grilla valores entre 10 y 28 
+inclusive.
+
+El gr\'afico se incluye en la figura~\ref{fig::peorCasoLocalTiempos}.
+
+\begin{figure}[H]
+	\caption{Cantidad de ticks de reloj para la ejecuci\'on del 
+	algoritmo de b\'usqueda local, con cantidad de iteraciones igual
+	a un quinto de los nodos del grafo. Se incluye adem\'as un ajuste
+	por funci\'on de la familia $O(n^4 + m n^3)$.}
+	\label{fig::peorCasoLocalTiempos}
+	\centering
+	\includegraphics[width=\textwidth]{img/peorCasoLocalTiempos.pdf}
+\end{figure}
+
+Se incluye adem\'as de las mediciones, una cota dentro de la familia
+$O(n^4 + m n^3)$ para corroborar la validez de la cota presentada en 
+las secciones anteriores.
+
+\subsection{Algoritmo por metaheur\'istica GRASP}
+
+Finalmente, examinaremos la implementaci\'on realizada de la 
+metaheur\'istica GRASP. Para analizar la implementaci\'on y elegir los
+par\'ametros, utilizamos nuevamente distintas familias de grafos, como
+las se\~naladas anteriormente para el an\'alisis de la b\'usqueda local.
+Al igual que en la secci\'on anterior, presentamos los resultados 
+correspondientes a los grafos grilla, que son los que usamos en 
+\'ultima instancia para definir los par\'ametros.
+
+Siendo que en este caso la fuente de variabilidad de soluciones proviene
+del algoritmo goloso constructivo randomizado, decidimos utilizar una
+menor cantidad de iteraciones para la b\'usqueda local (puesto que si 
+bien entonces no puede mejorar mucho las soluciones, la b\'usqueda 
+local en si no tiene que ocuparse de esto, ese es el rol del goloso).
+Decidimos entonces utilizar una cantidad de iteraciones de la b\'usqueda
+local igual a $\frac{n}{15}$ con $n$ la cantidad de nodos del grafo.
+
+Para el an\'alisis de este algoritmo decidimos utilizar una estrategia 
+distinta a  la realizada para la b\'usqueda local.
+
+En este caso tomamos tres valores posibles del porcentaje: 30, 50 y 80,
+y elegimos analizar tres valores posibles para la cantidad de 
+iteraciones m\'aximas sin mejorar del GRASP: 
+$\frac{n}{20}, \frac{n}{10}$ y $\frac{n}{5}$ con $n$ la cantidad de 
+nodos del grafo.
+
+Los grafos grilla de $n^2$ nodos se consideraron con $n$ de dimensiones 
+entre 5 y 19, para todos los valores intermedios entre ellos.
+
+En la tabla~\ref{tab::grasp} se detallan los resultados de la 
+soluci\'on devuelta por cada una de las 9 variaciones de Grasp para 
+estos valores. El valor presentado corresponde al promedio sobre 10 
+corridas de este algoritmo para los par\'ametros presentados.
+
+\begin{table}
+	\caption{Tabla del tama\~no de la soluci\'on devuelta por el 
+	algoritmo GRASP para los par\'ametros se\~nalados, junto con el
+	tama\~no de la soluci\'on exacta, para un grafo grilla de 
+	$n \times n$ nodos con $n \geq 5 \wedge n \leq 19$.}
+	\label{tab::grasp}
+	\centering
+	\resizebox{0.9\textwidth}{!} {
+	\begin{tabular}{l | c | c c c | c c c | c c c}
+		Grilla de $n \times n$ & Exacta & (30,$\frac{n}{5}$) & (30, $\frac{n}{10}$) & (30,$\frac{n}{20}$) &  
+		(50,$\frac{n}{5}$) & (50, $\frac{n}{10}$) & (50,$\frac{n}{20}$) & (80,$\frac{n}{5}$) & (80, $\frac{n}{10}$) & (80,$\frac{n}{20}$) \\ \hline
+		$n = 5$ & 7 & 7 & 8 & 8 & 7 & 8 & 8 & 7 & 8 & 8 \\
+		$n = 6$ & 10 & 10 & 10 & 10 & 10 & 10 & 10 & 10 & 10 & 11 \\
+		$n = 7$ & 12 & 13 & 14 & 14 & 13 & 14 & 14 & 13 & 14 & 14 \\
+		$n = 8$ & 16 & 16 & 18 & 19 & 16 & 18 & 18 & 16 & 18 & 19 \\
+		$n = 9$ & 20 & 21 & 21 & 22 & 21 & 21 &  21 & 21 & 21 & 21 \\
+		$n = 10$ & 24 & 26 & 26 & 27 & 26 & 27 & 26 & 26 & 26 & 28 \\
+		$n = 11$ & 29 & 31 & 31 & 32 & 31 & 32 & 31 & 31 & 31 & 31 \\
+		$n = 12$ & 35 & 36 & 36 & 37 & 36 & 36 & 36 & 36 & 36 & 37 \\
+		$n = 13$ & 40 & 42 & 42 & 43 & 42 & 42 & 42 & 42 & 42 & 43 \\
+		$n = 14$ & 47 & 48 & 48 & 50 & 48 & 48 & 48 & 48 & 48 & 48 \\
+		$n = 15$ & 53 & 54 & 54 & 57 & 54 & 54 & 57 & 54 & 54 & 58 \\
+		$n = 16$ & 60 & 61 & 62 & 63 & 61 & 62 & 62 & 61 & 62 & 62 \\
+		$n = 17$ & 68 & 69 & 70 & 71 & 69 & 71 & 71 & 70 & 70 & 71 \\
+		$n = 18$ & 76 & 78 & 79 & 79 & 78 & 79 & 79 & 77 & 79 & 79 \\
+		$n = 19$ & 84 & 85 & 85 & 87 & 85 & 85 & 87 & 85 & 85 & 87
+	\end{tabular}
+	}
+\end{table}
+
+Obs\'ervese que en la tabla~\ref{tab::grasp}, existe una variaci\'on en el
+tama\~no de la soluci\'on devuelta para los distintos par\'ametros, 
+aunque esta es muy peque\~na. Por otro lado, se obtuvo que la 
+variaci\'on no mejora a medida que aumentamos el tama\~no de la lista
+restringida de candidatos o la cantidad de iteraciones. Esto puede 
+deberse a que a medida que incrementamos el porcentaje de elementos
+a considerar en el conjunto dominante, tenemos que podemos obtener una
+sucesi\'on de soluciones malas que no son mejoradas por la local y que 
+llevan entonces a que el n\'umero mayor de iteraciones consideradas se 
+desperdicie en soluciones in\'utiles.
+
+En base a estos resultados decidimos utilizar como par\'ametros de la
+metaheur\'istica GRASP, el valor de $30 \%$ para el tama\~no de la RCL,
+y el valor $\frac{n}{5}$ para la cantidad de iteraciones m\'aximas sin
+mejorar.
+
+Queda entonces ver cual es la complejidad que se obtiene con este 
+m\'etodo. La misma se examinar\'a en a partir de los mismos resultados 
+del experimento anterior, es decir examinaremos el tiempo de ejecuci\'on
+sobre un grafo grilla cuadrado de dimensi\'on entre 5 y 19. Los 
+resultados pueden verse en la Figura~\ref{fig::tiempoGrasp}, junto con
+un ajuste de funci\'on dentro de la familia de funciones 
+$O(n^2 \cdot (nm + n^2 \log n + n^4 + n^2 m + n ) ) = O(n^6 + n^4 m)$ 
+con $n$ la cantidad de nodos y $m$ la cantidad de aristas.
+
+\begin{figure}[H]
+	\caption{Cantidad de ticks de reloj para la ejecuci\'on del 
+	algoritmo sobre metaheur\'istica GRASP, con cantidad de iteraciones
+	$\frac{n}{5}$, porcentaje para RCL $30 \%$ e iteraciones de 
+	b\'usqueda local interna de $\frac{n}{15}$. Se incluye adem\'as un ajuste
+	por funci\'on de la familia $O(n^4 + m n^3)$.}
+	\label{fig::tiempoGrasp}
+	\centering
+	\includegraphics[width=\textwidth]{img/tiemposGrasp.pdf}
+\end{figure}
+
+\subsection{Comparaci\'on entre los m\'etodos.}
+
+Finalmente entonces haremos una comparaci\'on de los m\'etodos no 
+exactos que se implementaron en este trabajo pr\'actico. Para eso, 
+utilizaremos tres instancias espec\'ificas del problema de m\'inimo 
+conjunto dominante y analizaremos como son las soluciones obtenidas y
+cuanto tiempo insumen los algoritmos para obtenerlas.
+
+Tomamos para realizar estas comparaciones tres ejemplos de grafos. El
+primer grafo considerado es el grafo grilla de $21 \times 21$, por ser
+esta la familia que estudiamos anteriormente para la b\'usqueda local y
+para la metaheur\'istica GRASP.
+
+Otro grafo que estudiaremos es el grafo generalizado de Petersen 
+$P(n,k)$ con $n = 201$ y $k = 100$. Estudiamos este grafo de esta 
+familia en particular puesto que se conoce exactamente
+el n\'umero de dominancia de la familia de grafos generalizados de
+Petersen $P(n,k)$ cuando $n = 2k+1 \geq 3$. Este valor corresponde
+a $\lceil \frac{3n}{5} \rceil$~\cite{genpetersen}.
+
+Los grafos generalizados de Petersen $P(n,k)$ corresponden a una 
+estrella $\{ n,k \}$, que consiste en unir cada v\'ertice a los 
+v\'ertices de a salto $k$, para un total de $n$ v\'ertices. El grafo
+generalizado de Petersen consiste tambi\'en en tomar un pol\'igono
+regular de $n$ nodos y unir cada v\'ertice del pol\'igono con un 
+v\'ertice de la estrella. Un ejemplo de grafo generalizado de Petersen
+es el mismo grafo de Petersen, que ya presentamos en la figura
+~\ref{fig::petersen}
+
+Por \'ultimo, analizamos para el caso de un grafo de torres de 
+$21 \times 50$. Un grafo de torres consiste en una construcci\'on basada
+en las reglas del juego de ajedrez: Cada nodo es una casilla y cada 
+arista corresponde a si una torre puede moverse entre esas dos casillas.
+Lo interesante de este grafo es que tambi\'en se conoce su n\'umero de
+dominancia e interesantemente este n\'umero es $min(n,m)$ con $n$ y $m$
+la dimensiones del tablero. Esto puede corroborarse f\'acilmente a mano,
+pero fue demostrado formalmente en~\cite{rookgraph}.
+
+Para el primer tipo de grafo, las figuras~\ref{fig::histosol} y
+~\ref{fig::histotiempos} detallan respectivamente la comparaci\'on
+de soluciones y la comparaci\'on de tiempo de ejecuci\'on para cada
+uno de estos grafos. Las comparaciones de soluci\'on se hacen sobre los
+m\'etodos goloso constructivo, b\'usqueda local y GRASP. No se tiene en
+cuenta la soluci\'on por nuestro m\'etodo exahustivo porque el mismo al
+tener una complejidad exponencial no termina con ninguna de las instancia
+planteadas. Tampoco se tiene en cuenta el tiempo de ejecuci\'on del 
+m\'etodo goloso constructivo en las comparaciones de tiempos pues este
+resulta negligible frente a los costos temporales de los otros dos
+m\'etodos.
+
+\begin{figure}[H]
+	\caption{Comparaci\'on entre el tama\~no de soluciones devuelto por
+	los diversos m\'etodos implementados en este trabajo, para las 
+	instancias de grafos planteadas anteriormente.}
+	\label{fig::histosol}
+	\centering
+	\includegraphics[width=\textwidth]{img/histoSol.pdf}
+\end{figure}
+
+\begin{figure}[H]
+	\caption{Cantidad de ticks de reloj insumidos por parte de los 
+	algoritmos de b\'usqueda local y GRASP para resolver las 
+	instancias planteadas. No se incluye el tiempo tomado por el 
+	algoritmo goloso constructivo pues es insignificante al lado de los
+	de estos dos algoritmos}
+	\label{fig::histotiempos}
+	\centering
+	\includegraphics[width=\textwidth]{img/histoTiempos.pdf}
+\end{figure}
+
+Como se puede ver en las figuras, tenemos que para solo una de las 
+instancias planteadas los algoritmos devolvieron una soluci\'on 
+correcta al problema, para el caso del grafo de torres. Sin embargo,
+podemos ver que el rendimiento de la b\'usqueda local es especialmente
+malo para las instancias planteadas, y que el algoritmo goloso devuelve
+en los tres casos una soluci\'on mejor o igual.
+
+Al comparar el tama\~no de las soluciones vemos tambi\'en que en un caso
+el algoritmo GRASP devuelve una soluci\'on peor que la devuelta por el
+algoritmo goloso, situaci\'on que se revierte cuando se examina el caso
+de una grilla de $21 \times 21$. 
+
+Otro aspecto interesante para observar es que el caso de un grafo de 
+torres resulta muy patol\'ogico a la b\'usqueda local planteada, incluso
+a pesar de las consideraciones realizadas cuando estudiamos la misma con
+los grafos grilla (que son muy similares a los grafos de torres).
+
+Finalmente, vemos que para la instancia del grafo grilla planteada la
+soluci\'on devuelta por el algoritmo GRASP es la mejor por un amplio 
+m\'argen.
+
+Considerando ahora los tiempos de ejecuci\'on de los algoritmos local y
+GRASP, observamos que la cantidad de ciclos de reloj de este \'ultimo
+es muy superior en los \'ultimos dos casos que en el primero (del grafo
+de Petersen generalizado). Esto coincide tambi\'en con la calidad de las
+soluciones devueltas: La soluci\'on devuelta por el GRASP para la segunda
+instancia es la mejor de las 3 y la soluci\'on devuelta para la tercera
+instancia es la \'optima, mientras la primera soluci\'on es 
+comparativamente pobre con las soluciones devueltas por el algoritmo 
+goloso y el algoritmo de b\'usqueda local. Esto habla a las claras de
+que el GRASP logr\'o encontrar soluciones cada vez mejores de manera 
+para los \'ultimos dos casos. Esto, si bien resulta en una soluci\'on
+de mejor calidad, implica muchas m\'as iteraciones del algoritmo GRASP,
+puesto que el criterio de parada elegido consiste en cantidad de 
+iteraciones sin mejorar la soluci\'on ya adquirida. 

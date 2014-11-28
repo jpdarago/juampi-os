@@ -1,0 +1,630 @@
+#include "fs_minix.h"
+#include "hdd.h"
+#include "bitset.h"
+#include "exception.h"
+#include "macros.h"
+#include "buffer_cache.h"
+
+#include <string.h>
+#include <stdlib.h>
+
+/* TODO:
+
+ * 	Considerar escribir el super block a disco
+	despues de un cierto tiempo (no inmediatamente).
+
+*/
+
+static inode * minix_create_disk_inode(super_block *);
+
+static disk_position inode_entry_position(ushort inode_num, 
+	minix_fs_data * mfd)
+{
+	disk_position p;
+	p.block = mfd->inode_entries_start
+	          + INODE_BLOCK(inode_num);
+	p.offset = (inode_num-1)*sizeof(minix_inode);
+	return p;
+}
+
+static int
+read_inode_entry(ushort inode_number, minix_inode * data,
+                 minix_fs_data * mfd)
+{
+	disk_position p = inode_entry_position(inode_number,mfd);
+	buffered_read(p.block,p.offset,sizeof(minix_inode),data);
+
+	return 0;
+}
+
+static minix_inode * get_disk_inode(inode * ino){
+	if(ino->super_block->magic != MINIX_MAGIC) return NULL;
+	return (minix_inode *) ino->info_disk; 
+}
+
+static ushort request_free_zone(inode * ino)
+{
+	super_block * s = ino->super_block;
+	minix_fs_data * mfd = s->fs_data;
+
+	uint pos = bitset_search(&mfd->inode_bitmap);
+	if(pos == (uint) -1) return	0;
+	bitset_set(&mfd->inode_bitmap,pos);
+	
+	return pos;
+}
+
+#define disk_pos(b,o)\
+	(disk_position) { .block = (b), .offset = (o) }
+static ushort read_data_entry(uint block, uint offset)
+{
+	ushort res;
+	buffered_read(block,offset*sizeof(ushort),sizeof(res),&res);
+	return res;	
+}
+
+static void write_data_entry(uint block, uint offset,ushort res)
+{
+	buffered_read(block,offset*sizeof(ushort),sizeof(res),&res);
+}
+
+static disk_position find_block_ptr(inode * ino, 
+									uint block_index)
+{
+	minix_inode * mi = get_disk_info(ino);
+	block_index -= MINIX_ZONES;
+	disk_position p;
+	if(block_index < MINIX_BLOCK_PTRS){
+		p.block = mi->indirect_block;
+		p.offset = block_index;	
+	}else{
+		block_index -= MINIX_BLOCK_PTRS;	
+		uint ind_block_index = block_index / MINIX_BLOCK_PTRS;
+			
+		p.block = read_data_entry(mi->doubly_indirect_block,
+			ind_block_index);
+		if(p.block == 0) p.block = request_free_zone(ino); 
+		p.offset = block_index % MINIX_BLOCK_PTRS;
+	}
+	return p;
+}
+
+static disk_position inode_offset_position(inode * ino,uint offset)
+{
+	minix_inode * mi = get_disk_inode(ino);
+
+	uint block_index  = offset / MINIX_BLOCK_SIZE;
+	uint block_offset = offset % MINIX_BLOCK_SIZE;
+	ushort block_ptr;
+
+	if(block_index < MINIX_ZONES){
+		if(!mi->zones[block_index]){
+			mi->zones[block_index] = request_free_zone(ino);
+			ino->is_dirty = true;
+		}
+		block_ptr = mi->zones[block_index];
+	}			
+	
+	disk_position p = find_block_ptr(mi,block_index);
+	block_ptr = read_data_entry(p.block,p.offset);
+	if(!block_ptr){
+		block_ptr = request_free_zone(ino);
+		write_data_entry(p.block,p.offset,block_ptr);	
+	}
+
+	return disk_pos(block_ptr,block_offset);
+}
+
+static disk_position minix_inode_data_write(minix_inode * inode,
+	uint offset, uint bytes, void * data)
+{
+	ino->dirty = true;
+	disk_position p = inode_offest_position(inode,offset);
+	for(int i = 0; i < bytes; i++){
+	
+	}
+}
+
+static fs_type minix_type(ushort mode)
+{
+	switch(MINIX_TYPE_ONLY(mode)) {
+	case MINIX_IFREG:
+		return FS_FILE;
+	case MINIX_IFBLK:
+		return FS_BLOCKDEV;
+	case MINIX_IFDIR:
+		return FS_DIR;
+	case MINIX_IFCHR:
+		return FS_CHARDEV;
+	default:
+		return FS_ERROR;
+	}
+}
+
+static const inode_ops minix_default_inode_ops = { 0 };
+static const fs_ops minix_default_file_ops = { 0 };
+
+static int minix_open_file(inode * ino, file_object * file)
+{
+	if(ino == NULL) return -1;
+	file->inode = ino;
+	file->ops = ino->f_ops;
+	file->file_offset = 0;
+	return 0;
+}
+
+static int minix_read_file(file_object * file, uint bytes,
+                           void * _buffer)
+{
+	return -1;
+}
+
+static const fs_ops minix_file_file_ops = {
+	.read 		= minix_read_file,
+	.write		= NULL,
+	.open 		= minix_open_file,
+	.close 		= NULL,
+	.flush 		= NULL
+};
+
+static const fs_ops minix_dir_file_ops = {
+	.open 		= NULL,
+	.close 		= NULL,
+	.readdir	= NULL,
+	.flush 		= NULL
+};
+
+static ushort check_entries(minix_dir_entry entries[], char * name)
+{
+	for(int j = 0; j < MINIX_DIR_ENTRIES; j++) {
+		if(!strcmp(name,entries[j].name))
+			return entries[j].inode;
+	}
+	return 0;
+}
+
+static ushort minix_lookup_direct(minix_inode * mi, char * name)
+{
+	minix_dir_entry entries[MINIX_DIR_ENTRIES];
+	ushort res = 0;
+	for(int i = 0; i < MINIX_ZONES; i++) {
+		if(!mi->zones[i]) return 0;
+		
+		buffered_read(mi->zones[i],0,sizeof(entries),entries);
+		res = check_entries(entries,name);
+		if(res){ 
+			return res;
+		}
+	}
+	return res;
+}
+
+static ushort minix_lookup_indirect(ushort ind_block, char * name)
+{
+	ushort blocks[MINIX_BLOCK_PTRS];
+	minix_dir_entry entries[MINIX_DIR_ENTRIES];
+
+	ushort res = 0;
+	buffered_read(ind_block,0,sizeof(blocks),blocks);
+	for(int i = 0; i < MINIX_BLOCK_PTRS; i++) {
+		if(!blocks[i]) return 0;
+		buffered_read(blocks[i],0,sizeof(entries),entries);
+		res = check_entries(entries,name);
+		if(res) return res;
+	}
+	return res;
+}
+
+static ushort minix_lookup_doubly_indirect(ushort dind_block,
+									       char * name)
+{
+	ushort indirect_blocks[MINIX_BLOCK_PTRS];
+	ushort res = 0;
+	buffered_read(dind_block,0,
+	              sizeof(indirect_blocks),indirect_blocks);
+	for(int i = 0; i < MINIX_BLOCK_PTRS; i++) {
+		if(!indirect_blocks[i]) return res;
+		res = minix_lookup_indirect(indirect_blocks[i],name);
+		if(res) return res;
+	}
+	return res;
+}
+
+static inode * minix_lookup(inode * start, char * dir)
+{
+	super_block * s = start->super_block;
+	check(s->magic == MINIX_MAGIC && start->inode_type == FS_DIR);
+	minix_inode * mi = get_disk_inode(start);
+	ushort res = minix_lookup_direct(mi,dir);
+
+	if(!res && mi->indirect_block)
+		res = minix_lookup_indirect(mi->indirect_block,dir);
+	if(!res && mi->doubly_indirect_block)
+		res = minix_lookup_doubly_indirect(
+		          mi->doubly_indirect_block,dir);
+
+	if(!res) return NULL;
+	inode * ino = s->ops->alloc_inode(s);
+	if(ino == NULL) return ino;
+
+	ino->inode_number = res;
+	s->ops->read_inode(ino);
+	return ino;
+
+error:
+	return NULL;
+}
+
+static int minix_mkdir(inode * parent,char * name)
+{
+	super_block * s = parent->super_block;
+	if(s->magic != MINIX_MAGIC) 
+		return -EINVFS;	
+	if(parent->inode_type == FS_DIR)
+		return -EINVTYPE;
+
+	minix_inode_struct * mis = parent->info_disk;
+
+	inode * new_inode = minix_create_disk_inode(s);	
+
+	new_inode->inode_type = FS_DIR;
+
+	minix_entry_chunk dir; 
+	disk_position d = mis->free_entry;	
+	if(d.block) return -ENOSPACE;
+
+	dir.dirent.inode = new_inode->inode_number;
+	int i;
+	for(i = 0; i < MINIX_DIR_MAXLEN; i++)
+		dir.dirent.name[i] = name[i];
+	dir.dirent.name[i] = '\0';
+	
+	buffered_write(d.block,d.offset,sizeof(dir),&dir);	
+	parent->file_size += sizeof(minix_dir_entry);
+	return 0;
+}
+
+static const inode_ops minix_dir_inode_ops = {
+	.lookup		= minix_lookup,
+	.mkdir 		= minix_mkdir,
+	.rmdir 		= NULL
+};
+
+static int initialize_file_type(inode * data, ushort mt)
+{
+	data->inode_type= minix_type(mt);
+	switch(data->inode_type) {
+	case FS_FILE:
+		data->i_ops = &minix_default_inode_ops;
+		data->f_ops = &minix_file_file_ops;
+		break;
+	case FS_DIR:
+		data->i_ops = &minix_dir_inode_ops;
+		data->f_ops = &minix_dir_file_ops;
+		break;
+	case FS_CHARDEV:
+		//TODO: Conseguir las funciones de char device
+		break;
+	case FS_BLOCKDEV:
+		//TODO: Conseguir las funciones de block device
+		break;
+	default:
+		return -1;
+	}
+	return 0;
+}
+
+static void add_to_super_list(inode * data)
+{
+	list_add(&data->open_ptr,
+		&data->super_block->open_inodes);	
+}
+
+//Lee los datos del inodo desde disco duro,
+//utiliza el inode_number pasado con data
+static int minix_read_inode(inode * data)
+{
+	ushort ino_num = data->inode_number;
+	super_block * sb = data->super_block;
+	check(sb->magic == MINIX_MAGIC);
+
+	minix_fs_data * mfd = sb->fs_data;
+	minix_inode * ifd = get_disk_inode(data);
+
+	read_inode_entry(ino_num,ifd,mfd);
+
+	data->file_size = ifd->size;
+	data->use_count++;
+	data->is_dirty = 0;
+	
+	check(initialize_file_type(data,ifd->mode));
+	return 0;
+error:
+	//TODO: Destruir el inodo y la memoria creada
+	return -1;
+}
+
+static int write_inode_entry(ushort ino_num,
+                             minix_inode * ifd,
+							 minix_fs_data * mfd)
+{
+	disk_position p = inode_entry_position(ino_num,mfd);
+	buffered_write(p.block,p.offset,sizeof(minix_inode),ifd);
+	return 0;
+}
+
+//Flushea el inodo a disco duro, usando el inode_number
+//pasado en data como parametro
+static int minix_write_inode(inode * data)
+{
+	if(!data->is_dirty){
+		return 0;
+	}
+	ushort ino_num = data->inode_number;
+	super_block * sb = data->super_block;
+	check(sb->magic == MINIX_MAGIC);
+
+	minix_fs_data * mfd = sb->fs_data;
+	minix_inode * ifd = get_disk_inode(data);
+	
+	ifd->size = data->file_size;
+	write_inode_entry(ino_num,ifd,mfd);
+	data->is_dirty = 0;
+	
+	return 0;
+error:
+	return -1;
+}
+
+static inode * find_free_inode(super_block * s)
+{
+	inode * res; list_head * ptr;
+	list_for_each(ptr,&s->open_inodes){
+		res = list_entry(ptr,inode,open_ptr);
+		if(!res->use_count){
+			res->use_count++;
+			return res;
+		}
+	}
+	return NULL;
+}
+
+//Devuelve un inodo inicializado
+static inode * minix_alloc_inode(super_block * s)
+{
+	check(s->magic == MINIX_MAGIC);
+	inode * ino = find_free_inode(s);
+	if(ino != NULL) return ino;	
+	ino = malloc(sizeof(inode));
+	
+	memset(ino,0,sizeof(inode));
+
+	ino->super_block = s;
+	ino->lock = sem_create(1);
+
+	ino->i_ops = &minix_default_inode_ops;
+	ino->f_ops = &minix_default_file_ops;
+
+	minix_inode * minix_ino = malloc(sizeof(minix_inode));
+	memset(minix_ino,0,sizeof(minix_inode));
+	
+	ino->info_disk = minix_ino;
+	add_to_super_list(ino);
+
+	return ino;
+error:
+	return NULL;
+}
+
+static void clear_inode_entry(ushort ino_num, minix_fs_data * mfd)
+{
+	minix_inode data;
+	memset(&data,0,sizeof(data));
+	write_inode_entry(ino_num,&data,mfd);
+}
+
+static ushort get_unused_inode(super_block * s)
+{
+	minix_fs_data * mfd = s->fs_data;
+	uint ino_num = bitset_search(&mfd->inode_bitmap);
+	s->is_dirty = true;
+	if(ino_num == (uint)-1) return 0;
+	clear_inode_entry(ino_num,mfd);
+	return ino_num+1; //Los inodos se cuentan desde 1
+}
+
+//Libera el inodo inicializado (destructor)
+static int minix_destroy_inode(inode * data)
+{
+	list_del(&data->open_ptr);
+	free(data->info_disk);
+	free(data);
+
+	return 0;
+}
+
+//Obtiene un inodo asignandole un numero de inodo que este
+//libre
+static inode * minix_create_disk_inode(super_block * s)
+{
+	inode * ino = NULL;
+	ino = minix_alloc_inode(s);
+
+	ushort inode_number = get_unused_inode(s);
+	check(inode_number != 0);
+	ino->inode_number = inode_number;
+
+error:
+	return NULL;
+}
+
+static void minix_flush_bitmaps(super_block * s)
+{
+	//Los bitmaps son consecutivos en memoria, para flushearlos
+	//mas rapido a disco
+	minix_fs_data * mfd = s->fs_data;
+	buffered_write_several(
+	    mfd->inode_bitmap_start_block,
+	    mfd->inode_bitmap_blocks + mfd->zone_bitmap_blocks,
+	    mfd->inode_bitmap.start );
+}
+
+//Flushea el super bloque a disco
+static int minix_write_super_block(super_block * s)
+{
+	check(s->magic == MINIX_MAGIC);
+	if(!s->is_dirty) return 0;
+	s->is_dirty = true;
+	
+	minix_flush_bitmaps(s);
+	return 0;
+
+error:
+	return -1;
+}
+
+//Borra el inodo, no solo destruyendo la memoria misma sino
+//que ademas libera el inodo en disco duro
+static int minix_delete_inode(inode * data)
+{
+	check(data->super_block->magic == MINIX_MAGIC);
+	super_block * sb = data->super_block;
+	minix_fs_data * mfd = sb->fs_data;
+	ushort inum = data->inode_number;
+	check(bitset_get(&mfd->inode_bitmap,inum-1));
+
+	bitset_clear(&mfd->inode_bitmap,inum-1);
+	sb->is_dirty = true;
+
+	minix_write_super_block(sb);
+	minix_destroy_inode(data);
+
+	return 0;
+error:
+	return -1;
+}
+
+static const super_block_ops minix_super_block_ops = {
+	.read_inode 	= minix_read_inode,
+	.write_inode	= minix_write_inode,
+	.delete_inode	= minix_delete_inode,
+	.alloc_inode	= minix_alloc_inode,
+	.destroy_inode	= minix_destroy_inode,
+	.write_super	= minix_write_super_block,
+	.obtain_inode	= minix_create_disk_inode
+};
+
+static void minix_init_fs_ops(super_block * block)
+{
+	block->ops = &minix_super_block_ops;
+}
+
+static void minix_init_disk_info(
+    super_block * block, minix_super_block * d)
+{
+	block->magic = d->magic;
+	block->block_size = MINIX_BLOCK_SIZE;
+	block->max_file_size = d->max_file_size;
+
+	uint data_zone_size =
+	    d->data_zones * (1024 << d->data_zone_size_log);
+
+	block->disk_size = data_zone_size;
+	block->is_dirty = false;
+}
+
+static void * buffer_from_disk(minix_super_block * d,
+                               uint start, uint blocks)
+{
+	void * buf = malloc(blocks*MINIX_BLOCK_SIZE);
+	buffered_read_several(start,blocks,buf);
+	return buf;
+}
+
+static void load_minix_specific_metadata(minix_fs_data * m,
+        minix_super_block * d)
+{
+	m->number_inodes = d->number_inodes;
+	m->data_zone_start = d->data_zone_start;
+	m->inode_entries_start = MINIX_INODEBMAP_STARTB
+		+ d->inode_map_bsize + d->zone_map_bsize;
+}
+
+static void load_minix_bitmaps(minix_fs_data * m,
+                               minix_super_block * d)
+{
+	uint inodebmap_start = MINIX_INODEBMAP_STARTB;
+	uint zonebmap_start = MINIX_ZONEBMAP_STARTB;
+
+	void * bitmaps_buf = buffer_from_disk(d,inodebmap_start,
+		d->inode_map_bsize + d->zone_map_bsize);
+
+	m->inode_bitmap_start_block = inodebmap_start;
+	m->zone_bitmap_start_block 	= zonebmap_start;
+
+	uint inodebmap_size	 = d->inode_map_bsize*MINIX_BLOCK_SIZE;
+	uint zonebmap_size	 = d->zone_map_bsize*MINIX_BLOCK_SIZE;
+
+	bitset_load(&m->inode_bitmap,bitmaps_buf,inodebmap_size);
+	bitset_load(&m->zone_bitmap,
+	            (char *) bitmaps_buf + inodebmap_size,zonebmap_size);
+
+	m->inode_bitmap_blocks = d->inode_map_bsize;
+	m->zone_bitmap_blocks = d->zone_map_bsize;
+}
+
+static void minix_initialize_fs_specific(
+    super_block * block, minix_super_block * d)
+{
+	minix_fs_data * m = malloc(sizeof(minix_fs_data));
+	if(m == NULL)
+		kernel_panic("No hay memoria para bitmaps de MINIX");
+
+	load_minix_specific_metadata(m,d);
+	load_minix_bitmaps(m,d);
+
+	block->fs_data = m;
+}
+
+static void read_super_block(minix_super_block * res)
+{
+	char buffer[MINIX_BLOCK_SIZE];
+	hdd_read(MINIX_SUPERBLOCK_START_BLOCK,
+	         MINIX_SUPERBLOCK_BSIZE, buffer);
+	memcpy(res,buffer,sizeof(minix_super_block));
+}
+
+static void init_super_block(super_block * b)
+{
+	//TODO: Aca va lo que inicializa el super bloque
+	INIT_LIST_HEAD(&b->open_inodes);
+}
+
+static void minix_obtain_root_inode(super_block * b)
+{
+	b->root = b->ops->alloc_inode(b);
+	if(b->root == NULL)
+		kernel_panic("No se pudo leer inodo raiz");
+	b->root->inode_number = MINIX_ROOT_INODE;
+	b->ops->read_inode(b->root);
+}
+
+int fs_minix_init(super_block * block)
+{
+	buffer_cache_init();
+
+	minix_super_block b;
+	read_super_block(&b);
+
+	if(b.magic != MINIX_MAGIC) {
+		kernel_panic("Magic Number invalido en superbloque");
+	}
+
+	init_super_block(block);
+	minix_init_disk_info(block,&b);
+	minix_initialize_fs_specific(block,&b);
+	minix_init_fs_ops(block);
+	minix_obtain_root_inode(block);
+
+	return 0;
+}
