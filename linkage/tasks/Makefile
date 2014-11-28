@@ -1,6 +1,6 @@
 CC=c99
 ASM=nasm
-CFLAGS=-nostdlib -fno-builtin -nostartfiles -nodefaultlibs -fno-stack-protector -Wall -O0
+CFLAGS=-m32 -nostdlib -fno-builtin -nostartfiles -nodefaultlibs -fno-stack-protector -Wall -O0
 ASMFLAGS=-i../../include/ -f elf32
 OBJ=syscall_wrappers.o stdio.o utils.o parser.o errors.o
 TASKS=cp.run ls.run cat.run shell.run echo.run date.run
@@ -10,8 +10,8 @@ TASKS=cp.run ls.run cat.run shell.run echo.run date.run
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $^
-	
-%.run: %.o $(OBJ) 
+
+%.run: %.o $(OBJ)
 	ld -emain -melf_i386 -o $@ $^
 
 all: $(OBJ) $(TASKS)

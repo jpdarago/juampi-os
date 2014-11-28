@@ -2,10 +2,10 @@ CC=gcc
 ASM=nasm
 LINKER=ld
 LINK.o=ld
-#Considerar retirar el -Os si empieza a andar mal
+
 CFLAGS=-m32 -O2 -std=c99 -Wall -nostdlib -fno-builtin -nostartfiles -nodefaultlibs -fno-stack-protector -I./include
 
-NASMFLAGS=-i./include/ -felf 
+NASMFLAGS=-i./include/ -felf32
 LINKSCRIPT=linkage/linker.ld
 LINKERFLAGS=-melf_i386 -T $(LINKSCRIPT)
 
@@ -20,35 +20,29 @@ TASKSSRC=$(wildcard linkage/inittasks/*.asm linkage/inittasks/*.c)
 TASKS=$(patsubst %.{c,h},%.o,$(TASKSSRC))
 
 %.o: %.c
-	@echo "===COMPILANDO $^==="
 	$(CC) $(CFLAGS) -c -o $@ $^
 
 %.o: %.asm
-	@echo "===COMPILANDO $^==="
 	$(ASM) $(NASMFLAGS) -o $@ $^
 
 kernel.bin: $(COBJS) $(ASMOBJS)
-	@echo "===LINKEANDO EL KERNEL==="
 	$(LINKER) $(LINKERFLAGS) -o $@ $^
 
 hdd.img: linkage/tasks linkage/docs
-	@echo "==GENERANDO IMAGEN DE DISCO DURO==="
 	cd linkage && ./build_image.sh
 
 init: linkage/bootstrap
 	cd linkage/bootstrap && make
 
-all: init hdd.img kernel.bin 
-	@echo "===METIENDO EL KERNEL EN EL FLOPPY==="
+all: init hdd.img kernel.bin
 	cp floppy_raw.img floppy.img
 	e2cp kernel.bin floppy.img:/
 	e2cp linkage/menu.lst floppy.img:/boot/grub/menu.lst
 	e2cp linkage/bootstrap/init floppy.img:/init
 
-BOCHSDIR?=/home/jpdarago/bochs/bin
+BOCHSDIR?=./bochs/bin
 BOCHSCONF?=run/bochsrc.txt
 run: all
-	@echo "==CORRIENDO SIMULACION=="
 	$(BOCHSDIR)/bochs -q -f $(BOCHSCONF)
 
 clean:

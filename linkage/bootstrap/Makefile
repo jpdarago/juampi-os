@@ -1,6 +1,6 @@
 CC=c99
 ASM=nasm
-CFLAGS=-nostdlib -fno-builtin -nostartfiles -nodefaultlibs -fno-stack-protector -Wall -O0
+CFLAGS=-m32 -nostdlib -fno-builtin -nostartfiles -nodefaultlibs -fno-stack-protector -Wall -O0
 ASMFLAGS=-i../../include/ -f elf32
 OBJ=syscall_wrappers.o
 
@@ -9,8 +9,8 @@ OBJ=syscall_wrappers.o
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $^
-	
-init: init.o $(OBJ) 
+
+init: init.o $(OBJ)
 	ld -emain -melf_i386 -o $@ $^
 
 all: $(OBJ)
