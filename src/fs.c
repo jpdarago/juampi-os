@@ -111,7 +111,9 @@ static inode * basedir_inode(char ** pathptr)
     for(i = len; i >= 0; i--)
         if(pathname[i] == '/')
             break;
-    if(i < 0) return NULL;
+    if(i < 0) {
+        return process_path(get_current_task()->cwd);
+    }
     char prev = pathname[i];
     pathname[i] = '\0';
     inode * ino = process_path(pathname);
