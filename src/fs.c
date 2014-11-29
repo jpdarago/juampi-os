@@ -57,45 +57,46 @@ super_block * get_disk_super_block()
 
 static int consume_part(char ** pathptr,char * buffer)
 {
-	int i;	
+	int i;
 	char * pathname = *pathptr;
 	for(i = 0; i < FILE_MAXLEN;i++){
-		if(pathname[i] == '/'){ 
-			break; 
+		if(pathname[i] == '/'){
+			break;
 		}
-		if(pathname[i] == '\0') break;	
+		if(pathname[i] == '\0') break;
 		buffer[i] = pathname[i];
 	}
 	buffer[i] = '\0';
 	*pathptr += i;
-	if(pathname[i] == '/') 
+	if(pathname[i] == '/')
 		*pathptr += 1;
 	return i;
 }
 
 static inode * process_path(char * pathname)
-{	
-	if(invalid_path(pathname)){ 
+{
+	if(invalid_path(pathname)){
 		return NULL;
 	}
 
 	process_info * 	p = get_current_task();
 	super_block *	s = get_disk_super_block();
-	
+
 	inode * ptr, * root_dir = s->root;
 	if(pathname[0] == '/'){
 		pathname++;
 		ptr = root_dir;
 	}else{
-		ptr = root_dir->i_ops->lookup(root_dir,p->cwd);	
+		ptr = process_path(p->cwd);
 	}
+
 	char chunk[FILE_MAXLEN+1];
 	while(consume_part(&pathname,chunk) > 0){
 		if(!ptr) return NULL;
-	   	if(ptr->inode_type != FS_DIR) 
+	   	if(ptr->inode_type != FS_DIR)
 			return NULL;
 
-		inode * prev = ptr; 
+		inode * prev = ptr;
 		ptr = ptr->i_ops->lookup(ptr,chunk);
 		prev->super_block->ops->release_inode(prev);
 	}

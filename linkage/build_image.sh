@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 #Construir la imagen usando el directorio testdir para los archivos
 cd "$(dirname "$0")"
