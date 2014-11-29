@@ -13,7 +13,7 @@ CFLAGS=-m32 -O2 -std=c99 -Werror -Wall -Wextra\
 	-nodefaultlibs -fno-stack-protector -I./include
 
 NASMFLAGS=-i./include/ -felf32
-LINKSCRIPT=linkage/linker.ld
+LINKSCRIPT=build/linker.ld
 LINKERFLAGS=-melf_i386 -T $(LINKSCRIPT)
 
 .PHONY=all clean
@@ -24,7 +24,7 @@ ASMSOURCES=$(wildcard src/**/*.asm src/*.asm)
 ASMOBJS=$(patsubst %.asm,%.o,$(ASMSOURCES))
 COBJS=$(patsubst %.c,%.o,$(CSOURCES))
 
-TASKSSRC=$(wildcard linkage/inittasks/*.asm linkage/inittasks/*.c)
+TASKSSRC=$(wildcard build/inittasks/*.asm build/inittasks/*.c)
 TASKS=$(patsubst %.{c,h},%.o,$(TASKSSRC))
 
 %.o: %.c
@@ -36,17 +36,17 @@ TASKS=$(patsubst %.{c,h},%.o,$(TASKSSRC))
 kernel.bin: $(COBJS) $(ASMOBJS)
 	$(LINKER) $(LINKERFLAGS) -o $@ $^
 
-hdd.img: linkage/tasks linkage/docs
-	cd linkage && ./build_image.sh
+hdd.img: build/tasks build/docs
+	cd build && ./build_image.sh
 
-init: linkage/bootstrap
-	cd linkage/bootstrap && make
+init: build/bootstrap
+	cd build/bootstrap && make
 
 all: init hdd.img kernel.bin
 	cp floppy_raw.img floppy.img
 	e2cp kernel.bin floppy.img:/
-	e2cp linkage/menu.lst floppy.img:/boot/grub/menu.lst
-	e2cp linkage/bootstrap/init floppy.img:/init
+	e2cp build/menu.lst floppy.img:/boot/grub/menu.lst
+	e2cp build/bootstrap/init floppy.img:/init
 
 BOCHSDIR?=./bochs/bin
 BOCHSCONF?=run/bochsrc.txt
@@ -54,8 +54,8 @@ run: all
 	$(BOCHSDIR)/bochs -q -f $(BOCHSCONF)
 
 clean:
-	cd linkage/bootstrap && make clean
-	cd linkage/tasks && make clean
+	cd build/bootstrap && make clean
+	cd build/tasks && make clean
 	rm -rf $(ASMOBJS) $(COBJS) kernel.bin hdd.img floppy.img
 
 format:
