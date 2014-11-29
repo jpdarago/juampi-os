@@ -28,7 +28,7 @@ static const char* msgs[]= {
 
 exception_handler exception_handlers[EXCEPTIONS] = { 0 };
 
-//Registra un handler de excepcion nuevo
+// Registra un handler de excepcion nuevo
 void register_exception_handler(exception_handler e, uint i)
 {
     if(i < EXCEPTIONS) {
@@ -36,7 +36,7 @@ void register_exception_handler(exception_handler e, uint i)
     }
 }
 
-//Inicializa los handlers de exception a defaultear a blue_screen
+// Inicializa los handlers de exception a defaultear a blue_screen
 void initialize_exception_handlers()
 {
     for(uint i = 0; i < EXCEPTIONS; i++) {
@@ -44,7 +44,7 @@ void initialize_exception_handlers()
     }
 }
 
-//Handler default: imprime el estado de programa y muere
+// Handler default: imprime el estado de programa y muere
 void blue_screen(exception_trace e)
 {
     scrn_cls();

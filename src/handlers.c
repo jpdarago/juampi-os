@@ -6,10 +6,10 @@
 #include <exception.h>
 #include <keyboard.h>
 
-//Punteros con las funciones de atencion de interrupcciones.
+// Punteros con las funciones de atencion de interrupcciones.
 static irq_handler irq_handlers[MAX_INTS];
 
-//Envia los mensajes para que se remapee el pic.
+// Envia los mensajes para que se remapee el pic.
 void remap_pic()
 {
     outb(0x20,0x11);
@@ -32,7 +32,7 @@ static void irq_unknown_handler(uint irq_code,gen_regs regs)
     scrn_setcursor(row,col);
 }
 
-//Registra un handler para una interrupcion
+// Registra un handler para una interrupcion
 void register_irq_handler(irq_handler ih, uint code)
 {
     if(code < MAX_INTS) {
@@ -59,8 +59,8 @@ void irq_init_handlers()
 #define IF_BIT 9
 inline void irq_sti(uint eflags)
 {
-    //Si originalmente habia interrupciones las volvemos
-    //a habilitar
+    // Si originalmente habia interrupciones las volvemos
+    // a habilitar
     if(eflags & (1 << IF_BIT)) {
         __asm__ __volatile__ ("sti");
     }
@@ -83,13 +83,13 @@ inline uint irq_cli()
     return eflags;
 }
 
-//Handler comun para las interrupciones por hardware: Estas vienen de
-//los pines del PIC de la CPU
+// Handler comun para las interrupciones por hardware: Estas vienen de
+// los pines del PIC de la CPU
 void irq_common_handler(gen_regs regs, uint irq_code, int_trace trace)
 {
     if(irq_code == 7+32) {
-        //Spurious interrupt. Si no esta activado
-        //el bit 7 de interrupcion real, retornamos.
+        // Spurious interrupt. Si no esta activado
+        // el bit 7 de interrupcion real, retornamos.
         outb(0x20,0x0B);
         uchar irr = inb(0x20);
         if(!(irr & 0x80)) {
@@ -97,13 +97,13 @@ void irq_common_handler(gen_regs regs, uint irq_code, int_trace trace)
         }
     }
     if(irq_code >= 40) {
-        //Le decimos al PIC master que procesamos la interrupcion.
+        // Le decimos al PIC master que procesamos la interrupcion.
         outb(0xA0, 0x20);
     }
     outb(0x20, 0x20);
 
     if(irq_handlers[irq_code]) {
-        //Levantamos el handler de verdad
+        // Levantamos el handler de verdad
         irq_handler handler = irq_handlers[irq_code];
         handler(irq_code,regs);
     }

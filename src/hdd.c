@@ -5,8 +5,8 @@
 static uchar ata_read_stable(void)
 {
     uchar status;
-    //Se lee el registro 5 veces para generar un
-    //delay de 400 ns de acuerdo a la especificacion
+    // Se lee el registro 5 veces para generar un
+    // delay de 400 ns de acuerdo a la especificacion
     status = inb(ATA_PRIMARY_COMSTAT);
     status = inb(ATA_PRIMARY_COMSTAT);
     status = inb(ATA_PRIMARY_COMSTAT);
@@ -92,7 +92,7 @@ void hdd_write(uint lba_address, uint sectors, void* _buffer)
 
 void hdd_init()
 {
-    //Resetear los discos
+    // Resetear los discos
     ata_reset();
     outb(ATA_PRIMARY_LBALOW,0xAA);
     if(inb(ATA_PRIMARY_LBALOW) == 0xAA) {

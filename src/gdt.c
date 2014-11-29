@@ -21,9 +21,9 @@ void gdt_load_desc(uint i, uint base, uint limit, seg_flags flags)
     gdt[i].s    = flags.s;
     gdt[i].g    = flags.g;
     gdt[i].dpl  = flags.dpl;
-    gdt[i].avl  = flags.avl; //0;
-    gdt[i].p    = flags.p; //1;
-    gdt[i].db   = flags.db; //1;
+    gdt[i].avl  = flags.avl; // 0;
+    gdt[i].p    = flags.p; // 1;
+    gdt[i].db   = flags.db; // 1;
     gdt[i].limit_h  = (uchar)((limit & ~0xFFFF) >> 16);
     gdt[i].base_h   = (uchar)((base & ~0xFFFFFF) >> 24);
 }
@@ -31,7 +31,7 @@ void gdt_load_desc(uint i, uint base, uint limit, seg_flags flags)
 void gdt_init()
 {
     memset(gdt,0,sizeof(gdt));
-    //Configuracion flat.
+    // Configuracion flat.
     GDT_LOAD_DESC(1,0,0xFFFFF, .type = CODE_ER_NC, .dpl = 0);
     GDT_LOAD_DESC(2,0,0xFFFFF, .type = DATA_RW, .dpl = 0);
     GDT_LOAD_DESC(3,0,0xFFFFF, .type = CODE_ER_NC, .dpl = 3);

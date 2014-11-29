@@ -26,10 +26,10 @@ void fetch_data(date * d)
     d->hour     = get_rtc_register(0x04);
     d->day      = get_rtc_register(0x07);
     d->month    = get_rtc_register(0x08);
-    //Precaucion: Algunas maquinas no tienen
-    //registro de century y a veces no lo tienen
-    //en el registro 0x32 del CMOS. Habria que
-    //leerlo de la ACPI table.
+    // Precaucion: Algunas maquinas no tienen
+    // registro de century y a veces no lo tienen
+    // en el registro 0x32 del CMOS. Habria que
+    // leerlo de la ACPI table.
     d->year     = 100*get_rtc_register(0x32)
                   + get_rtc_register(0x09);
 }

@@ -23,8 +23,8 @@
 #define KSTACK_SIZE     (KSTACK_PAGES*PAGE_SZ)
 #define KSTACK_BASE     (KSTACK_START+KSTACK_SIZE)
 
-//Tss de la tarea inicial (el shell) y la de
-//kernel (que no hace nada y es un sentinela).
+// Tss de la tarea inicial (el shell) y la de
+// kernel (que no hace nada y es un sentinela).
 tss initial_task, kernel_tss;
 
 static process_info* current_process = NULL;
@@ -34,7 +34,7 @@ static int last_pid = 1;
 
 bool preemptable;
 
-//Pasa el procesador a modo kernel
+// Pasa el procesador a modo kernel
 void switch_kernel_mode()
 {
     uint eflags = irq_cli();
@@ -49,7 +49,7 @@ void switch_kernel_mode()
 
 static void handle_signals_kernel_mode(process_info* p, intptr*, intptr*);
 
-//Pasa el procesador a modo usuario
+// Pasa el procesador a modo usuario
 void switch_user_mode(int_trace* t)
 {
     uint eflags = irq_cli();
@@ -64,7 +64,7 @@ void switch_user_mode(int_trace* t)
     irq_sti(eflags);
 }
 
-//Determina si el procesador esta en modo kernel
+// Determina si el procesador esta en modo kernel
 bool kernel_mode()
 {
     if(!current_process) {
@@ -78,14 +78,14 @@ bool is_preemptable()
     return preemptable;
 }
 
-//Agrega el proceso a la lista de procesos a
-//considerar para schedulear
+// Agrega el proceso a la lista de procesos a
+// considerar para schedulear
 static void add_process(process_info* p)
 {
     list_add(&p->process_list,&processes);
 }
 
-//Consigue el proceso dado su pid
+// Consigue el proceso dado su pid
 static process_info* get_process_by_pid(int pid)
 {
     process_info* cand;
@@ -97,8 +97,8 @@ static process_info* get_process_by_pid(int pid)
     return NULL;
 }
 
-//Pone al proceso como scheduleable, esto se hace para
-//volver por ejemplo de bloqueos y sleeps
+// Pone al proceso como scheduleable, esto se hace para
+// volver por ejemplo de bloqueos y sleeps
 static void set_runnable(process_info* p)
 {
     p->remaining_quantum = START_QUANTUM;
@@ -153,10 +153,10 @@ static void free_process_data_frames(process_info* proc)
             if(!pe->present) continue;
             uint cpage = (pdi << 22) + (pti << 12);
 
-            //No actuamos sobre la pila de kernel porque si
-            //lo hicieramos podriamos potencialmente quebrar el
-            //stack frame para las syscalls que usen esta funcion
-            //Tampoco por la pila de usuario
+            // No actuamos sobre la pila de kernel porque si
+            // lo hicieramos podriamos potencialmente quebrar el
+            // stack frame para las syscalls que usen esta funcion
+            // Tampoco por la pila de usuario
             if(in_stack_page(cpage)) {
                 should_free = false;
                 continue;
@@ -179,17 +179,17 @@ static void free_process(process_info* p)
     kfree(p);
 }
 
-//El manual de intel en la pagina 304 dice
-//  Avoid placing a page boundary in the part of the
-//  TSS that the processor reads during a task switch
-//  (the first 104 bytes).
-//Entonces para obtener una tss valida debemos pedir no
-//104 sino 209 bytes. Seguro que si pedimos esa cantidad va
-//a haber un pedazo contiguo de 104 (por ser las paginas de
-//4 Kb). Pero hay que determinar que pedazo es contiguo.
-//Para eso sirven las siguientes dos funciones.
-//Son dos separadas porque no queremos perder memoria: cuando
-//matemos un proceso vamos a liberar su tss tambien.
+// El manual de intel en la pagina 304 dice
+//   Avoid placing a page boundary in the part of the
+//   TSS that the processor reads during a task switch
+//   (the first 104 bytes).
+// Entonces para obtener una tss valida debemos pedir no
+// 104 sino 209 bytes. Seguro que si pedimos esa cantidad va
+// a haber un pedazo contiguo de 104 (por ser las paginas de
+// 4 Kb). Pero hay que determinar que pedazo es contiguo.
+// Para eso sirven las siguientes dos funciones.
+// Son dos separadas porque no queremos perder memoria: cuando
+// matemos un proceso vamos a liberar su tss tambien.
 static void* new_tss_space(void)
 {
     return kmalloc(2*sizeof(tss)+1);
@@ -207,9 +207,9 @@ static tss* get_contiguous_tss(void* space)
     return (void*)((intptr)space+sizeof(tss));
 }
 
-//Crea una nueva pila que tiene su tope
-//en la direccion dada por KSTACK_START (la pila crece al
-//reves en intel).
+// Crea una nueva pila que tiene su tope
+// en la direccion dada por KSTACK_START (la pila crece al
+// reves en intel).
 static int
 create_new_stack(page_directory* new_dir, tss* new_tss, bool user)
 {
@@ -357,10 +357,10 @@ int do_fork(intptr kernel_esp, gen_regs regs, uint32 eflags, intptr eip)
     if(create_kernel_stack(new_dir,new_tss)) {
         return ERROUTMEM;
     }
-    //No hay que copiar la pila de usuario porque
-    //copy on write lo va a hacer solito. Pero la de
-    //kernel si porque sino el page fault handler
-    //no anda
+    // No hay que copiar la pila de usuario porque
+    // copy on write lo va a hacer solito. Pero la de
+    // kernel si porque sino el page fault handler
+    // no anda
     copy_kernel_stack(new_dir);
     set_tss_kernel_mode(new_tss,kernel_esp);
 
@@ -379,29 +379,29 @@ int do_fork(intptr kernel_esp, gen_regs regs, uint32 eflags, intptr eip)
     return pi->pid;
 }
 
-//Determina que flags tiene que tener la pagina dado el tipo de
-//segmento que estamos mirando
+// Determina que flags tiene que tener la pagina dado el tipo de
+// segmento que estamos mirando
 uint determine_flags(elf_segment* es)
 {
-    uint flags = PAGEF_P; //Presente esta seguro
+    uint flags = PAGEF_P; // Presente esta seguro
     if(~es->flags & ELF_ATTR_RB) {
         return flags;
     }
-    flags |= PAGEF_U; //Si se puede leer seguro es de usuario
+    flags |= PAGEF_U; // Si se puede leer seguro es de usuario
     if(es->flags & ELF_ATTR_WB) {
         flags |= PAGEF_RW;
     }
     return flags;
 }
 
-//Pega la imagen dada por el archivo elf (en memoria, indicado
-//por el buffer pasado por parametro) al mapa de memoria del
-//proceso actual.
+// Pega la imagen dada por el archivo elf (en memoria, indicado
+// por el buffer pasado por parametro) al mapa de memoria del
+// proceso actual.
 int elf_overlay_image(elf_file* elf)
 {
-    //Tiene que ser el directorio actual porque sino cuando
-    //intentemos copiar, no vamos a poder porque claro, las
-    //paginas no van a estar mapeadas (si fuera otro directorio)
+    // Tiene que ser el directorio actual porque sino cuando
+    // intentemos copiar, no vamos a poder porque claro, las
+    // paginas no van a estar mapeadas (si fuera otro directorio)
     page_directory* d = current_directory;
     for(uint i = 0; i < elf->header->ph_entry_count; i++) {
         elf_segment* e = elf_get_segment(elf,i);
@@ -417,8 +417,8 @@ int elf_overlay_image(elf_file* elf)
 
                 uint new_frame = frame_alloc();
                 uint flags = determine_flags(e);
-                //Necesitamos copiar primero por eso los flags
-                //son esos
+                // Necesitamos copiar primero por eso los flags
+                // son esos
                 map_page(d, address, new_frame, PAGEF_FULL);
                 uint to_copy = NEXT_ALIGN(address) - address;
                 if(to_copy > remaining) {
@@ -428,8 +428,8 @@ int elf_overlay_image(elf_file* elf)
                 char * ptr = (char *) address;
                 memcpy(ptr,e->data+copied,to_copy);
                 copied += to_copy;
-                //Ahora que copiamos este cacho de pagina,
-                //ponemos los flags correctos
+                // Ahora que copiamos este cacho de pagina,
+                // ponemos los flags correctos
                 map_page(d,address, new_frame, flags);
             }
         }
@@ -478,7 +478,7 @@ void perform_task_switch(process_info* next)
     if(next == NULL) {
         kernel_panic("Saltando a tarea nula");
     }
-    //Definido en task_switch.asm
+    // Definido en task_switch.asm
     set_current_directory(next->page_dir);
     current_process = next;
     switch_kernel_mode();
@@ -489,13 +489,13 @@ process_info* next_task()
 {
     process_info* current_task = get_current_task();
     if(still_running(current_task)) {
-        //La tarea tiene que seguir corriendo
+        // La tarea tiene que seguir corriendo
         current_task->remaining_quantum--;
         return current_task;
     } else {
         if(current_task) {
-            //Si hay tarea actual (no se bloqueo o no exiteo)
-            //la agregamos a la cola round robin
+            // Si hay tarea actual (no se bloqueo o no exiteo)
+            // la agregamos a la cola round robin
             list_move_tail(&current_task->process_list,&processes);
             if(add_to_round_robin(current_task)) {
                 set_runnable(current_task);
@@ -518,9 +518,9 @@ static process_info* init_initial_task(void* code_buffer)
 {
     elf_file* e = elf_read_exec(code_buffer);
     if(e == NULL) return NULL;
-    //No cambiamos el directorio porque vamos a usar el
-    //current_dir duplicado y listo (es necesario para
-    //elf_overlay_image porque sino no se puede copiar)
+    // No cambiamos el directorio porque vamos a usar el
+    // current_dir duplicado y listo (es necesario para
+    // elf_overlay_image porque sino no se puede copiar)
     elf_overlay_image(e);
     elf_destroy(e);
 
@@ -541,8 +541,8 @@ static process_info* init_initial_task(void* code_buffer)
         return NULL;
     }
 
-    //TSS space es nulo porque cuando lo liberemos, no
-    //debemos liberar espacio estatico de kernel
+    // TSS space es nulo porque cuando lo liberemos, no
+    // debemos liberar espacio estatico de kernel
     process_info* p = create_process_info(NULL,tss_index,
                                           NULL,&initial_task,
                                           current_directory,"/");
@@ -567,8 +567,8 @@ static void switch_to_next_task(void)
     process_info * p = next_task(),
     * current = get_current_task();
     if(p == NULL && current) {
-        //No hay nadie mas asi que ponemos a correr la que
-        //ya estaba
+        // No hay nadie mas asi que ponemos a correr la que
+        // ya estaba
         set_runnable(current);
         p = current;
     }
@@ -631,14 +631,14 @@ static char * push_into_user_stack(char * stack_start,
         stack = push_stack(stack,str,bytes);
         pos[i] = (intptr) stack;
     }
-    //Pusheamos el arreglo de puntero a los strings anteriores
+    // Pusheamos el arreglo de puntero a los strings anteriores
     for(int i = count-1; i >= 0; i--) {
         stack = push_stack(stack,&pos[i],sizeof(uint));
     }
-    //Pusheamos el puntero al arreglo de punteros
+    // Pusheamos el puntero al arreglo de punteros
     intptr stackpos = (intptr) stack;
     stack = push_stack(stack,&stackpos,sizeof(stackpos));
-    //Pusheamos la cantidad de parametros
+    // Pusheamos la cantidad de parametros
     stack = push_stack(stack,&_count,sizeof(_count));
     return stack-sizeof(count);
 }
@@ -667,17 +667,17 @@ int do_exec(char* user_filename, char** args, int_trace * t,void * ebp)
     uint argc = 0, size = 0;
 
     #define check(c,e) if(!(c)) { error = e; goto done; }
-    //Vamos a reemplazar la imagen actual con la imagen dada por
-    //el archivo filename (con respecto al directorio actual
-    //en caso de ser necesario)
+    // Vamos a reemplazar la imagen actual con la imagen dada por
+    // el archivo filename (con respecto al directorio actual
+    // en caso de ser necesario)
 
     p = get_current_task();
 
     argc = count_arguments(args);
     check(argc <= EXEC_MAX_ARGC,ERRTOOMANYARGS);
 
-    //Primero hay que levantar el ejecutable de memoria y validar ciertas
-    //cosas como por ejemplo que tenga un tamaño aceptable
+    // Primero hay que levantar el ejecutable de memoria y validar ciertas
+    // cosas como por ejemplo que tenga un tamaño aceptable
     process_filename(user_filename,filename);
 
     fd = do_open(filename,FS_RD);
@@ -695,34 +695,34 @@ int do_exec(char* user_filename, char** args, int_trace * t,void * ebp)
     e = elf_read_exec(mem);
     check(e != NULL, ERRNOTELF);
 
-    //Pusheamos los argumentos en la pila del proceso
-    //Esto hay que hacerlo antes de liberar las paginas porque potencialmente
-    //los punteros estan en la zona de texto
+    // Pusheamos los argumentos en la pila del proceso
+    // Esto hay que hacerlo antes de liberar las paginas porque potencialmente
+    // los punteros estan en la zona de texto
     stack = push_into_user_stack((char *) USTACK_BASE,args,argc);
     check(stack != NULL, ERRARGTOOBIG);
     t->useresp = (intptr) stack;
     *((intptr*)ebp) = USTACK_BASE;
 
-    //Primero hay que liberar todas las paginas que tenga el proceso
-    //de las que sea propietario excepto las de la pila de kernel
-    //Vamos a marcar los frames de absolutamente todo como libres.
-    //Si alguien viene y pide frames puede terminar con nuestros frames.
-    //Ergo ahora no nos debe parar NADIE por eso el cli.
+    // Primero hay que liberar todas las paginas que tenga el proceso
+    // de las que sea propietario excepto las de la pila de kernel
+    // Vamos a marcar los frames de absolutamente todo como libres.
+    // Si alguien viene y pide frames puede terminar con nuestros frames.
+    // Ergo ahora no nos debe parar NADIE por eso el cli.
     free_process_data_frames(p);
 
-    //Ahora que las paginas de texto estan afuera, vamos a poner las de
-    //la imagen elf
+    // Ahora que las paginas de texto estan afuera, vamos a poner las de
+    // la imagen elf
     check(!elf_overlay_image(e),ERRREADINGELF);
-    //Cerramos todos los file descriptors abiertos por el proceso
-    //excepto entrada y salida estandar por comodidad
+    // Cerramos todos los file descriptors abiertos por el proceso
+    // excepto entrada y salida estandar por comodidad
     for(i = 2; i < MAX_FDS; i++)
         if(!unused_fd(p,i))
             do_close(i);
 
-    //Asignamos el valor de eip para cuando volvamos de la
-    //interrupccion
+    // Asignamos el valor de eip para cuando volvamos de la
+    // interrupccion
     t->eip = elf_entry_point(e);
-    //Liberamos todos los recursos y devolvemos si hubo error o no
+    // Liberamos todos los recursos y devolvemos si hubo error o no
 done:
     elf_destroy(e);
     kfree(mem);
@@ -763,8 +763,8 @@ void wake_up(process_info* p)
 
 static void swap_user_stacks(page_directory* p, page_directory* q)
 {
-    //TODO: Considerar que la pila puede ser de tamaño variable
-    //en un futuro cercano
+    // TODO: Considerar que la pila puede ser de tamaño variable
+    // en un futuro cercano
     for(uint i = USTACK_START;
         i < USTACK_START+USTACK_SIZE;
         i += PAGE_SZ) {
@@ -783,8 +783,8 @@ set_signal_stack_frame(process_info* p,
                        int signal_code)
 {
     int* user_stack = (int*)(*prev_esp);
-    //Necesitamos tener la pila del proceso mapeada.
-    //Para eso vamos a temporalmente swappear pilas
+    // Necesitamos tener la pila del proceso mapeada.
+    // Para eso vamos a temporalmente swappear pilas
     process_info* ct = get_current_task();
     swap_user_stacks(ct->page_dir,p->page_dir);
     *(--user_stack) = *prev_eip;

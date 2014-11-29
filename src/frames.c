@@ -8,15 +8,15 @@
 #define FRAME_MSK 0xFFF
 #define FRAME_ALIGN(x) ((x) & ~0xFFF)
 
-//Mapa de bits para los frames: 1 indica usado, 0 indica no usado
+// Mapa de bits para los frames: 1 indica usado, 0 indica no usado
 static bitset b;
-//Direccion (fisica) donde empieza la memoria a administrar
+// Direccion (fisica) donde empieza la memoria a administrar
 static uint mem_start, total_count;
-//Conteo de cantidad de personas a las cuales les asignamos un frame
+// Conteo de cantidad de personas a las cuales les asignamos un frame
 static uint* count;
 
-//Inicializa el mapa de bits de administracion y regresa la posicion
-//del primer frame de datos utiles (o sea, calcula el tamaño del bitset)
+// Inicializa el mapa de bits de administracion y regresa la posicion
+// del primer frame de datos utiles (o sea, calcula el tamaño del bitset)
 uint frame_alloc_init(void* _mem_start, uint frames)
 {
     intptr mem = FRAME_ALIGN((intptr) _mem_start + FRAME_SZ - 1);

@@ -48,11 +48,11 @@ typedef struct {
 } __attribute__((__packed__)) minix_dir_entry;
 
 #define MINIX_ZONES 7
-//Cantidad de entradas de directorio por bloque
+// Cantidad de entradas de directorio por bloque
 #define MINIX_DIR_ENTRIES 32
-//Cantidad de punteros a bloques en un bloque MINIX
+// Cantidad de punteros a bloques en un bloque MINIX
 #define MINIX_BLOCK_PTRS 512
-//Consideracion por las entradas default
+// Consideracion por las entradas default
 #define MINIX_DEF_DIRSIZE 64
 
 typedef struct {

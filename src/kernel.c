@@ -1,5 +1,5 @@
-//kernel.c - Rutina de inicio del kernel del sistema operativo.
-//Es llamada desde loader.asm
+// kernel.c - Rutina de inicio del kernel del sistema operativo.
+// Es llamada desde loader.asm
 
 #include <utils.h>
 #include <gdt.h>
@@ -22,8 +22,8 @@
 #include <keyboard.h>
 #include <cmos.h>
 
-//Simbolo de linker para el final del kernel. La direccion que contiene es
-//un lugar despues de que termina el kernel. Esta definido en en linker script
+// Simbolo de linker para el final del kernel. La direccion que contiene es
+// un lugar despues de que termina el kernel. Esta definido en en linker script
 extern uint kernel_end;
 
 void kmain(multiboot_info_t* mbd, unsigned long magic)
@@ -57,7 +57,7 @@ void kmain(multiboot_info_t* mbd, unsigned long magic)
     scrn_printf("%u MODULOS CARGADOS\n",mbd->mods_count);
 
     scrn_print("CHECKEANDO ESTADO DE LA MEMORIA\n");
-    //Chequeamos que la cantidad de memoria RAM presente.
+    // Chequeamos que la cantidad de memoria RAM presente.
     if(mbd->flags & 1) {
         scrn_printf("\tCantidad de RAM en el sistema:\n"
                     "\t\tLower: %u Kb, Upper: %u Kb\n",
@@ -68,8 +68,8 @@ void kmain(multiboot_info_t* mbd, unsigned long magic)
     scrn_print("INICIALIZANDO LAS ESTRUCTURAS DE MEMORIA DEL KERNEL...");
     module_t* grub_modules = (module_t*) mbd->mods_addr;
     uint kernel_end_addr = grub_modules[mbd->mods_count-1].mod_end;
-    //El mapa de memoria upper es a partir del primer megabyte ergo el primer
-    //lugar donde nos vamos de largo es 1024 kilobytes mas la memoria que dice GRUB
+    // El mapa de memoria upper es a partir del primer megabyte ergo el primer
+    // lugar donde nos vamos de largo es 1024 kilobytes mas la memoria que dice GRUB
     paging_init(kernel_end_addr, (1024+mbd->mem_upper)*1024);
     scrn_printf("OK\n");
 

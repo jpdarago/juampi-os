@@ -11,22 +11,22 @@ bool q_inuse;
 
 #define q_next(x) (((x)+1)%q_size)
 
-//Agrega key al buffer de teclado si hay
-//suficiente espacio
+// Agrega key al buffer de teclado si hay
+// suficiente espacio
 void keybuffer_produce(uint key)
 {
     if(q_size > 0) {
         keyboard_queue[q_end] = key;
         q_end = q_next(q_end);
         if(q_end == q_start) {
-            //Si la cola esta llena perdemos
-            //caracteres viejos
+            // Si la cola esta llena perdemos
+            // caracteres viejos
             q_start = q_next(q_start);
         }
     }
 }
 
-//Saca del buffer de teclado
+// Saca del buffer de teclado
 int keybuffer_consume()
 {
     uint eflags = irq_cli();
@@ -41,7 +41,7 @@ end:
     return res;
 }
 
-//Inicializa el buffer de teclado
+// Inicializa el buffer de teclado
 void keybuffer_init(int buffer_size)
 {
     keyboard_queue =
@@ -73,7 +73,7 @@ void handle_key_event(uchar scancode)
 #define KBD_STATPORT    0x64
 #define KBD_CTRLPORT    0x64
 
-//Punto de entrada para la interrupccion de teclado
+// Punto de entrada para la interrupccion de teclado
 void keyboard_irq_handler(uint irq_code,gen_regs g)
 {
     uchar scancode = inb(KBD_DATAPORT);

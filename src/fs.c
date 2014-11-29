@@ -119,8 +119,8 @@ static inode * basedir_inode(char ** pathptr)
     inode * ino = process_path(pathname);
     pathname[i] = prev;
     if(ino == NULL) return NULL;
-    //Hacemos apuntar el pathname al ultimo
-    //pedazo del directorio
+    // Hacemos apuntar el pathname al ultimo
+    // pedazo del directorio
     *pathptr = pathname+i+1;
     return ino;
 }

@@ -6,8 +6,8 @@
 
 static char elf_magic[] = { 0x7F, 'E', 'L', 'F' };
 
-//Arma la estructura de un ELF a partir de un
-//buffer de memoria
+// Arma la estructura de un ELF a partir de un
+// buffer de memoria
 elf_file* elf_read_exec(void* image)
 {
     char* imagep = image;

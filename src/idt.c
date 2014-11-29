@@ -43,7 +43,7 @@ static intptr inter_handlers[] = {
 
 void idt_init_interrupts()
 {
-    //Ahora van los handlers de interrupciones por PIC
+    // Ahora van los handlers de interrupciones por PIC
     for(uint i = 0; i < 16; i++) {
         IDT_LOAD_DESC(32+i, inter_handlers[i], CODE_SEGMENT_KERNEL);
     }

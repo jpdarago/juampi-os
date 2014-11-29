@@ -6,7 +6,7 @@
 #include <scrn.h>
 #include <ports.h>
 
-//Constantes utiles
+// Constantes utiles
 
 #define ATA_SECTSIZE    512L
 
@@ -43,11 +43,11 @@
 #define ATA_COMM_WRITE_LBA28    0x30
 #define ATA_COMM_FLUSHCACHE     0xE7
 
-//Inicializar y detectar discos
+// Inicializar y detectar discos
 void hdd_init(void);
-//Leer (usando LBA 28) una cantidad de bytes de un disco a un buffer
+// Leer (usando LBA 28) una cantidad de bytes de un disco a un buffer
 void hdd_read(uint, uint32, void *);
-//Escribir (usando LBA 28) una cantidad de bytes de un disco a un buffer
+// Escribir (usando LBA 28) una cantidad de bytes de un disco a un buffer
 void hdd_write(uint,uint32, void *);
 
 #endif

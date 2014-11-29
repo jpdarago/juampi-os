@@ -79,7 +79,7 @@ void num_to_str(uint n, uint base, char* output)
 {
     char buf[33];
     memset(buf,'0',sizeof(buf));
-    *(buf+32) = '\0'; //Voy a imprimir con todos los ceros delante, asi que necesito 8 lugares fijos.
+    *(buf+32) = '\0'; // Voy a imprimir con todos los ceros delante, asi que necesito 8 lugares fijos.
     uint ind = 31;
     do {
         char c = n % base;
