@@ -13,22 +13,22 @@
 #define WP_MASK (1 << 16)
 
 typedef struct {
-    uint present : 1;
-    uint read_write : 1;
-    uint user : 1;
-    uint write_through : 1;
-    uint cache_disabled : 1;
-    uint accessed : 1;
-    uint dirty : 1;
-    uint __zero_1 : 1;
-    uint global : 1;
+    uint32 present : 1;
+    uint32 read_write : 1;
+    uint32 user : 1;
+    uint32 write_through : 1;
+    uint32 cache_disabled : 1;
+    uint32 accessed : 1;
+    uint32 dirty : 1;
+    uint32 __zero_1 : 1;
+    uint32 global : 1;
     //Copy on write: Si una pagina esta con este bit
     //y alguien la trata de escribir cuando tiene modo solo
     //lectura, hay que hacer una copia y reasignarla. Es parte
     //de los bits disponibles de intel.
-    uint copy_on_write : 1;
-    uint avail : 2;
-    uint frame : 20;
+    uint32 copy_on_write : 1;
+    uint32 avail : 2;
+    uint32 frame : 20;
 } page_entry;
 
 #define PAGEF_P     1
@@ -38,17 +38,17 @@ typedef struct {
 #define PAGEF_FULL (PAGEF_P | PAGEF_RW | PAGEF_U)
 
 typedef struct {
-    uint present : 1;
-    uint read_write : 1;
-    uint user : 1;
-    uint write_through : 1;
-    uint cache_disabled : 1;
-    uint accessed : 1;
-    uint __zero : 1;
-    uint size : 1;
-    uint global : 1;
-    uint avail : 3;
-    uint frame : 20;
+    uint32 present : 1;
+    uint32 read_write : 1;
+    uint32 user : 1;
+    uint32 write_through : 1;
+    uint32 cache_disabled : 1;
+    uint32 accessed : 1;
+    uint32 __zero : 1;
+    uint32 size : 1;
+    uint32 global : 1;
+    uint32 avail : 3;
+    uint32 frame : 20;
 } page_table_entry;
 
 typedef struct {
@@ -66,7 +66,7 @@ typedef struct {
     page_table * tables_virtual[1024];
     //Direccion fisica donde comienzan las entradas
     //de directorio (las tablas). Esto va en el cr3 del kernel.
-    uint physical_address;
+    uint32 physical_address;
 } page_directory;
 
 #define PAGE_DIR(x) ((x) >> 22)
@@ -78,10 +78,10 @@ typedef struct {
 
 //Devuelve la direccion fisica de la direccion virtual en
 //el directorio, ambos pasados por parametro
-uint physical_address(page_directory *, uint);
+uint32 physical_address(page_directory *, uint);
 //Inicializa paginacion haciendo identity mapping y creando
 //los handlers de excepcion y estructuras necesarias
-void paging_init(uint end_address, uint kernel_last_addr);
+void paging_init(intptr end_address, intptr kernel_last_addr);
 //Mapea una direccion virtual a una fisica en un directorio dados
 //los flags que se desean
 void map_page(page_directory * pd, uint va, uint pa, uint flags);
@@ -101,7 +101,7 @@ extern void copy_frame(uint dst, uint src);
 //Cambia el directorio actual por otro
 void set_current_directory(page_directory *);
 //Devuelve la direccion de la heap de kernel
-kmem_map_header * get_kernel_heap();
+kmem_map_header * get_kernel_heap(void);
 //Limpia una entrada de pagina o tabla del directorio actual
 void clear_page_entry(page_directory * pe, uint, uint);
 void clear_table_entry(page_directory * pe, uint);

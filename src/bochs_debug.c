@@ -7,7 +7,7 @@ void dbg_putc(char c)
     outb(0xe9,c);
 }
 
-void dbg_print(char* s)
+void dbg_print(const char* s)
 {
     while(*s) {
         dbg_putc(*s++);
@@ -15,7 +15,7 @@ void dbg_print(char* s)
     dbg_putc('\n');
 }
 
-void dbg_vprintf(char* fmt, va_list v)
+static void dbg_vprintf(const char* fmt, va_list v)
 {
     uint i;
     char buffer[32];
@@ -54,7 +54,7 @@ void dbg_vprintf(char* fmt, va_list v)
     }
 }
 
-void dbg_printf(char* fmt, ...)
+void dbg_printf(const char* fmt, ...)
 {
     va_list v;
     va_start(v,fmt);

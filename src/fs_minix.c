@@ -137,7 +137,7 @@ static disk_position inode_offset_position(inode * ino,
 
 //Procesa un inodo dada una accion: el codigo es para generalizar
 //read y write usando el mismo loop
-static int minix_inode_data_read(inode * inode,uint offset,
+static int minix_inode_data_read(inode * ino,uint offset,
                                  uint bytes, void * _data)
 {
     char * data = _data;
@@ -145,7 +145,7 @@ static int minix_inode_data_read(inode * inode,uint offset,
     disk_position p;
 
     for(; bytes; ) {
-        p = inode_offset_position(inode,offset,false);
+        p = inode_offset_position(ino,offset,false);
         if(!p.block) return -ENOSPACE;
 
         uint rem = MINIX_BLOCK_SIZE - p.offset;
@@ -160,22 +160,23 @@ static int minix_inode_data_read(inode * inode,uint offset,
     return processed;
 }
 
-static int minix_inode_write_process(inode * inode,
-                                     uint offset, uint bytes, void * _data)
+static int minix_inode_write_process(inode * ino,
+                                     uint offset, uint bytes,
+                                     void * _data)
 {
     char * data = _data;
     int processed = 0;
     disk_position p;
 
     for(; bytes; ) {
-        p = inode_offset_position(inode,offset,true);
+        p = inode_offset_position(ino,offset,true);
         if(!p.block) return -ENOSPACE;
 
         uint rem = MINIX_BLOCK_SIZE - p.offset;
         uint process = (rem < bytes) ? rem : bytes;
 
         buffered_write(p.block,p.offset,process,
-                       inode->inode_number,data);
+                       ino->inode_number,data);
 
         offset += process; bytes -= process;
         data += process; processed += process;
@@ -184,17 +185,17 @@ static int minix_inode_write_process(inode * inode,
     return processed;
 }
 
-static int minix_inode_data_write(inode * inode,
+static int minix_inode_data_write(inode * ino,
                                   uint offset, uint bytes, void * data)
 {
-    int written = minix_inode_write_process(inode,
+    int written = minix_inode_write_process(ino,
                                             offset,bytes,data);
     if(written < 0) {
         return written;
     }
-    if(offset + written > inode->file_size)
-        inode->file_size = offset + written;
-    if(written > 0) inode->is_dirty = true;
+    if(offset + written > ino->file_size)
+        ino->file_size = offset + written;
+    if(written > 0) ino->is_dirty = true;
     return written;
 }
 
@@ -768,7 +769,7 @@ static void minix_release_blocks(super_block * sb,
                                  ushort * entries,uint count,int depth)
 {
     minix_fs_data * mfd = sb->fs_data;
-    for(int i = 0; i < count; i++) {
+    for(uint i = 0; i < count; i++) {
         ushort entry = entries[i];
         if(entry == 0) break;
         if(depth > 0) {
@@ -781,17 +782,17 @@ static void minix_release_blocks(super_block * sb,
     }
 }
 
-void release_inode_blocks(inode * inode, super_block * sb)
+void release_inode_blocks(inode * ino, super_block * sb)
 {
-    minix_inode * ino = get_disk_inode(inode);
+    minix_inode * diskino = get_disk_inode(ino);
     int depth = 0;
-    if(inode->inode_type == FS_FILE) {
-        minix_release_blocks(sb,ino->zones,MINIX_ZONES,0);
+    if(ino->inode_type == FS_FILE) {
+        minix_release_blocks(sb,diskino->zones,MINIX_ZONES,0);
         depth++;
     }
-    minix_release_blocks(sb,&ino->indirect_block,1,depth);
+    minix_release_blocks(sb,&diskino->indirect_block,1,depth);
     minix_release_blocks(sb,
-                         &ino->doubly_indirect_block,1,depth+1);
+                         &diskino->doubly_indirect_block,1,depth+1);
 }
 
 //Borra el inodo, no solo destruyendo la memoria misma sino

@@ -8,7 +8,7 @@
 
 typedef struct dirty_ln dirty_ln;
 
-typedef struct buffer {
+typedef struct disk_buffer {
     void * data;
 
     uint block;
@@ -23,22 +23,22 @@ typedef struct buffer {
 
     struct list_head buffers;
     dirty_ln * dlist_ptr;
-} buffer;
+} disk_buffer;
 
 
 struct dirty_ln {
     uint inonum;
-    buffer * buffer;
+    disk_buffer * buffer;
     struct list_head dlist;
 };
 
 void minix_hdd_read(uint start_block,uint blocks, void * data);
 void minix_hdd_write(uint start_block,uint blocks, void * data);
 
-void buffer_cache_init();
+void buffer_cache_init(void);
 int buffered_write(uint, uint block, uint offset, uint, void * data);
 int buffered_read(uint block, uint offset, uint, void * data);
-void buffers_flush_all();
+void buffers_flush_all(void);
 void buffers_flush(uint inode_number);
 
 int buffered_read_several(uint, uint, void *);

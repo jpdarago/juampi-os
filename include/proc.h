@@ -5,22 +5,26 @@
 
 //Estructura con los registros de proposito general
 typedef struct {
-    uint edi,esi,ebp,esp,ebx,edx,ecx,eax;
+    uint32 edi,esi,ebp,esp,ebx,edx,ecx,eax;
 } gen_regs;
 
 //Traza de interrupccion
 typedef struct {
-    uint eip,cs,eflags,useresp,ss;
+    intptr eip;
+    uint32 cs;
+    uint32 eflags;
+    intptr useresp;
+    uint32 ss;
 } __attribute__((__packed__)) int_trace;
 
 //Registros de control
 typedef struct {
-    uint cr0,cr2,cr3,cr4;
+    uint32 cr0,cr2,cr3,cr4;
 } ctrl_regs;
 
 //Registros de selectores de segmento
 typedef struct {
-    uint cs,ds,es,fs,gs,ss;
+    uint32 cs,ds,es,fs,gs,ss;
 } sel_regs;
 
 typedef struct {
@@ -33,10 +37,10 @@ typedef struct {
 } exception_trace;
 
 //Setter y getter para la task register (tr)
-short get_tr();
+short get_tr(void);
 void set_tr(short);
 
-short get_cs();
-uint get_eflags();
+short get_cs(void);
+uint32 get_eflags(void);
 
 #endif

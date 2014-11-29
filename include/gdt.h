@@ -6,31 +6,31 @@
 
 //Descriptor de un segmento en la gdt
 struct seg_desc {
-    ushort limit_l;
-    ushort base_l;
-    uchar base_m;
-    uchar type  : 4;
-    uchar s     : 1;
-    uchar dpl   : 2;
-    uchar p     : 1;
-    uchar limit_h   : 4;
-    uchar avl   : 1;
-    uchar l     : 1;
-    uchar db    : 1;
-    uchar g     : 1;
-    uchar base_h;
+    uint16 limit_l;
+    uint16 base_l;
+    uint8 base_m;
+    uint8 type  : 4;
+    uint8 s     : 1;
+    uint8 dpl   : 2;
+    uint8 p     : 1;
+    uint8 limit_h   : 4;
+    uint8 avl   : 1;
+    uint8 l     : 1;
+    uint8 db    : 1;
+    uint8 g     : 1;
+    uint8 base_h;
 } __attribute__((__packed__,aligned(8)));
 typedef struct seg_desc seg_desc;
 
 //Atributos de un segmento.
 struct seg_flags {
-    uchar g     : 1;
-    uchar s     : 1;
-    uchar dpl   : 2;
-    uchar type  : 4;
-    uchar p : 1;
-    uchar db : 1;
-    uchar avl : 1;
+    uint8 g     : 1;
+    uint8 s     : 1;
+    uint8 dpl   : 2;
+    uint8 type  : 4;
+    uint8 p : 1;
+    uint8 db : 1;
+    uint8 avl : 1;
 } __attribute((__packed__));
 typedef struct seg_flags seg_flags;
 
@@ -57,8 +57,8 @@ enum seg_type {
 
 //Descriptor de GDT. Solo se crea uno, el valor que ponemos en la GDTR
 struct gdt_desc {
-    ushort gdt_limit;
-    uint gdt_base;
+    uint16 gdt_limit;
+    uint32 gdt_base;
 } __attribute__((__packed__));
 typedef struct gdt_desc gdt_desc;
 
@@ -72,9 +72,9 @@ extern gdt_desc GDT_DESC;
 //Cargar una nueva entrada en la gdt, dada su base, limite y datos.
 extern void gdt_load_desc(uint, uint, uint, seg_flags);
 //Instala la nueva GDT. Esta en assembler, porque si o si tiene que hacerse en assembler. Esta en kernel.c
-extern void gdt_flush();
+extern void gdt_flush(void);
 //Inicializa la nueva gdt
-extern void gdt_init();
+extern void gdt_init(void);
 
 #define GDT_LOAD_DESC(i,base,limit,...) \
     gdt_load_desc(i,base,limit, \
@@ -83,7 +83,7 @@ extern void gdt_init();
 
 //Agrega una entrada de gdt para la TSS indicada
 //Devuelve el selector de segmento encontrado
-short gdt_add_tss(uint tss_physical);
+short gdt_add_tss(intptr tss_physical);
 //Borrar una entrada de tss
 void gdt_remove_tss(short index);
 

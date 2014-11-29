@@ -23,8 +23,6 @@
 #define KSTACK_SIZE     (KSTACK_PAGES*PAGE_SZ)
 #define KSTACK_BASE     (KSTACK_START+KSTACK_SIZE)
 
-extern page_directory* current_directory;
-
 //Tss de la tarea inicial (el shell) y la de
 //kernel (que no hace nada y es un sentinela).
 tss initial_task, kernel_tss;
@@ -49,8 +47,7 @@ void switch_kernel_mode()
     irq_sti(eflags);
 }
 
-static void handle_signals_kernel_mode(process_info* p,
-                                       uint*,uint*);
+static void handle_signals_kernel_mode(process_info* p, intptr*, intptr*);
 
 //Pasa el procesador a modo usuario
 void switch_user_mode(int_trace* t)
@@ -193,21 +190,21 @@ static void free_process(process_info* p)
 //Para eso sirven las siguientes dos funciones.
 //Son dos separadas porque no queremos perder memoria: cuando
 //matemos un proceso vamos a liberar su tss tambien.
-static void* new_tss_space()
+static void* new_tss_space(void)
 {
     return kmalloc(2*sizeof(tss)+1);
 }
 
 static tss* get_contiguous_tss(void* space)
 {
-    uint pas  = physical_address(current_directory,(uint)space);
+    uint pas  = physical_address(current_directory,(intptr)space);
     uint panb = physical_address(
-        current_directory,(uint)space+sizeof(tss));
+        current_directory,(intptr)space+sizeof(tss));
     uint fas = ALIGN(pas), fanb = ALIGN(panb);
     if(fas == fanb || fas == fanb+1) {
         return space;
     }
-    return (void*)((uint)space+sizeof(tss));
+    return (void*)((intptr)space+sizeof(tss));
 }
 
 //Crea una nueva pila que tiene su tope
@@ -276,12 +273,12 @@ static void init_tss(tss* new_tss, gen_regs* regs,
     new_tss->iomap_addr = sizeof(tss);
 }
 
+extern void enter_coma(int);
+extern void die_on_signal(int);
+extern void ignore_signal(int);
 static void init_signal_handling(process_info* p)
 {
     p->signal_bitmap = p->ignore_bitmap = 0;
-    extern void enter_coma();
-    extern void die_on_signal();
-    extern void ignore_signal();
     for(int i = 0; i < SIGNALS; i++) {
         p->signal_handlers[i] = die_on_signal;
     }
@@ -308,9 +305,9 @@ void init_process_tree_info(process_info* pi,
 process_info* create_process_info(process_info* parent,
                                   short tss_index,
                                   void* tss_space,
-                                  tss* tss,
+                                  tss* tssptr,
                                   page_directory* pd,
-                                  char * cwd)
+                                  const char * cwd)
 {
     process_info* pi = kmalloc(sizeof(process_info));
     if(pi == NULL) return NULL;
@@ -320,12 +317,12 @@ process_info* create_process_info(process_info* parent,
 
     pi->tss_selector = tss_index;
     pi->tss_space_start = tss_space;
-    pi->tss = tss;
+    pi->tss = tssptr;
     pi->remaining_quantum = START_QUANTUM;
     pi->page_dir = pd;
     pi->kernel_mode = !parent || parent->kernel_mode;
 
-    char * cwdtemp = (cwd) ? cwd : "/";
+    const char * cwdtemp = (cwd) ? cwd : "/";
     strcpy(pi->cwd,cwdtemp);
 
     memset(pi->fds,0,sizeof(pi->fds));
@@ -343,7 +340,7 @@ static void copy_kernel_stack(page_directory* new_dir)
     }
 }
 
-int do_fork(uint kernel_esp, gen_regs regs, uint eflags, uint eip)
+int do_fork(intptr kernel_esp, gen_regs regs, uint32 eflags, intptr eip)
 {
     page_directory* new_dir = clone_directory(current_directory);
     process_info * curr = get_current_task();
@@ -367,7 +364,7 @@ int do_fork(uint kernel_esp, gen_regs regs, uint eflags, uint eip)
     copy_kernel_stack(new_dir);
     set_tss_kernel_mode(new_tss,kernel_esp);
 
-    short tss_index = gdt_add_tss((uint)new_tss);
+    short tss_index = gdt_add_tss((intptr)new_tss);
     if(tss_index == -1) return ERRGDTFULL;
 
     process_info * pi;
@@ -410,11 +407,12 @@ int elf_overlay_image(elf_file* elf)
         elf_segment* e = elf_get_segment(elf,i);
         if(e == NULL) return ERRREADINGELF;
         if(e->type == ELF_LOAD && e->mem_size > 0) {
-            uint address,start_address;
+            intptr address,start_address;
             address = start_address = e->virtual_address;
             uint remaining = e->mem_size, copied = 0;
+            int memsize = e->mem_size;
 
-            for(; address < start_address + e->mem_size;
+            for(; address < start_address + memsize;
                 address=NEXT_ALIGN(address)) {
 
                 uint new_frame = frame_alloc();
@@ -452,7 +450,7 @@ static inline int add_to_round_robin(process_info* p)
     return p->status == P_RUNNING;
 }
 
-static process_info* search_available_task()
+static process_info* search_available_task(void)
 {
     process_info* p;
     list_for_each_entry(p,&processes,process_list) {
@@ -469,18 +467,18 @@ process_info* get_current_task()
     return current_process;
 }
 
-void invalidate_current_task()
+void invalidate_current_task(void)
 {
     current_process = NULL;
 }
 
+extern void tss_task_switch(short selector);
 void perform_task_switch(process_info* next)
 {
     if(next == NULL) {
         kernel_panic("Saltando a tarea nula");
     }
     //Definido en task_switch.asm
-    extern void tss_task_switch(short selector);
     set_current_directory(next->page_dir);
     current_process = next;
     switch_kernel_mode();
@@ -510,10 +508,10 @@ process_info* next_task()
     return NULL;
 }
 
-static short init_kernel_task()
+static short init_kernel_task(void)
 {
     memset(&kernel_tss,0,sizeof(tss));
-    return gdt_add_tss((uint)&kernel_tss);
+    return gdt_add_tss((intptr)&kernel_tss);
 }
 
 static process_info* init_initial_task(void* code_buffer)
@@ -525,18 +523,20 @@ static process_info* init_initial_task(void* code_buffer)
     //elf_overlay_image porque sino no se puede copiar)
     elf_overlay_image(e);
     elf_destroy(e);
-    tss* initial_task_tss = &initial_task;
-    init_tss(initial_task_tss,
+
+    intptr initial_task_tss = (intptr) &initial_task;
+
+    init_tss(&initial_task,
              NULL,
              elf_entry_point(e),
              get_eflags(),
              current_directory);
-    if(create_user_stack(current_directory, initial_task_tss))
+    if(create_user_stack(current_directory, &initial_task))
         return NULL;
-    if(create_kernel_stack(current_directory, initial_task_tss))
+    if(create_kernel_stack(current_directory, &initial_task))
         return NULL;
 
-    short tss_index = gdt_add_tss((uint)initial_task_tss);
+    short tss_index = gdt_add_tss(initial_task_tss);
     if(tss_index == -1) {
         return NULL;
     }
@@ -544,7 +544,8 @@ static process_info* init_initial_task(void* code_buffer)
     //TSS space es nulo porque cuando lo liberemos, no
     //debemos liberar espacio estatico de kernel
     process_info* p = create_process_info(NULL,tss_index,
-                                          NULL,initial_task_tss,current_directory,"/");
+                                          NULL,&initial_task,
+                                          current_directory,"/");
     add_process(p);
     return p;
 }
@@ -561,7 +562,7 @@ void jump_to_initial(void* task_code)
     perform_task_switch(init);
 }
 
-static void switch_to_next_task()
+static void switch_to_next_task(void)
 {
     process_info * p = next_task(),
     * current = get_current_task();
@@ -628,14 +629,14 @@ static char * push_into_user_stack(char * stack_start,
         uint bytes = strlen(str)+1;
         if(bytes > EXEC_MAX_ARGSZ) return NULL;
         stack = push_stack(stack,str,bytes);
-        pos[i] = (uint) stack;
+        pos[i] = (intptr) stack;
     }
     //Pusheamos el arreglo de puntero a los strings anteriores
     for(int i = count-1; i >= 0; i--) {
         stack = push_stack(stack,&pos[i],sizeof(uint));
     }
     //Pusheamos el puntero al arreglo de punteros
-    uint stackpos = (uint) stack;
+    intptr stackpos = (intptr) stack;
     stack = push_stack(stack,&stackpos,sizeof(stackpos));
     //Pusheamos la cantidad de parametros
     stack = push_stack(stack,&_count,sizeof(_count));
@@ -655,34 +656,37 @@ void process_filename(char * user_filename, char * filename)
     }
 }
 
-int do_exec(char* user_filename, char** args, int_trace * t,uint * ebp)
+int do_exec(char* user_filename, char** args, int_trace * t,void * ebp)
 {
+    int fd = 0, error = 0, read = 0, i = 0;
+    elf_file * e  = NULL;
+    void * mem    = NULL;
+    char * stack  = NULL;
+    char filename[FS_MAXLEN+1];
+    process_info * p = NULL;
+    uint argc = 0, size = 0;
+
     #define check(c,e) if(!(c)) { error = e; goto done; }
     //Vamos a reemplazar la imagen actual con la imagen dada por
     //el archivo filename (con respecto al directorio actual
     //en caso de ser necesario)
 
-    int fd, error = 0;
-    elf_file * e  = NULL;
-    void * mem    = NULL;
+    p = get_current_task();
 
-    process_info * p = get_current_task();
-
-    uint argc = count_arguments(args);
+    argc = count_arguments(args);
     check(argc <= EXEC_MAX_ARGC,ERRTOOMANYARGS);
 
     //Primero hay que levantar el ejecutable de memoria y validar ciertas
     //cosas como por ejemplo que tenga un tamaño aceptable
-    char filename[FS_MAXLEN];
     process_filename(user_filename,filename);
 
     fd = do_open(filename,FS_RD);
     check(fd >= 0, ERRINVFILE);
-    uint size = get_file_size(fd);
+    size = get_file_size(fd);
     check(size < EXEC_MAX_FSIZE,ERRBIGEXEC);
 
     mem = kmalloc(size);
-    int read = do_read(fd,size,mem);
+    read = do_read(fd,size,mem);
 
     check(!do_close(fd),ERRREAD);
     check(read >= 0, ERRREAD);
@@ -694,10 +698,10 @@ int do_exec(char* user_filename, char** args, int_trace * t,uint * ebp)
     //Pusheamos los argumentos en la pila del proceso
     //Esto hay que hacerlo antes de liberar las paginas porque potencialmente
     //los punteros estan en la zona de texto
-    char * stack = push_into_user_stack((char *) USTACK_BASE,args,argc);
+    stack = push_into_user_stack((char *) USTACK_BASE,args,argc);
     check(stack != NULL, ERRARGTOOBIG);
-    t->useresp = (uint) stack;
-    *ebp = USTACK_BASE;
+    t->useresp = (intptr) stack;
+    *((intptr*)ebp) = USTACK_BASE;
 
     //Primero hay que liberar todas las paginas que tenga el proceso
     //de las que sea propietario excepto las de la pila de kernel
@@ -711,7 +715,7 @@ int do_exec(char* user_filename, char** args, int_trace * t,uint * ebp)
     check(!elf_overlay_image(e),ERRREADINGELF);
     //Cerramos todos los file descriptors abiertos por el proceso
     //excepto entrada y salida estandar por comodidad
-    for(int i = 2; i < MAX_FDS; i++)
+    for(i = 2; i < MAX_FDS; i++)
         if(!unused_fd(p,i))
             do_close(i);
 
@@ -773,9 +777,9 @@ static void swap_user_stacks(page_directory* p, page_directory* q)
 
 static void
 set_signal_stack_frame(process_info* p,
-                       uint* prev_esp,
-                       uint* prev_eip,
-                       void (*signal_handler)(int),
+                       intptr* prev_esp,
+                       intptr* prev_eip,
+                       void (*handler)(int),
                        int signal_code)
 {
     int* user_stack = (int*)(*prev_esp);
@@ -784,27 +788,27 @@ set_signal_stack_frame(process_info* p,
     process_info* ct = get_current_task();
     swap_user_stacks(ct->page_dir,p->page_dir);
     *(--user_stack) = *prev_eip;
-    *(--user_stack) = (int) signal_handler;
+    *(--user_stack) = (intptr) handler;
     *(--user_stack) = signal_code;
-    *prev_esp = (uint) user_stack;
+    *prev_esp = (intptr) user_stack;
     swap_user_stacks(ct->page_dir,p->page_dir);
 }
 
-void prepare_handler(process_info* p,uint* prev_esp,
-                     uint* prev_eip, int signal_code)
+extern void signal_trampoline(void);
+void prepare_handler(process_info* p,intptr * prev_esp,
+                     intptr* prev_eip, int signal_code)
 {
     set_signal_stack_frame(p,prev_esp,prev_eip,
                            p->signal_handlers[signal_code],
                            signal_code);
     p->ignore_bitmap |= (1 << signal_code);
-    extern void signal_trampoline(void);
-    *prev_eip = (uint) signal_trampoline;
+    *prev_eip = (intptr) signal_trampoline;
 }
 
 static void
 handle_signals_kernel_mode(process_info* p,
-                           uint* user_esp,
-                           uint* user_eip)
+                           intptr * user_esp,
+                           intptr * user_eip)
 {
     int i;
     for(i = SIGNALS-1; i >= 0; i--) {

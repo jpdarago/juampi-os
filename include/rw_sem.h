@@ -13,7 +13,7 @@ typedef struct {
     sem * turnstile;
 } rw_sem;
 
-rw_sem * rw_sem_create();
+rw_sem * rw_sem_create(void);
 void rw_sem_destroy(rw_sem *);
 void rw_sem_wlock(rw_sem *);
 void rw_sem_wunlock(rw_sem *);

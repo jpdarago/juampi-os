@@ -7,7 +7,7 @@
 #define CMOS_ADDR 0x70
 #define CMOS_DATA 0x71
 
-bool update_in_progress()
+bool update_in_progress(void)
 {
     outb(CMOS_ADDR, 0x0A);
     return (inb(CMOS_DATA) & 0x80);

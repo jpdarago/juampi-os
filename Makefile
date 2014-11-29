@@ -3,7 +3,14 @@ ASM=nasm
 LINKER=ld
 LINK.o=ld
 
-CFLAGS=-m32 -O2 -std=c99 -Wall -nostdlib -fno-builtin -nostartfiles -nodefaultlibs -fno-stack-protector -I./include
+CFLAGS=-m32 -O2 -std=c99 -Werror -Wall -Wextra\
+	-Wno-unused-parameter -Wno-override-init\
+	-Wunreachable-code -Wshadow -Wcast-qual \
+	-Wformat=2 -Wwrite-strings -Wstrict-prototypes\
+	-Wredundant-decls -Wnested-externs -Wmissing-include-dirs\
+	-Wjump-misses-init -Wlogical-op\
+	-nostdlib -fno-builtin -nostartfiles\
+	-nodefaultlibs -fno-stack-protector -I./include
 
 NASMFLAGS=-i./include/ -felf32
 LINKSCRIPT=linkage/linker.ld

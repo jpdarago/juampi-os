@@ -13,7 +13,7 @@ syscall syscalls[MAX_SYSCALLS];
 void syscall_scrn_print(gen_regs* r, int_trace* it)
 {
     uchar row = r->ebx, col = r->ecx;
-    char* str = (char*) r->edx;
+    char* str = (char*)((intptr) r->edx);
     r->eax = scrn_pos_print(row,col,str);
 }
 
@@ -42,7 +42,7 @@ void syscall_kill(gen_regs* r,int_trace* it)
 }
 void syscall_signal(gen_regs* r,int_trace* it)
 {
-    r->eax = do_signal(r->ebx,(signal_handler)r->ecx);
+    r->eax = do_signal(r->ebx,(signal_handler)((intptr)r->ecx));
 }
 void syscall_clear_signal(gen_regs* r,int_trace* it)
 {
@@ -51,7 +51,7 @@ void syscall_clear_signal(gen_regs* r,int_trace* it)
 
 void syscall_open(gen_regs *r, int_trace *it)
 {
-    char * pathname = (char *)r->ebx;
+    char * pathname = (char *)((intptr)r->ebx);
     uint flags = r->ecx;
 
     r->eax = do_open(pathname,flags);
@@ -61,7 +61,7 @@ void syscall_read(gen_regs *r, int_trace *it)
 {
     int fd = r->ebx;
     uint bytes = r->ecx;
-    void * buffer = (void *) r->edx;
+    void * buffer = (void *) ((intptr) r->edx);
 
     r->eax = do_read(fd,bytes,buffer);
 }
@@ -76,7 +76,7 @@ void syscall_write(gen_regs *r, int_trace *it)
 {
     int fd = r->ebx;
     uint bytes = r->ecx;
-    void * buffer = (void *) r->edx;
+    void * buffer = (void *) ((intptr)r->edx);
 
     r->eax = do_write(fd,bytes,buffer);
 }
@@ -86,8 +86,8 @@ void syscall_exec(gen_regs *r, int_trace *it)
     //TODO: el cli aca implica que la llamada a disco
     //que hace exec es super bloqueante. Considerar cambiar eso.
     uint eflags = irq_cli();
-    char * filename = (char *) r->ebx;
-    char ** args = (char **) r->ecx;
+    char * filename = (char *) ((intptr)r->ebx);
+    char ** args = (char **) ((intptr)r->ecx);
     int res = do_exec(filename,args,it,&r->ebp);
     irq_sti(eflags);
     r->eax = res;
@@ -100,26 +100,26 @@ void syscall_get_pid(gen_regs *r, int_trace *it)
 
 void syscall_get_cwd(gen_regs *r, int_trace *it)
 {
-    char * buf = (char *) r->ebx;
+    char * buf = (char *) ((intptr)r->ebx);
     do_get_cwd(buf);
 }
 
 void syscall_set_cwd(gen_regs *r, int_trace *it)
 {
-    const char * new_dir = (const char *) r->ebx;
+    const char * new_dir = (const char *) ((intptr)r->ebx);
     r->eax = do_set_cwd(new_dir);
 }
 
 void syscall_readdir(gen_regs *r, int_trace *it)
 {
     int fd = r->ebx;
-    dirent * d = (dirent *) r->ecx;
+    dirent * d = (dirent *) ((intptr)r->ecx);
     r->eax = do_readdir(fd,d);
 }
 
 void syscall_gettime(gen_regs *r, int_trace *it)
 {
-    date * d = (date *) r->ebx;
+    date * d = (date *) ((intptr)r->ebx);
     get_current_date(d);
     r->eax = 0;
 }

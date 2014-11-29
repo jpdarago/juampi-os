@@ -1,6 +1,6 @@
 #include <utils.h>
 
-unsigned int strlen(const char* str)
+uint strlen(const char* str)
 {
     unsigned int i = 0;
     while(str[i]) {
@@ -31,9 +31,9 @@ void strcat(char* dst, const char* src)
     dst[i] = '\0';
 }
 
-int memcmp(void* _m1, void* _m2, uint bytes)
+int memcmp(const void* _m1, const void* _m2, uint bytes)
 {
-    char* m1 = _m1, * m2 = _m2;
+    const char* m1 = _m1, * m2 = _m2;
     for(uint i = 0; i < bytes; i++)
         if(m1[i] != m2[i]) {
             return (m1[i]-m2[i] < 0) ? -1 : 1;
@@ -41,7 +41,7 @@ int memcmp(void* _m1, void* _m2, uint bytes)
     return 0;
 }
 
-int strcmp(char* str1, char* str2)
+int strcmp(const char* str1, const char* str2)
 {
     uint i;
     for(i = 0; str1[i] == str2[i]; i++)
@@ -51,7 +51,7 @@ int strcmp(char* str1, char* str2)
     return str1[i]-str2[i];
 }
 
-unsigned int umax(unsigned int a, unsigned int b)
+uint umax(unsigned int a, uint b)
 {
     return (a < b) ? b : a;
 }
@@ -95,9 +95,9 @@ void num_to_str(uint n, uint base, char* output)
     strcpy(output,buf);
 }
 
-void strncpy(char* dst, char* src, unsigned int len)
+void strncpy(char* dst, const char* src, uint len)
 {
-    for(int i = 0; i < len; i++) {
+    for(uint i = 0; i < len; i++) {
         if(src[i] == '\0') {
             dst[i] = '\0';
             return;

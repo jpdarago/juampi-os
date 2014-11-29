@@ -44,10 +44,10 @@
 #define ATA_COMM_FLUSHCACHE     0xE7
 
 //Inicializar y detectar discos
-void hdd_init();
+void hdd_init(void);
 //Leer (usando LBA 28) una cantidad de bytes de un disco a un buffer
-void hdd_read(uint, uint, void *);
+void hdd_read(uint, uint32, void *);
 //Escribir (usando LBA 28) una cantidad de bytes de un disco a un buffer
-void hdd_write(uint,uint, void *);
+void hdd_write(uint,uint32, void *);
 
 #endif

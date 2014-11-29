@@ -2,7 +2,7 @@
 #include <exception.h>
 #include <scrn.h>
 
-static uchar ata_read_stable()
+static uchar ata_read_stable(void)
 {
     uchar status;
     //Se lee el registro 5 veces para generar un
@@ -15,7 +15,7 @@ static uchar ata_read_stable()
     return status;
 }
 
-static void ata_reset()
+static void ata_reset(void)
 {
     uchar status;
     outb(ATA_PRIMARY_DEVCONTROL,ATA_CTRL_SRST);
@@ -46,7 +46,7 @@ static void hdd_setup_lba(uint lba_address, uint sectors, uchar command)
     outb(ATA_PRIMARY_COMSTAT,command);
 }
 
-static void hdd_ata_wait()
+static void hdd_ata_wait(void)
 {
     uchar status;
     while(((status = inb(ATA_PRIMARY_COMSTAT)) & ATA_STATUS_BSY) == ATA_STATUS_BSY) ;

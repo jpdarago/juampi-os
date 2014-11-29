@@ -11,14 +11,14 @@ extern uint strlen(const char *str);
 extern void strcpy(char * dst, const char * src);
 extern void strcat(char * dst, const char * src);
 
-extern int memcmp(void *, void *, uint );
-extern int strcmp(char *, char *);
+extern int memcmp(const void *, const void *, uint );
+extern int strcmp(const char *, const char *);
 
 extern uint umax(uint, uint);
 
 void num_to_str(uint, uint, char *);
 
-void strncpy(char *,char *,unsigned int);
+void strncpy(char *,const char *,unsigned int);
 
 bool is_alpha(char c);
 

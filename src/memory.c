@@ -7,17 +7,17 @@
 //El manejador de memoria es una adaptacion minima del propuesto en el K & R.
 //Inicializa el manejador de memoria del Kernel para funcionar sobre
 //el espacio y tamanio dados.
-kmem_map_header* kmem_init(void* memory_start, uint memory_units)
+kmem_map_header* kmem_init(void* memory_start, int memory_units)
 {
     kmem_map_header* mem = memory_start;
     mem->freep = (kmem_header*)((char*) memory_start+sizeof(kmem_map_header));
     mem->freep->next = mem->freep;
     mem->freep->size = memory_units-sizeof(kmem_map_header)-sizeof(kmem_header);
-    mem->heap_end = (uint) memory_start + memory_units;
+    mem->heap_end = (intptr) memory_start + memory_units;
     return mem;
 }
 
-static kmem_header* best_fit_prev(kmem_map_header* mh,uint units)
+static kmem_header* best_fit_prev(kmem_map_header* mh,int units)
 {
     kmem_header* ptr = mh->freep->next, * best = NULL;
     kmem_header* ptr_prev = mh->freep, * best_prev = NULL;
@@ -48,13 +48,13 @@ static void* kmem_append_core(kmem_map_header* mh, uint units)
 }
 
 //Asigna memoria RAM libre de Kernel. Devuelve NULL si no hay memoria
-void* kmem_alloc(kmem_map_header* mh, uint size)
+void* kmem_alloc(kmem_map_header* mh, int size)
 {
     if(size == 0) {
         return NULL;
     }
     //Necesito pedir el espacio para el encabezado tambien.
-    uint units = size + sizeof(kmem_header);
+    int units = size + sizeof(kmem_header);
     //Encontrar bloque libre del tamanio necesario.
     //Implementacion: Best Fit
     kmem_header* best_prev = best_fit_prev(mh,units), * best;
@@ -78,7 +78,7 @@ void* kmem_alloc(kmem_map_header* mh, uint size)
         }
     } else {
         best->size -= units;
-        best = (kmem_header*)((uint) best + best->size);
+        best = (kmem_header*)((intptr) best + best->size);
         best->size = units;
         mh->freep = best_prev;
     }
@@ -106,14 +106,14 @@ void kmem_free(kmem_map_header* mh, void* p)
             break;
         }
     //Limpiar los bloques de los extremos que estan libres
-    uint bptr_addr = (uint)bptr,ptr_addr = (uint)ptr;
-    if(bptr_addr + bptr->size == (uint) ptr->next) {
+    intptr bptr_addr = (intptr)bptr,ptr_addr = (intptr)ptr;
+    if(bptr_addr + bptr->size == (intptr) ptr->next) {
         bptr->size += ptr->next->size;
         bptr->next = ptr->next->next;
     } else {
         bptr->next = ptr->next;
     }
-    if(ptr_addr + ptr->size == (uint) bptr) {
+    if(ptr_addr + ptr->size == (intptr) bptr) {
         ptr->size += bptr->size;
         ptr->next = bptr->next;
     } else {
@@ -124,7 +124,7 @@ void kmem_free(kmem_map_header* mh, void* p)
 }
 
 //Asigna memoria RAM libre de Kernel, alineada a pagina.
-void* kmem_alloc_aligned(kmem_map_header* mh, uint size)
+void* kmem_alloc_aligned(kmem_map_header* mh, int size)
 {
     if(size == 0) {
         return NULL;
@@ -146,10 +146,10 @@ void* kmem_alloc_aligned(kmem_map_header* mh, uint size)
     }
     best = best_prev->next;
     //Obtengo la direccion del pedazo de memoria
-    uint best_addr = (uint) best, header_sz = sizeof(kmem_header);
-    uint block_addr= ALIGN(PAGE_SZ - 1 + header_sz + best_addr);
-    uint header_addr = block_addr - header_sz;
-    uint prev_size = best->size;
+    intptr best_addr = (intptr) best, header_sz = sizeof(kmem_header);
+    intptr block_addr= ALIGN(PAGE_SZ - 1 + header_sz + best_addr);
+    intptr header_addr = block_addr - header_sz;
+    intptr prev_size = best->size;
     kmem_header* header = (kmem_header*) header_addr;
     header->size = size+header_sz;
     if(best_addr != header_addr) {

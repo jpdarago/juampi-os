@@ -73,10 +73,10 @@ void switch_page_directory(page_directory* dir)
 }
 
 //Siguiente posicion para pedir una tabla de paginas
-static uint page_tables_vs;
+static intptr page_tables_vs;
 
 //Inicializa el administrador de frames (internamente usa un bitmap)
-static uint frames_init(uint start_address, uint memory_end)
+static uint frames_init(intptr start_address, intptr memory_end)
 {
     uint used_upper_mem = 0, megabyte = 1024*1024;
     uint total_upper_mem = memory_end - start_address;
@@ -90,9 +90,9 @@ static uint frames_init(uint start_address, uint memory_end)
 //Mapea table_index a un frame (que se espera sea consecutivo porque esta
 //funcion se corre al principio para generar el mapa de memoria de kernel previo
 //a activar paginacion, porque despues se utiliza la heap para eso).
-void create_table_entry(page_directory* kernel_dir, uint table_index)
+void create_table_entry(page_directory* kernel_directory, uint table_index)
 {
-    uint table_dir = frame_alloc(); //Como esto corre al principio,
+    intptr table_dir = frame_alloc(); //Como esto corre al principio,
     //frame_alloc devuelve frames consecutivos.
     if(table_dir != page_tables_vs) {
         kernel_panic("Paginas de kernel no continuas\n");
@@ -103,8 +103,8 @@ void create_table_entry(page_directory* kernel_dir, uint table_index)
     table_entry.user = 1; //Proteccion a nivel tabla no tiene sentido
     table_entry.frame = table_dir >> 12;
     page_tables_vs += PAGE_SZ;
-    kernel_dir->tables_phys[table_index] = table_entry;
-    kernel_dir->tables_virtual[table_index] = (page_table*) table_dir;
+    kernel_directory->tables_phys[table_index] = table_entry;
+    kernel_directory->tables_virtual[table_index] = (page_table*) table_dir;
 }
 
 //Extiende el mapa de memoria de kernel pasado por parametro, indicando
@@ -160,7 +160,7 @@ page_directory* clone_directory(page_directory* src)
         return NULL;
     }
     memset(p,0,sizeof(page_directory));
-    p->physical_address = physical_address(kernel_dir,(uint)p);
+    p->physical_address = physical_address(kernel_dir,(intptr)p);
     for(uint i = 0; i < PAGE_TABLES; i++) {
         if(!src->tables_phys[i].present) {
             continue;
@@ -174,7 +174,7 @@ page_directory* clone_directory(page_directory* src)
             p->tables_virtual[i] = clone_table(src->tables_virtual[i]);
             p->tables_phys[i].frame =
                 physical_address(kernel_dir,
-                                 (uint)p->tables_virtual[i]) >> PAGE_BW;
+                                 (intptr)p->tables_virtual[i]) >> PAGE_BW;
             p->tables_phys[i].present = 1;
             p->tables_phys[i].read_write = 1;
             //Podemos tener tablas que sean de kernel:
@@ -185,14 +185,17 @@ page_directory* clone_directory(page_directory* src)
     return p;
 }
 
+extern uint signal_handlers_start;
+extern uint signal_handlers_end;
+
 //Inicializa paginacion dadas la ultima direccion del codigo del kernel y
 //la ultima direccion fisica dada por la memoria
-void paging_init(uint end_address, uint memory_end)
+void paging_init(intptr end_address, intptr memory_end)
 {
     end_address = NEXT_ALIGN(end_address);
     kernel_dir = (page_directory*) end_address;
     memset(kernel_dir,0,sizeof(page_directory));
-    kernel_dir->physical_address = (uint) kernel_dir;
+    kernel_dir->physical_address = (intptr) kernel_dir;
     end_address += sizeof(page_directory);
     end_address = NEXT_ALIGN(end_address);
     //Creamos el manejador para los frames.
@@ -226,15 +229,13 @@ void paging_init(uint end_address, uint memory_end)
     end_address = page_tables_vs;
     //Hacemos identity mapping del kernel: Todo lo necesario es ahora
     //accesible de manera transparente.
-    for(uint page = 0; page < end_address; page += PAGE_SZ) {
+    for(page = 0; page < end_address; page += PAGE_SZ) {
         map_page(kernel_dir,page,page,PAGEF_P | PAGEF_RW);
     }
     //Los signal handlers son de usuario asi que los mapeamos como
     //usuario. Usamos simbolos de linker para encontrarlos
-    extern uint signal_handlers_start;
-    extern uint signal_handlers_end;
-    for(uint page = (uint) &signal_handlers_start;
-        page < (uint) &signal_handlers_end; page += PAGE_SZ) {
+    for(page = (intptr) &signal_handlers_start;
+        page < (intptr) &signal_handlers_end; page += PAGE_SZ) {
         map_page(kernel_dir,page,page,PAGEF_P | PAGEF_U);
     }
     //Ahora mapeamos la heap inicial de kernel
@@ -249,7 +250,7 @@ void paging_init(uint end_address, uint memory_end)
     switch_page_directory(current_directory);
 }
 
-static void tlb_flush()
+static void tlb_flush(void)
 {
     uint eflags = irq_cli();
     uint cr0;
@@ -295,7 +296,7 @@ void map_page(page_directory* pd, uint va,uint pa,uint flags)
         if(page == NULL) {
             kernel_panic("No hay mas memoria para tablas\n");
         }
-        uint frame = physical_address(kernel_dir,(uint) page);
+        uint frame = physical_address(kernel_dir,(intptr) page);
         memset(page,0,PAGE_SZ);
         page_table_entry tentry;
         memset(&tentry,0,sizeof(tentry));
@@ -334,7 +335,7 @@ void page_directory_destroy(page_directory * p)
     kmem_free(kernel_heap,p);
 }
 
-static void page_error_kill(char* message, exception_trace* t)
+static void page_error_kill(const char* message, exception_trace* t)
 {
     scrn_cls();
     scrn_setcursor(0,0);

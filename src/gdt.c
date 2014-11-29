@@ -1,13 +1,14 @@
 #include <types.h>
 #include <utils.h>
 #include <gdt.h>
+#include <asserts.h>
 #include <tss.h>
 #include <exception.h>
 #include <irq.h>
 
 seg_desc gdt[GDT_COUNT];
 gdt_desc GDT_DESC = {
-    .gdt_base = (uint)& gdt,
+    .gdt_base = (intptr) &gdt,
     .gdt_limit = sizeof(gdt)-1
 };
 
@@ -37,8 +38,9 @@ void gdt_init()
     GDT_LOAD_DESC(4,0,0xFFFFF, .type = DATA_RW, .dpl = 3);
 }
 
-short gdt_add_tss(uint tss_virtual)
+short gdt_add_tss(intptr tss_virtual)
 {
+    fail_unless(tss_virtual == tss_virtual);
     uint eflags = irq_cli();
     uint i;
     short res = -1;

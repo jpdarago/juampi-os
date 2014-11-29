@@ -4,9 +4,9 @@
 #include <types.h>
 
 uint frame_alloc_init(void * mem_start,uint);
-uint frame_alloc();
+uint frame_alloc(void);
 void frame_free(uint frame);
-uint frames_available();
+uint frames_available(void);
 void frame_add_alias(uint frame);
 
 #endif

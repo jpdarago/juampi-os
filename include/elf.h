@@ -5,19 +5,19 @@
 
 typedef struct {
     char magic[16];
-    unsigned short type;
-    unsigned short machine;
-    unsigned int version;
-    unsigned int entry_point;
-    unsigned int ph_offset;
-    unsigned int sh_offset;
-    unsigned int flags;
-    unsigned short header_size;
-    unsigned short ph_entry_size;
-    unsigned short ph_entry_count;
-    unsigned short sh_entry_size;
-    unsigned short sh_entry_count;
-    unsigned short sh_string_table_index;
+    uint16 type;
+    uint16 machine;
+    uint32 version;
+    uint32 entry_point;
+    uint32 ph_offset;
+    uint32 sh_offset;
+    uint32 flags;
+    uint16 header_size;
+    uint16 ph_entry_size;
+    uint16 ph_entry_count;
+    uint16 sh_entry_size;
+    uint16 sh_entry_count;
+    uint16 sh_string_table_index;
 } __attribute__((__packed__)) elf_header;
 
 #define EI_CLASS 4
@@ -34,16 +34,16 @@ typedef struct {
 #define ELFDATA2MSB 2
 
 typedef struct {
-    unsigned int name;
-    unsigned int type;
-    unsigned int flags;
-    unsigned int address;
-    unsigned int offset;
-    unsigned int size;
-    unsigned int link;
-    unsigned int info;
-    unsigned int address_align;
-    unsigned int entry_size;
+    uint32 name;
+    uint32 type;
+    uint32 flags;
+    uint32 address;
+    uint32 offset;
+    uint32 size;
+    uint32 link;
+    uint32 info;
+    uint32 address_align;
+    uint32 entry_size;
 } __attribute__((__packed__)) elf_sheader;
 
 #define SHN_UNDEF 0
@@ -56,19 +56,19 @@ typedef struct {
 #define ELF_ATTR_RB 4
 
 typedef struct {
-    unsigned int type;
-    unsigned int offset;
-    unsigned int virtual_address;
-    unsigned int physical_address;
-    unsigned int file_size;
-    unsigned int memory_size;
-    unsigned int flags;
-    unsigned int align;
+    uint32 type;
+    uint32 offset;
+    uint32 virtual_address;
+    uint32 physical_address;
+    uint32 file_size;
+    uint32 memory_size;
+    uint32 flags;
+    uint32 align;
 } __attribute__((__packed__)) elf_pheader;
 
 typedef struct {
     void * data;
-    uint virtual_address;
+    intptr virtual_address;
     uint type;
     uint file_size,mem_size;
     uint attributes;

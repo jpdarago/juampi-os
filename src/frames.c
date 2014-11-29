@@ -19,12 +19,11 @@ static uint* count;
 //del primer frame de datos utiles (o sea, calcula el tamaño del bitset)
 uint frame_alloc_init(void* _mem_start, uint frames)
 {
-    uint mem = FRAME_ALIGN((uint) _mem_start + FRAME_SZ - 1);
+    intptr mem = FRAME_ALIGN((intptr) _mem_start + FRAME_SZ - 1);
     mem_start = mem;
-    uint bitset_end = bitset_init(&b,(void*)mem,frames);
-    count = (uint*) bitset_end;
+    count = bitset_init(&b,(void*)mem,frames);
     memset(count,0,frames*sizeof(uint));
-    uint frame_alloc_finish = (uint)(count + frames);
+    uint frame_alloc_finish = (intptr)(count + frames);
     uint needed = CEIL(frame_alloc_finish - mem_start,FRAME_SZ);
     for(uint i = 0; i < needed; i++) {
         bitset_set(&b,i);

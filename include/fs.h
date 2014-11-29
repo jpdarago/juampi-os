@@ -4,8 +4,8 @@
 #include <types.h>
 #include <vfs.h>
 
-void init_disk_super_block();
-super_block * get_disk_super_block();
+void init_disk_super_block(void);
+super_block * get_disk_super_block(void);
 
 int invalid_path(const char * dir);
 int do_open(char * pathname, uint flags);

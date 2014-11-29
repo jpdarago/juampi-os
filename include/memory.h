@@ -5,18 +5,18 @@
 
 typedef struct kmem_header {
     struct kmem_header * next;
-    uint size;
+    int size;
 } kmem_header;
 
 typedef struct {
     kmem_header * freep;
-    uint heap_end;
+    intptr heap_end;
 } kmem_map_header;
 
-kmem_map_header * kmem_init(void *, uint);
-void * kmem_alloc(kmem_map_header *, uint);
+kmem_map_header * kmem_init(void *, int);
+void * kmem_alloc(kmem_map_header *, int);
 void kmem_free(kmem_map_header *, void *);
-void * kmem_alloc_aligned(kmem_map_header *, uint);
+void * kmem_alloc_aligned(kmem_map_header *, int);
 
 //Consigue memoria de kernel
 void * kmalloc(uint size);

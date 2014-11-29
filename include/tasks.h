@@ -80,7 +80,7 @@ typedef struct process_info {
     bool kernel_mode;
     //Valores donde estan el esp y eip cuando vuelva de
     //la system call (solo valido si esta en kernel mode)
-    uint * prev_esp_pos, * prev_eip_pos;
+    intptr prev_esp_pos, prev_eip_pos;
     //Posicion en la lista de procesos
     list_head process_list;
     //Posicion en la lista de procesos del padre
@@ -99,41 +99,41 @@ typedef struct process_info {
 extern list_head processes;
 
 //Inicializa el scheduler de procesos
-void scheduler_init();
+void scheduler_init(void);
 //Helper para forkear
-int do_fork(uint,gen_regs,uint,uint);
+int do_fork(intptr,gen_regs,uint,intptr);
 //Cambiar la imagen de proceso actual por la pasada
 //por parametro, con los argumentos en la pila indicados.
 //Devuelve 0 si tuvo exito, -1 si fallo
-int do_exec(char * filename, char ** args, int_trace *,uint *);
+int do_exec(char * filename, char ** args, int_trace *,void *);
 //Esperar por el proceso hijo de pid indicado
 int do_wait(uint child_pid);
 //Devuelve la tss de la proxima tarea a ejecutar.
-process_info * next_task();
+process_info * next_task(void);
 //Pega la imagen del buffer de archivo elf pasado por parametro
 int elf_overlay_image(elf_file * e);
 //Devuelve un puntero a la estructura de la tarea actual, NULL si
 //no hay tarea inicial
-process_info * get_current_task();
+process_info * get_current_task(void);
 //Salta de tarea
 void perform_task_switch(process_info *);
 //Salta a la tarea inicial
 void jump_to_initial(void *);
 //Mata al proceso actual
-int do_exit();
+int do_exit(void);
 
 //Duerme al proceso actual (liberando asi su quantum).
-int do_sleep();
+int do_sleep(void);
 
 //Bloquea al proceso actual y libera su quantum
-void block_current_process();
+void block_current_process(void);
 //Desbloquea al proceso actual
 void wake_up(process_info * p);
 
-void switch_kernel_mode();
-void switch_user_mode();
-bool kernel_mode();
-bool is_preemptable();
+void switch_kernel_mode(void);
+void switch_user_mode(int_trace *);
+bool kernel_mode(void);
+bool is_preemptable(void);
 
 //Signal handling
 int do_kill(int pid, int signal);
@@ -142,7 +142,7 @@ int do_signal(int signal, signal_handler);
 //Estas dos funciones son kludges para implementar una syscall que
 //deseschedulee a un proceso (usado para manejar las señales SIGSTOP
 //y SIGCONT).
-int do_coma();
+int do_coma(void);
 int do_clear_signal(int signal);
 
 //Directorio actual de trabajo del proceso actual
@@ -150,6 +150,6 @@ void do_get_cwd(char * buf);
 int do_set_cwd(const char *);
 
 //Mi pid
-int do_get_pid();
+int do_get_pid(void);
 
 #endif
