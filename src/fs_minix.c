@@ -2,6 +2,7 @@
 #include <hdd.h>
 #include <bitset.h>
 #include <exception.h>
+#include <memory.h>
 #include <buffer_cache.h>
 #include <memory.h>
 #include <dev_table.h>
@@ -668,7 +669,6 @@ static inode * minix_alloc_inode(super_block * s)
         add_to_super_list(ino);
     }
 
-    ino->lock = sem_create(1);
     ino->i_ops = &minix_default_inode_ops;
     ino->f_ops = &minix_default_file_ops;
 
@@ -703,7 +703,6 @@ static void minix_release_incore_data(inode * data)
     kfree(data->info_cdev);
     kfree(data->info_bdev);
     kfree(data->info_pipe);
-    kfree(data->lock);
 }
 
 //Libera el inodo inicializado (destructor)

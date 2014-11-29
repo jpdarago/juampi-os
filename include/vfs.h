@@ -3,8 +3,6 @@
 
 #include "types.h"
 #include "klist.h"
-#include "sem.h"
-#include "rw_sem.h"
 
 //Longitud maxima de un path absoluto
 #define FS_MAXLEN 128
@@ -100,7 +98,6 @@ struct inode {
     uint file_size;
 
     fs_type inode_type;
-    sem     * lock;
 
     list_head open_ptr;
 

@@ -1,6 +1,7 @@
 #include <buffer_cache.h>
 #include <hdd.h>
 #include <fs_minix.h>
+#include <memory.h>
 
 static struct list_head buffer_list_head;
 dirty_ln * dirty_list;

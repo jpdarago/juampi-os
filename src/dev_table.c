@@ -1,4 +1,5 @@
 #include <dev_table.h>
+#include <exception.h>
 #include <tty.h>
 
 #define MAX_MAJOR 16

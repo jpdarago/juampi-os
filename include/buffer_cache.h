@@ -2,8 +2,6 @@
 #define __BUFFER_CACHE_H
 
 #include <types.h>
-#include <sem.h>
-#include <rw_sem.h>
 #include <klist.h>
 
 typedef struct dirty_ln dirty_ln;
@@ -17,9 +15,6 @@ typedef struct disk_buffer {
     bool dirty,free;
     uint readers;
     uint writers;
-
-    sem * sem;
-    rw_sem * rw_lock;
 
     struct list_head buffers;
     dirty_ln * dlist_ptr;
