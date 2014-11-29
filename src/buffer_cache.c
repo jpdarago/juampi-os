@@ -104,15 +104,6 @@ static disk_buffer* get_free_buffer(void)
     return NULL;
 }
 
-uchar is_free(disk_buffer* ptr, uint block)
-{
-    return ptr->free;
-}
-uchar is_block(disk_buffer* ptr,uint block)
-{
-    return ptr->block == block;
-}
-
 void buffer_load(disk_buffer* b, uint block)
 {
     b->block = block;
