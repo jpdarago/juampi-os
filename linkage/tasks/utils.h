@@ -9,7 +9,7 @@ unsigned int strlen(const char *str);
 void strcpy(char * dst, const char * src);
 void strcat(char * dst, const char * src);
 
-int memcmp(void * , void * , unsigned int );
+int memcmp(void *, void *, unsigned int );
 int strcmp(char *, char *);
 
 void num_to_str(int, unsigned int, char *);

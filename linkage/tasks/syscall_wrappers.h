@@ -18,28 +18,28 @@ int get_pid();
 
 #define FILE_MAXLEN 30
 
-typedef struct dirent{
-	unsigned int inode_number;
-	char name[FILE_MAXLEN];
+typedef struct dirent {
+    unsigned int inode_number;
+    char name[FILE_MAXLEN];
 } dirent;
 
 int readdir(int fd, dirent * d);
 
 typedef struct date {
-	unsigned int second;
-	unsigned int minute;
-	unsigned int hour;
-	unsigned int day;
-	unsigned int month;
-	unsigned int year;
+    unsigned int second;
+    unsigned int minute;
+    unsigned int hour;
+    unsigned int day;
+    unsigned int month;
+    unsigned int year;
 } date;
 
 void gettime(date * d);
 
-#define SIGINT 	0
+#define SIGINT  0
 #define SIGKILL 1
-#define SIGSTOP	2
-#define SIGCONT	3
+#define SIGSTOP 2
+#define SIGCONT 3
 
 #define FS_RD 1
 #define FS_WR 2

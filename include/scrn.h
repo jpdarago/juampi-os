@@ -8,10 +8,11 @@
 #define TAB_WIDTH 4
 
 enum color {
-	BLACK = 0, BLUE, GREEN, CYAN, 
-	RED, MAGENTA, BROWN, LIGHTGREY, 
-	DARKGREY, LIGHTBLUE, LIGHTGREEN, LIGHTCYAN,
-	LIGHTRED, LIGHTMAGENTA, LIGHTBROWN, WHITE};
+    BLACK = 0, BLUE, GREEN, CYAN,
+    RED, MAGENTA, BROWN, LIGHTGREY,
+    DARKGREY, LIGHTBLUE, LIGHTGREEN, LIGHTCYAN,
+    LIGHTRED, LIGHTMAGENTA, LIGHTBROWN, WHITE
+};
 typedef enum color color;
 //Limpia la pantalla
 void scrn_cls();
@@ -23,7 +24,7 @@ ushort scrn_getmode();
 uchar scrn_getrow();
 //Devuelve la columna del cursor
 uchar scrn_getcol();
-//Coloca el cursor en un lugar. 
+//Coloca el cursor en un lugar.
 //PRE: Las coordenadas pasadas son validas dentro de la memoria de video
 void scrn_setcursor(uchar, uchar);
 //Imprime un caracter a memoria de video. No utiliza format.
@@ -31,7 +32,7 @@ void scrn_putc(char, ushort);
 void scrn_move_back();
 //Imprime el mensaje, si es posible hacerlo
 void scrn_print(char*);
-//Imprime el mensaje, con formato estilo printf de C. 
+//Imprime el mensaje, con formato estilo printf de C.
 //PRE: La cantidad de parametros pasados DEBE ser correcta
 void scrn_printf(char*,...);
 //Imprime el mensaje en la direccion indicada. Devuelve 0

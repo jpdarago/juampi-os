@@ -4,8 +4,8 @@
 #include <types.h>
 
 typedef struct {
-	uint * start;
-	uint size;
+    uint * start;
+    uint size;
 } bitset;
 
 //Inicializa el bitset: El tamaño es la

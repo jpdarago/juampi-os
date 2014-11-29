@@ -5,7 +5,7 @@
 
 uint frame_alloc_init(void * mem_start,uint);
 uint frame_alloc();
-void frame_free(uint frame); 
+void frame_free(uint frame);
 uint frames_available();
 void frame_add_alias(uint frame);
 

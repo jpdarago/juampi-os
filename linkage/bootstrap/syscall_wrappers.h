@@ -13,10 +13,10 @@ int write(int fd,unsigned int bytes, const void * buffer);
 int close(int fd);
 int exec(char * filename, char ** arguments);
 
-#define SIGINT 	0
+#define SIGINT  0
 #define SIGKILL 1
-#define SIGSTOP	2
-#define SIGCONT	3
+#define SIGSTOP 2
+#define SIGCONT 3
 
 #define FS_RD 1
 #define FS_WR 2

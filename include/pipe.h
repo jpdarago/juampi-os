@@ -5,11 +5,11 @@
 #include <sem.h>
 
 typedef struct {
-	char *data;
-	int front,back,size,count;
-	sem * mutex;
-	sem * space;
-	sem * item;
+    char *data;
+    int front,back,size,count;
+    sem * mutex;
+    sem * space;
+    sem * item;
 } pipe_buffer;
 
 pipe_buffer * pipe_buffer_create(int);

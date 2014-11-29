@@ -6,32 +6,33 @@
 char buffer[BUFFER_SIZE];
 int main(int argc, const char * argv[])
 {
-	if(argc < 2){
-		printf("Argumentos incorrectos\n");
-		printf("\tUso: cat <nombre archivo>\n");
-		exit();
-	}
+    if(argc < 2) {
+        printf("Argumentos incorrectos\n");
+        printf("\tUso: cat <nombre archivo>\n");
+        exit();
+    }
 
-	int fd = open(argv[1],FS_RD), rd;
-	if(fd < 0){
-		printf("Error en cat al abrir archivo: codigo %d\n", fd);
-		exit();
-	}
-	
-	for(rd = read(fd,BUFFER_SIZE-1,buffer);;
-		rd = read(fd,BUFFER_SIZE-1,buffer)){
-		
-		if(rd <= 0){
-			if(rd < 0)
-				printf("Error en cat al leer: codigo%d\n",read);
-			break;
-		}
+    const char * name = argv[1];
+    int fd = open(name,FS_RD), rd = 0;
+    if(fd < 0) {
+        printf("Error en cat al abrir archivo %s: codigo %d\n", name, fd);
+        exit();
+    }
 
-		buffer[rd] = '\0';
-		printf("%s",buffer);
-	}
-	
-	close(fd);
-	exit();
-	return 0;
+    for(rd = read(fd,BUFFER_SIZE-1,buffer);;
+        rd = read(fd,BUFFER_SIZE-1,buffer)) {
+
+        if(rd <= 0) {
+            if(rd < 0)
+                printf("Error en cat al leer el archivo %s: codigo%d\n", name, read);
+            break;
+        }
+
+        buffer[rd] = '\0';
+        printf("%s",buffer);
+    }
+
+    close(fd);
+    exit();
+    return 0;
 }

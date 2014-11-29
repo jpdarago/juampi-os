@@ -4,9 +4,9 @@
 #include <types.h>
 
 typedef struct list_node {
-	void * data;
-	uint index;
-	struct list_node * next, * prev;
+    void * data;
+    uint index;
+    struct list_node * next, * prev;
 } list_node;
 
 typedef void (*node_destroyer)(void*);
@@ -14,29 +14,29 @@ typedef void*(*node_creator)(void*);
 typedef uint (*node_indexer)(void*);
 
 typedef struct {
-	list_node * head, * tail;
-	uint elements;
-	node_destroyer	destroyer;
-	node_creator 	creator;
-	node_indexer 	indexer;
+    list_node * head, * tail;
+    uint elements;
+    node_destroyer destroyer;
+    node_creator creator;
+    node_indexer indexer;
 } list;
 
 typedef struct {
-	node_destroyer destroyer;
-	node_creator creator;
-	node_indexer indexer;
+    node_destroyer destroyer;
+    node_creator creator;
+    node_indexer indexer;
 } list_create_params;
 
 //Crea la lista pasandole un creador (que lo que hace es una copia)
 //y un destructor (que indica como destruir los nodos). Si creador
-//es NULL, entonces la lista funciona por aliasing. Si el 
+//es NULL, entonces la lista funciona por aliasing. Si el
 //destructor es NULL, no se libera la memoria interna de los datos y
 //eso queda a cargo del usuario.
 list * _list_create(list_create_params);
-#define list_create(...)\
-	_list_create((list_create_params) {\
-		.destroyer = NULL, .creator = NULL, .indexer = NULL,\
-			__VA_ARGS__ })
+#define list_create(...) \
+    _list_create((list_create_params) { \
+                     .destroyer = NULL, .creator = NULL, .indexer = NULL, \
+                     __VA_ARGS__ })
 
 //Destruye la lista
 void list_destroy(list * f);
@@ -57,8 +57,8 @@ void list_move_back(list * bf, uint index);
 void * list_pop_front(list * bf);
 
 typedef char * string;
-#define list_copy_header(type)\
-	void * list_copy_##type(void *)
+#define list_copy_header(type) \
+    void * list_copy_ ## type(void *)
 
 list_copy_header(int);
 list_copy_header(uint);

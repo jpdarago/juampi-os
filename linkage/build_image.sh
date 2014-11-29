@@ -9,7 +9,7 @@ cd "$(dirname "$0")"
 mkfs -V -t minix hdd.img
 #Paso 3: Montarlo
 sudo losetup /dev/loop0 hdd.img
-sleep 1
+sleep 2
 sudo mount /dev/loop0 /mnt
 #Paso 4: Armar los directorios
 sudo cp -r docs /mnt
@@ -20,7 +20,7 @@ sudo mkdir /mnt/dev
 sudo mknod /mnt/dev/tty c 0 0
 #Paso 5: Desmontarlo a imagen
 sudo umount /dev/loop0
-sleep 1
+sleep 2
 sudo losetup -d /dev/loop0
 #Paso 6: Ponerlo donde va
 mv hdd.img ../hdd.img

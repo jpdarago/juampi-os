@@ -1,8 +1,8 @@
 #ifndef __STDIO_H
 #define __STDIO_H
 
-#define STDIN	0
-#define STDOUT	1
+#define STDIN   0
+#define STDOUT  1
 
 #define FS_MAXLEN 128
 

@@ -4,34 +4,34 @@
 #include <types.h>
 #include <proc.h>
 
-struct idt_entry{
-	ushort offset_l;
-	ushort selector;
-	uchar __padding__;
-	uchar type 	:5;
-	uchar dpl	:2;
-	uchar p		:1;
-	ushort offset_h;
+struct idt_entry {
+    ushort offset_l;
+    ushort selector;
+    uchar __padding__;
+    uchar type  : 5;
+    uchar dpl   : 2;
+    uchar p     : 1;
+    ushort offset_h;
 } __attribute__((__packed__));
 typedef struct idt_entry idt_entry;
 
-struct idt_entry_flags{
-	uchar d 	:1;
-	uchar dpl	:2;
-	uchar type	:5;
+struct idt_entry_flags {
+    uchar d     : 1;
+    uchar dpl   : 2;
+    uchar type  : 5;
 } __attribute__((__packed__));
 typedef struct idt_entry_flags idt_entry_flags;
 
-struct idt_desc{
-	ushort idt_limit;
-	uint idt_base;
+struct idt_desc {
+    ushort idt_limit;
+    uint idt_base;
 } __attribute__ ((__packed__));
 typedef struct idt_desc idt_desc;
 
 enum idt_descriptor_type {
-	IDT_TASK_GATE 	= 5,
-	IDT_INT_GATE 	= 6,
-	IDT_TRAP_GATE 	= 7
+    IDT_TASK_GATE   = 5,
+    IDT_INT_GATE    = 6,
+    IDT_TRAP_GATE   = 7
 };
 typedef enum idt_descriptor_type idt_descriptor_type;
 
@@ -72,14 +72,14 @@ extern void _isr19();
 //Interrupciones
 extern void _irq0(); //Tick de reloj
 extern void _irq1();
-extern void _irq2(); 
-extern void _irq3(); 
-extern void _irq4(); 
-extern void _irq5(); 
-extern void _irq6(); 
-extern void _irq7(); 
-extern void _irq8(); 
-extern void _irq9(); 
+extern void _irq2();
+extern void _irq3();
+extern void _irq4();
+extern void _irq5();
+extern void _irq6();
+extern void _irq7();
+extern void _irq8();
+extern void _irq9();
 extern void _irq10();
 extern void _irq11();
 extern void _irq12();

@@ -8,7 +8,7 @@
 #include <proc.h>
 
 //Tipo de los callbacks
-typedef void (*irq_handler) (uint,gen_regs);
+typedef void (*irq_handler)(uint,gen_regs);
 
 //Remapeo del PIC
 extern void remap_pic();
