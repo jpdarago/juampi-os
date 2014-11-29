@@ -29,6 +29,9 @@ Instalar
 Es necesario tener sudo para poder armar la imagen de disco Minix. Esto
 deberia desaparecer en un futuro lo mas cercano.
 
+PRECAUCION: LA MANERA EN LA QUE SE HACE LA IMAGEN DE DISCO ES MONTANDO EN
+/dev/loop0 Y MONTANDO EN MOUNT. REVISAR build/build_image.sh ANTES DE CORRERLO.
+
 Para compilar y correr, ejecutar:
 
     make && make run
