@@ -30,7 +30,8 @@ Es necesario tener sudo para poder armar la imagen de disco Minix. Esto
 deberia desaparecer en un futuro lo mas cercano.
 
 PRECAUCION: LA MANERA EN LA QUE SE HACE LA IMAGEN DE DISCO ES MONTANDO EN
-/dev/loop0 Y MONTANDO EN MOUNT. REVISAR build/build_image.sh ANTES DE CORRERLO.
+/dev/loop0 Y MONTANDO EN /mnt. REVISAR build/build_image.sh ANTES DE CORRER
+EL COMANDO make run PARA NO ROMPER NADA.
 
 Para compilar y correr, ejecutar:
 
