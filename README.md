@@ -1,7 +1,7 @@
 juampi-os
 =========
 
-Mi kernel con el TP final de Orga 2
+Mi kernel con el TP final de Organización del Computador II (UBA - FCEyN).
 
 Features
 --------
@@ -45,10 +45,10 @@ TODOs
 * 64 bits.
 * Multicore.
 * Implementar logica para SIGSEGV.
-* Mejor shell (pipes, mas comandos, etc.).
+* Mejor shell (pipes, _output redirection_, mas comandos, etc.).
 * Portear una libc.
 * Multiples procesos puedan acceder al filesystem.
-* Background jobs.
+* _Background jobs_.
 * Signals para procesos (groups).
 * Permisos en el filesystem.
 * Kernel preemteable.
