@@ -30,3 +30,26 @@ Despues de instalar las dependencias, necesitas sudo para poder montar el disco.
 Ejecutar:
 
     make && make run
+
+TODOs
+------
+
+* 64 bits.
+* Multicore.
+* Implementar logica para SIGSEGV.
+* Pipes.
+* Mejor shell.
+* Portear una libc.
+* Multiples procesos puedan acceder al filesystem.
+* Background jobs.
+* Signals para procesos (groups).
+* Permisos en el filesystem.
+
+Las dos primeras se implementaron para el proyecto DeliriOS (<github.com/Izikiel/intel_multicore>).
+Veanlo porque esta bueno.
+
+Agradecimientos
+---------------
+
+* OSDEV Wiki: <osdev.org>
+* James Molloy kernel development tutorials: <http://jamesmolloy.co.uk/tutorial_html>
