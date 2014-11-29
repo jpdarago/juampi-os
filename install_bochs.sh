@@ -13,21 +13,21 @@ if [[ -f ./bochs/bin/bochs ]]; then
 fi
 
 install() {
+    DIR=$(pwd)
+    pushd $(mktemp -d)
     URL="http://downloads.sourceforge.net/project/bochs/bochs/2.6.2/bochs-2.6.2.tar.gz"
     #Prerequisito para bochs, tener gtk
     wget -O bochs.tar.gz $URL
-    DIR=$(readlink -f .)
-    mkdir bochs-installation
-    mkdir bochs
-    tar zxvf bochs.tar.gz -C bochs-installation
-    cd bochs-installation/bochs-2.6.2
+    mkdir $DIR/bochs
+    tar zxvf bochs.tar.gz
+    cd bochs-2.6.2
     export LDFLAGS=-lpthread
     ./configure --enable-smp --enable-debugger --enable-disasm\
         --enable-readline --enable-cpu-level=6\
         --enable-all-optimizations --prefix="$DIR/bochs"\
-        && make -j 3 && make install
+        && make -j && make install
     cd ../..
-    rm -rf bochs.tar.gz bochs-installation
+    popd
 }
 
 install
