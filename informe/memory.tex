@@ -19,7 +19,7 @@ decir, cuantos directorios y tablas de p\'agina) lo estan usando (esto se usa, c
 para implementar una pol\'itica de \textit{copy-on-write}).
 
 La razon de tener un bitmap separado (se podr\'ia usar directamente el contador para determinar si un frame
-esta o no en uso) es eficiencia: al mantener el bitmap separado puede escanearse muy r\'apidamente por un
+esta o no en uso) es eficiencia: al mantenerlo separado puede escanearse muy r\'apidamente por un
 frame libre utilizando la siguiente estrategia: Vamos levantando de a 32 bits (correspondiente al tama\~no
 de un registro de prop\'osito general en IA-32) y apenas encontramos un valor diferente a $2^{32} - 1$ (una
 tira de 32 unos) escaneamos el valor del registro para determinar el \'indice. De esta manera el escaneo se
@@ -32,11 +32,11 @@ y al c\'odigo fuente en \texttt{bitset\_search.asm}.
 
 Algunos frames se desperdician para estas estructuras, y tambi\'en se pierden algunos frames para que la memoria administrada
 este siempre alineada a p\'agina (como ser\'ia deseable). La perdida de memoria incurrida es m\'inima (Con 4 Kb de un frame se
-pueden administrar 512 megabytes de memoria, por lo tanto usando paginaci\'on estandar gastariamos unos 32 Kb en frames lo cual
+pueden administrar 512 megabytes de memoria, por lo tanto usando paginaci\'on estandar gastar\'iamos unos 32 Kb en frames lo cual
 consideramos despreciable) por lo tanto se utiliz\'o esta opci\'on por su simplicidad de implementaci\'on y su buena performance.
 
 Con esta funci\'on disponible, podemos mantener la administraci\'on de los frames encapsulada mediante las funciones \texttt{frame\_alloc},
-\texttt{frame\_free}. Tambi\'en incluimos una funci\'on \texttt{frame\_add\_alias} cuyo proposito explicaremos posteriormente.
+\texttt{frame\_free}. Tambi\'en incluimos una funci\'on \texttt{frame\_add\_alias} cuyo prop\'osito explicaremos posteriormente.
 
 Para mantener una abstracci\'on sobre los recursos de la computadora, en este caso la memoria RAM, queremos darle la ilusi\'on a los
 procesos de usuario de que disponen de todo el espacio de direcciones de memoria. Para ello es que usamos memoria virtual mediante paginaci\'on.
@@ -67,13 +67,12 @@ mejorar la detecci\'on de errores.
 
 Tambi\'en implementamos una funci\'on que obtiene memoria alineada a p\'agina (lo cual se usa para por ejemplo para obtener directorios de p\'agina para los procesos, ya que la arquitectura requiere que los directorios de p\'agina esten alineados a p\'agina). Dado que el inicio de la heap de kernel es en los 3 GB, la direcci\'on virtual y la f\'isica est\'an alineadas a p\'agina. Lo que se hace para lograr esto es simplemente
 pedir 4095 bytes (4 KB - 1) m\'as de espacio. De esta manera, nos aseguramos (por aritm\'etica modular) que hay una secci\'on continua del
-tama\~no que queremos y que esta alineada (tiene resto 0) a 4 K. Para evitar desperdiciar esta memoria, la devolvemos a la heap de kernel. Si
-bien esto puede llegar a contribuir a la fragmentaci\'on de la memoria, no consideramos esto un requisito y por lo tanto decidimos utilizar
-esta soluci\'on.
+tama\~no que queremos y que esta alineada (tiene resto 0) a 4 K. Para evitar desperdiciar la memoria que queda a los extremos de esta secci\'on
+asignada, la devolvemos a la heap de kernel. Si bien esto puede llegar a contribuir a la fragmentaci\'on externa de la memoria, no consideramos esto un requisito y por lo tanto decidimos utilizar esta soluci\'on.
 
 Para mantener la heap de kernel siempre mapeada, preasignamos una cantidad adecuada de tablas de p\'aginas de manera que tengamos el espacio
 inicial de heap asignado (ya que necesitariamos de otra manera conseguir memoria para las tablas de p\'aginas para poder administrar memoria,
-teniendo una dependencia circular).
+teniendo una dependencia circular donde pedir\'iamos memoria eternamente).
 
 Por \'ultimo, en esta secci\'on describimos el esquema de \texttt{copy-on-write} utilizado. Cuando una tarea usa la llamada de sistema
 \texttt{fork}, no se duplica el espacio de memoria directamente. En particular, por ejemplo, las paginas de kernel se linkean directamente,
@@ -84,10 +83,8 @@ al acceder a la p\'agina para leerla, y no se hace la copia. En cambio, si se tr
 esta como solo lectura y se dispara una excepci\'on 14 (Page Fault). En ese momento toma el control el manejador de esta excepci\'on, que
 usa el bit de \texttt{copy-on-write} para determinar que se tiene que copiar el marco de p\'agina, asigna un nuevo marco, lo copia, desmarca
 el marco original y luego le permite al proceso retornar su ejecuci\'on. Esto no solo simplifica el c\'odigo necesario para que las tareas
-realicen \texttt{fork} sino que tambi\'en mejora mucho la performance (es una optimizaci\'on implementada en Linux). Por esto decidimos
-implementarla.
+realicen \texttt{fork} sino que tambi\'en mejora mucho la performance (es una optimizaci\'on implementada en Linux). 
 
-Sin embargo, las p\'aginas de la pila de kernel no se manejan con este esquema: Recordemos que el manejador de la excepcion necesita una
+Sin embargo, las p\'aginas de la pila de kernel no se manejan con este esquema: Recordemos que el manejador de la excepci\'on necesita una
 pila v\'alida para trabajar, y que si la propia pila de kernel necesita del manejador de page fault entonces se produce una dependencia
-circular que deriva en Triple Fault de procesador. Esta motivaci\'on lleva a que la pila de kernel de cada proceso se maneje por separado:
-usar una pila com\'un es una soluci\'on que es imposible hacer escalar (en una posible continuaci\'on de este tp) a un kernel preempteable.
+circular que deriva en Triple Fault de procesador. Esta motivaci\'on lleva a que la pila de kernel de cada proceso se copie en cada \texttt{fork} por separado: usar una pila com\'un es una soluci\'on que es imposible hacer escalar (en una posible continuaci\'on de este TP) a un kernel preempteable.

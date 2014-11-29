@@ -1,7 +1,9 @@
 \section{Mecanismos de multitarea}
 \label{sec::multitask}
 
-El prop\'osito del Sistema Operativo en si es servir como capa de abstraci\'on de la
+\epigraph{...nobody really uses an operating system; people use programs on their computer. And the only mission in life of an operating system is to help those programs run.}{Linus Torvalds - \textit{Revolution OS}}
+
+Como bien dice Linus, el prop\'osito del Sistema Operativo en si es servir como capa de abstraci\'on de la
 computadora para los procesos de nivel de usuario, y permitir adem\'as la multiplexaci\'on
 de estos recursos entre multiples instancias de programas de usuario en ejecuci\'on. Lo que
 buscamos en este Trabajo Pr\'actico fue proveer una capa b\'asica de interfaz para las tareas
@@ -22,7 +24,7 @@ El PIT es un reloj de cuarzo que env\'ia cada cierto intervalo de tiempo una int
 1 del chip del Programmable Interrupt Controller. Esta interrupcci\'on nos sirve entonces como medida de paso
 del tiempo. Para ajustarla a una cantidad determinada de milisegundos, lo configuramos mediante el uso del
 puerto de comando $0x43$ y enviando la nueva frecuencia en dos bytes al puerto $0x40$ como esta detallado en 
-\texttt{timer.c}. De esta manera tenemos manejo de cuanto tiempo pertimos correr a cada proceso.
+\texttt{timer.c}. De esta manera tenemos manejo de cuanto tiempo permitimos correr a cada proceso.
 
 Si bien no existen prioridades para los procesos, un proceso puede decidir dejar el procesador voluntariamente
 mediante la llamada a sistema \texttt{sleep}. Esta es tambi\'en la \'unica manera que el procesador puede liberar
@@ -34,9 +36,13 @@ Para crear y manejar tareas se utiliza un esquema similar a las llamadas de Sist
 \texttt{exec}, \texttt{wait} y \texttt{exit}.
 
 \begin{itemize}
-	\item \texttt{fork} crea un duplicado del proceso actual, con el mismo mapa de memoria, archivos abiertos y directorio de trabajo.
+	\item \texttt{fork} crea un duplicado del proceso actual, con el mismo mapa de memoria (marcado acordemente como se explic\'o anteriormente
+	en la secci\'on de \textit{copy-on-write} para que apenas halla una escritura se reasignen las paginas), 
+	archivos abiertos y directorio de trabajo.
 	La relaci\'on entre el nuevo proceso y el proceso del cual se obtuvo es de padre e hijo: en particular como veremos posteriormente
-	un proceso puede esperar por uno de sus hijos dado su n\'umero identificador de proceso (PID).
+	un proceso puede esperar por uno de sus hijos dado su n\'umero identificador de proceso (PID). Para ello, \textit{fork} devuelve dos
+	valores distintos al proceso hijo y al proceso padre: al padre le devuelve el PID del hijo, y al hijo le devuelve 0. Si ocurre un error
+	al intentar ejecutar esta llamada a sistema, se devuelve un valor negativo que sirve para identificar el tipo de error. 	
 	\item \texttt{exec} sobreescribe la im\'agen del proceso con la im\'agen de proceso obtenida del archivo en disco duro pasado por
 	par\'ametro, efectivamente entonces poniendo a ejecutar un proceso con una nueva secci\'on de texto y datos. \texttt{exec} cierra
 	todos los archivos abiertos por esta nueva imagen exceptuando entrada y salida estandar. La relaci\'on padre e hijo se mantiene.
@@ -59,6 +65,9 @@ se mantienen en una p\'agina especial de kernel que se mapea con permisos de usu
 SIGSTOP, se implementa una syscall especial denominada \texttt{do\_coma} que bloquea permanentemente a un proceso. Esto solo se deshace ante
 la recepci\'on de la se\~nal SIGCONT, cuyo handler no realiza acci\'on alguna. 
 
-Cada proceso tiene asociada una estructura, adem\'as de la TSS, que controla que archivos tiene abiertos, su directorio
+Cada proceso tiene asociada una estructura, adem\'as de la TSS, que controla que archivos tiene abiertos, su estado (si esta bloqueado, corriendo
+actualmente o listo para correr, de manera de tomar decisiones acordes cuando se realiza el \textit{scheduling}) su directorio
 de trabajo actual, una lista enlazada (que casualmente es la implementaci\'on de lista enlazada intrusiva que utiliza el kernel de Linux)
-de sus procesos hijos, su n\'umero de identificaci\'on, un puntero a la estructura de su padre (o NULL si es el proceso init).
+de sus procesos hijos, su n\'umero de identificaci\'on, un puntero a la estructura de proceso de su padre (o NULL si es el proceso init).
+Esta estructura sirve para mantener el \'arbol de procesos organizado: Un ejemplo es que cuando un proceso realiza \textit{exit}, sus hijos
+son reasignados a su padre y adem\'as se necesita saber cual es su padre para desbloquearlo.

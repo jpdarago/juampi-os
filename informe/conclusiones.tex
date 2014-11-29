@@ -1,1 +1,68 @@
+\section{Posibilidades de expansi\'on}
+\label{sec::expansion}
 
+\epigraph{Regression testing? What's that? If it compiles, it is good; if it boots up, it is perfect.}{Linus Torvalds}
+
+Considerando las limitaciones se\~naladas en este trabajo, proponemos
+que siguientes trabajos podr\'ian expandir lo realizado en este en las
+siguientes \'areas:
+
+\begin{itemize}
+	\item Quitar la no preemptabilidad del kernel. Esto requiere la
+	implementaci\'on de un sistema de exclusi\'on m\'utua para proteger
+	las \'areas compartidas del sistema operativo de acceso concurrente
+	(como por ejemplo el asignador de memoria o la lista de procesos).
+	Adicionalmente, requiere tomar una soluci\'on con respecto al problema
+	de PC Losering, es decir como debe manejar el Sistema Operativo una
+	se\~nal o interrupcci\'on cuando esta realizando el servicio de una
+	llamada de Sistema. Posibles soluciones a este problema var\'ia y
+	recomendamos \url{http://www.jwz.org/doc/worse-is-better.html} donde se
+	introduce y discute la tem\'atica.
+	\item Implementar m\'as caracter\'isticas de consola, como por ejemplo
+	redirecci\'on de entrada salida y uni\'on de comandos mediante \texttt{pipes}
+	cl\'asicos de Unix. Tambi\'en se har\'ia necesario implementar \textit{job control
+	groups} para dar una interfaz esperable sobre la entrada para que los procesos
+	puedan leer de entrada salida estandar.
+	\item Agregar soporte de concurrencia al sistema de archivos, mediante un sistema
+	de exclusi\'on m\'utua. Esto requerir\'ia por ejemplo implementar sem\'aforos y
+	agregarselos a los inodos y al cach\'e de buffers (usando patrones como por ejemplo
+	productor consumidor, para m\'as informaci\'on v\'ease~\cite{semaphores}). Esto se
+	hace imperante si se desea adem\'as agregar acceso a disco no bloqueante o mediante
+	el uso de DMA (Direct Memory Access).
+	\item Agregar caracter\'isticas al sistema de archivos, como por ejemplo particiones
+	multiples, \textit{symlinks}, filesystems multiples (usando la capa de Virtual Filesystem
+	implementada actualmente), soporte para filesystems en block devices no basados en disco
+	\item Implementar un driver en modo usuario de VGA o VESA para permitir mayores
+	resoluciones. Tambi\'en podr\'ia implementarse un driver de sonido para placas Sound Blaster.
+	\item Agregar una etapa de detecci\'on de hardware y modificar el driver de disco duro para
+	que utilice PCI Busmastering DMA y permita multiples discos duros ATA (no solo un master).
+	\item Implementar m\'as programas a nivel de usuario.
+	\item Implementar librer\'ias compartidas y agregar soporte para linkeo din\'amico.
+	\item Implementar un esquema de \texttt{swapping} de p\'aginas a disco.
+	\item Optimizar los algoritmos: Un lugar posible de optimizaci\'on es reducir la
+	cantidad de b\'usquedas secuenciales mediante el uso de tablas de Hashing o diccionarios
+	similares.
+	\item Implementar m\'as llamadas a sistema y posiblemente convertir las existentes para que
+	sean POSIX compatibles.
+	\item Usar esquemas de paginaci\'on m\'as modernos en caso de detecci\'on para soportar m\'as
+	de 4 Gb de memoria (por ejemplo PAE Paging).
+	\item Portear el c\'odigo a IA 64.
+\end{itemize}
+
+Todos estas posibles mejoras se han tenido en cuenta en el dise\~no actual (si bien no est\'an implementadas)
+de manera que no debiera ser necesario un redise\~no completo para implementarlas (aunque si posiblemente se
+debe tener cuidado en especial con las que involucran acceso concurrente). Dejamos estas \'areas como posibilidades
+de expansi\'on.
+
+\section{Conclusi\'on}
+
+El Sistema Operativo implementado, si bien es crudo en funcionalidad y tiene varias \'areas posibles de optimizaci\'on,
+sirvi\'o para organizar y experimentar con distintos aspectos del diseño de un sistema de estas caracter\'isticas, en especial
+que m\'odulos es necesario tener y como se pueden abstraer detalles de la arquitectura pero usarlos de manera de implementar
+funcionalidad. El trabajo tambi\'en sirve como base y punto de expansi\'on para trabajar con otros conceptos de Sistemas Operativos
+y hace uso de la arquitectura IA 32 de manera de mostrar como se pueden emplear los recursos que esta provee.
+
+\section{Agradecimientos}
+
+Se agradece a Christian Heitman por sus \'utiles links y comentarios, sin los cuales este trabajo hubiese probablemente sido inatacable,
+y a Manuel Ferreria por su ayuda en la verificaci\'on de la im\'agen entregable.

@@ -44,11 +44,16 @@ que m\'odulos no se explican y el motivo de ello.
 	sistema de archivos y permitir abstraer la escritura al mismo como secuencial.
 
 	Ambos m\'odulos se detallan en la secci\'on~\ref{sec::filesystem}.
+
 	\item Interfaz de llamadas a sistema, interrupcciones y excepciones: Se implement\'o una interfaz de acceso
 	al Sistema Operativo similar al que utiliza Linux, empleandose un Interrupt Gate asociada a la interrupcci\'on
 	$0x80$. Asimismo, los par\'ametros se pasan por los registros. Se implementaron adem\'as un conjunto de llamadas
-	a sistema inspiradas en las llamadas POSIX usuales. Los detalles se incluyen en la secci\'on~\ref{sec::syscalls}.
-
+	a sistema inspiradas en las llamadas POSIX usuales. Las mismas no se detallaran en una secci\'on especial sino que
+	se explicar\'an seg\'un el caso en cada secci\'on. Adicionalmente, puesto que concierne directamente a la materia,
+	no se explicar\'a como se implement\'o el sistema de interrupcciones (consiste primariamente en configurar correctamente
+	una IDT para el procesador siguiendo los lineamientos de la arquitectura, lo cual se cubre en Organizaci\'on del Computador
+	II, y mantener un handler de excepcion general que despacha una funci\'on seg\'un la interrupcci\'on recibida).
+	
 	\item Driver de teclado, video y reloj: Se program\'o un primitivo driver de teclado mediante interrupcciones que
 	nos permite bufferear teclas. Asimismo se implemento un driver sencillo de terminal usandose para ello la memoria
 	de video en modo texto. Ambos se combinaron en un driver con interfaz al sistema de archivos de terminal, utilizado
@@ -62,6 +67,6 @@ que m\'odulos no se explican y el motivo de ello.
 	tarea. Tambi\'en se busc\'o permitir el uso de buffers de memoria est\'atica (las conocidas 
 	\texttt{section .rodata} y \texttt{section .bss}). Con esto en mente, se busc\'o que el kernel soportara la lectura de tareas en
 	formato ELF est\'atico de 32 bits ejecutable. Los detalles de la implementaci\'on de estos m\'odulos dentro del kernel y de los
-	programas de usuario en si (en especial el shell de sistema operativo) se incluyen en la secci\'on~\ref{sec::shell}.
+	programas de usuario en si (en especial el shell de sistema operativo) se incluyen en la secci\'on~\ref{sec::usertasks}.
 
 \end{itemize}

@@ -1,5 +1,8 @@
 \section{Introducci\'on}
 
+\epigraph{I'm doing a (free) operating system (just a hobby, won't be big and professional like gnu) for 386(486) AT clones.}{Linus Torvalds,
+anunciando Linux por \url{news:comp.os.minix} }
+
 El siguiente trabajo se presenta como complemento y documentaci\'on
 del trabajo pr\'actico final realizado para la materia Organizaci\'on
 del Computador II. 
@@ -35,15 +38,15 @@ continuaci\'on:
 	\item Lograr que el desarrollador a nivel de usuario (en este caso, el autor
 	mismo) pudiera programar utilizando un conjunto de librer\'ias acorde a
 	la experiencia de desarrollo en nivel de usuario en Linux o Windows. Por ello,
-	se prioriz\'o lograr uan compilaci\'on limpia con GCC, para poder programar en C,
+	se prioriz\'o lograr una compilaci\'on limpia con GCC, para poder programar en C,
 	y la interpretaci\'on de binarios ejecutables ELF tan trasparente como fuese posible,
-	para permitir la programaci\'on y testeo de las libreri\'as por separado al c\'odigo de
-	tarea (y su integraci\'on mediante linkeo est\'atico).
+	para permitir la programaci\'on y testeo de las librer\'ias por separado al c\'odigo de
+	tarea (y su integraci\'on mediante linkeo est\'atico con un linker).
 	\item Lograr una infraestructura de sistema de archivos que permita no solo archivos
 	en disco duro sino que tambi\'en permita manejar como archivos drivers como por ejemplo
-	el driver de termina.
-	\item Lograr que se puedan disparar tareas mediante el uso de una consola. Esta debe
-	correr con privilegio de usuario (no de Sistema Operativo).
+	el driver de terminal.
+	\item Lograr que se puedan disparar tareas mediante el uso de una consola de comandos. 
+	Esta debe correr con privilegio de usuario (no de Sistema Operativo).
 \end{itemize}
 
 En particular, se tomaron algunas decisiones pragm\'aticas para permitir cumplir estos objetivos
@@ -55,18 +58,19 @@ en un tiempo de desarrollo razonable.
 	una manera de que el sistema operativo libere el uso del procesador a la siguiente tarea en casos donde esto
 	es relevante (por ejemplo, a la espera de una interrupcci\'on de teclado).
 	\item Se decidi\'o no utilizar m\'etodos de I/O no bloqueantes, utilizandose polling para acceso a disco
-	(esto se detalla mas adelante en la secci\'on sobre ATA PIO~\ref{ata::pio}). Para evitar problemas de sincronizaci\'on
+	(esto se detalla m\'as adelante en la secci\'on sobre ATA PIO (Secci\'on ~\ref{sec::disk})). Para evitar problemas de sincronizaci\'on
 	con respecto al uso de los inodos de disco duro, se realiza busy-waiting: El Kernel espera a que el disco duro termine
 	la operaci\'on que se esta realizando. M\'as alla del pragmatismo de implementaci\'on, existe tambi\'en otra motivaci\'on
 	que consiste en que el uso de ATA PIO requiere el uso de ciclos de CPU para leer los puertos de entrada. Por lo tanto, se considero
 	que liberar el CPU por el tiempo de espera de movimiento del disco duro es insignificante al lado del costo computacional que insume
 	el uso de Programmed I/O para leer o escribir los datos al disco.
-	\item No se consider\'o la configuraci\'on de los distintos hardwares de la computadora, asumiendose defaults razonables que
-	permitieran verificar la correctitud de los algoritmos. Si se verifico la existencia de los mismos y se realizan etapas de
-	verificaci\'on para asegurar el correcto funcionamiento de los algoritmos posteriores.
-	\item Muchos de los algoritmos implementados corresponden a implementaciones de algoritmos sub\'optimos. Sin embargo, se
+	\item No se consider\'o la configuraci\'on de los distintos hardwares de la computadora, asumi\'endose defaults razonables que
+	permitieran verificar la correctitud de los algoritmos. Si se verifico la existencia del hardware asumido y se realizan etapas de
+	verificaci\'on para asegurar el correcto funcionamiento de los algoritmos posteriores. Por ejemplo se asume un solo disco ATA Master
+	y no se verifica la existencia de otros.
+	\item Muchos de los algoritmos implementados corresponden a implementaciones de algoritmos posiblemente sub\'optimos. Sin embargo, se
 	busc\'o una clara separaci\'on de los m\'odulos del Sistema Operativo para permitir el reemplazo de estas versiones por versiones
-	m\'as \'optimas.
+	m\'as \'optimas (V\'ease la secci\'on~\ref{sec::expansion}).
 \end{itemize}
 
 \section{Alcance y prop\'osito de este informe}

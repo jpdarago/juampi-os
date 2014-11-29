@@ -1,7 +1,7 @@
 \section{Bootloader : GRUB}
 \label{sec::grub}
 
-Para este trabajo se decidi\'o utilizar el bootloader GRUB (Grand Unified Bootloader),
+Para este trabajo se decidi\'o utilizar el bootloader GRUB (GRand Unified Bootloader),
 en su version Legacy. La motivaci\'on principal de utilizar este bootloader por sobre
 un bootloader propio o el utilizado en la materia Organizaci\'on del Computador II fue
 la robustez y facilidad de uso de GRUB, que incluye funciones que resultaron particularmente
@@ -13,35 +13,35 @@ disponer de m\'as del primer megabyte de memoria, y setear el procesador en modo
 estado conocido para evitar tener que realizar este proceso (que involucra utilizar assembly en modo real). 
 
 GRUB Legacy puede bootear cualquier sistema operativo que cumpla con lo que se conoce como especificaci\'on
-Multiboot. La misma es muy sencilla y requiere unicamente de ciertos valores m\'agicos en espec\'ificas posiciones
-de memoria dentro del binario. 
+Multiboot. La misma es muy sencilla y requiere \'unicamente de ciertos valores m\'agicos en espec\'ificas posiciones
+de memoria dentro del binario que vamos a cargar (en este caso usando GRUB). 
 
-En GRUB Legacy esto consiste de que el binario de kernel a utilizar debe empezar con un header que contenga:
+En detalle, esto consiste de que el binario de kernel a utilizar debe empezar con un header que contenga:
 
 \begin{itemize}
-	\item Un n\'umero magico de identificaci\'on para GRUB: El valor $0xBADB002$
-	\item Flags para GRUB que indican el tipo de alineaci\'on del kernel (por ejemplo, se puede espeficar un offset
+	\item Un n\'umero m\'agico de identificaci\'on: El valor $0xBADB002$.
+	\item Flags para GRUB que indican el tipo de alineaci\'on del kernel (por ejemplo, se puede especificar un offset
 	de p\'agina, en nuestro caso le indicamos a GRUB que las estructuras son alineadas a p\'agina).
-	\item Un valor de checksum con los flags y el n\'umero m\'agico de GRUB.  
+	\item Un valor de checksum calculado con los flags y el n\'umero m\'agico de GRUB.  
 \end{itemize}
 
 La necesidad de mantener esta estructura alineada en el kernel nos motiv\'o a utilizar una secci\'on ELF especial
 que denominamos \texttt{.\_\_mbHeader} y que utilizamos en un script de linker para que el binario ELF resultante empiece siempre
-con el header multiboot que queremos alineado a 32 bits.
+con el header \textit{multiboot} que queremos alineado a 32 bits (como pide la especificaci\'on).
 
 Con esto, el binario resultante de linkear con ld y este script los distintos archivos objeto obtenidos mediante el ensamblador NASM
-,el compilador GCC sobre el c\'odigo fuente del kernel esta listo para que GRUB lo use.
+y el compilador GCC sobre el c\'odigo fuente del kernel, se encuentra listo para que GRUB lo pueda usar.
 
-Para crear la im\'agen de diskette que utilizamos para bootear el sistema operativo, lo que hicimos fue (mediante el proceso descripto
+Para crear la im\'agen de diskette que utilizamos para bootear el Sistema Operativo, lo que hicimos fue (mediante el proceso descripto
 en \url{http://www.osdever.net/tutorials/view/using-grub} en el apartado \texttt{Installing GRUB on a floppy with a filesystem}) crear
-una imagen formateada con ext2 lista para bootear con GRUB, y luego agregamos un archivo \texttt{menu.lst} que describe a GRUB el
+una im\'agen formateada con ext2 lista para bootear con GRUB, y luego agregamos un archivo \texttt{menu.lst} que describe a GRUB el
 nombre del sistema operativo, el archivo que tiene que utilizar como im\'agen multiboot para iniciar el Sistema Operativo, y tambi\'en
 le indicamos que m\'odulos debe cargar. Puesto que GRUB entiende el sistema de archivos ext2, lo \'unico que es necesario por lo tanto hacer
-es copiar los archivos a los lugares correctos (copiando para ello la imagen \textit{raw} del diskette booteable y montando la copia como 
-\textit{loopback device}) y referirse a ellos por nombre en el archivo \textit{menu.lst}.
+es copiar los archivos a los lugares correctos (copiando para ello la imagen \textit{raw} del diskette booteable y usando \texttt{e2cp} para
+copiar los archivos a la im\'agen) y referirse a ellos por nombre en el listado del archivo \textit{menu.lst}.
 
 Con esto entonces para cuando llamamos a la funci\'on \texttt{kmain} del Sistema Operativo disponemos de una estructura de memoria detectada
 por GRUB (lo cual potencialmente usa la BIOS si esta disponible u otro m\'etodo si no es as\'i) y de un puntero a estructuras de m\'odulos
 para los archivos que hayamos deseado cargar.
 
-Para m\'as informaci\'on consultese~\cite{jamesmolloy},~\cite{osdev},~\cite{osdever},~\cite{gnugrub}.
+Para m\'as informaci\'on cons\'ultese~\cite{jamesmolloy},~\cite{osdev},~\cite{osdever},~\cite{gnugrub}.

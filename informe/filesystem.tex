@@ -18,13 +18,14 @@ VFAT 16 lo dejamos para otro trabajo.
 
 El concepto prevaleciente de Minix 1 es el concepto de inodo: Todo archivo en el sistema tiene un
 inodo correspondiente que guarda no solo su organizaci\'on en disco (dependiendo si el archivo es
-un archivo f\'sico, un directorio, un dispositivo, etc.) sino sus metadatos: tama\~no, estado en
+un archivo fi\'sico, un directorio, un dispositivo, etc.) sino sus metadatos: tama\~no, estado en
 disco (si la imagen en memoria esta modificada y debe hacerse una modificaci\'on al disco para mantener
 la coherencia), etc. Todo inodo que tiene datos f\'isicos asociados tiene un cierto n\'umero de zonas 
 asignadas. En Minix una zona o bloque corresponde a una secci\'on contigua de 1024 bytes (2 sectores
-seg\'un el driver de disco detallado en la secci\'on~\ref{sec::disk}). Estas zonas se organizan en
-3 partes, identificadas mediante n\'umeros de 16 bits (lo cual implica un l\'imite de 65536 zonas que
-Minix puede direccionar en un disco duro).
+seg\'un el driver de disco detallado en la secci\'on~\ref{sec::disk}). 
+
+Las zonas asignadas a un inodo se organizan en 3 partes, identificadas mediante n\'umeros de 16 bits 
+(lo cual implica un l\'imite de 65536 zonas que Minix puede direccionar en un disco duro).
 
 \begin{itemize}
 	\item De direccionamiento directo: Hasta 7 zonas se guardan en la representaci\'on misma del
@@ -46,7 +47,7 @@ Un esquema de la organizaci\'on de los inodos en disco se detalla en la Figura~\
 \begin{figure}[H]
 	\caption{Ejemplo esquematico de la organizaci\'on de un inodo en disco. Si bien esta im\'agen corresponde
 	a la organizaci\'on en el sistema de archivos ext2, para el sistema Minix 1 la organizaci\'on es similar exceptuando
-	la cantidad de zonas directas. Imagen tomada de http://thinkdifferent.typepad.com/photos/uncategorized/06inodes.png}
+	la cantidad de zonas directas. Imagen tomada de http://e2fsprogs.sourceforge.net/ext2-inode.gif }
 	\label{fig::inodes}
 	\centering
 	\includegraphics[width=0.6\textwidth]{inodes.png}
@@ -68,8 +69,9 @@ como es usual en los sistemas UNIX.
 
 Por \'ultimo es necesario considerar los archivos correspondientes a drivers. Los drivers en Minix se identifican con dos n\'umeros, el
 n\'umero major (que indica el tipo de dispositivo) y el n\'umero minor (que indica una instancia del tipo de dispositivo dado por el otro
-n\'umero). Estos dos valores se almacenan en las dos primeras zonas del inodo en disco.
-
+n\'umero). Estos dos valores ocupan 1 byte y por lo tanto se almacenan en la primer entrada de zonas del inodo en disco duro. Como esta
+entrada tiene tama\~no de 2 bytes, en el byte menos significativo se almacena el major number y en el m\'as significativo el minor number.
+ 
 La distinci\'on entre los distintos tipos de inodo es posible gracias a un flag de identificaci\'on que es parte del inodo. Adem\'as de esto
 el inodo en disco mantiene el tama\~no en bytes del archivo.
 
@@ -139,11 +141,11 @@ La modificaci\'on m\'as importante es que cada uno de estos tres valores provee 
 \end{itemize}
 
 De esta manera, se tiene una abstracci\'on general que permite por ejemplo el manejo gen\'erico de archivos con un mismo conjunto de llamadas
-a sistema (que describiremos en ~\ref{sec::filesystem_syscalls}.
+a sistema (que describiremos en ~\ref{sec::filesystem_syscalls}).
 
 \subsection{Caches de disco y de inodos}
 
-Para evitar problemas de fragmentaci\'on de la memoria, se mantiene un cache de inodos. Esto quiere decir que cuando el sistema operativo
+Para evitar posibles problemas de fragmentaci\'on de la heap de kernel, se mantiene un cache de inodos. Esto quiere decir que cuando el sistema operativo
 necesita un inodo, busca si uno ya preasignado fue liberado. Si fue liberado, lo utiliza, sino, crea uno nuevo y lo agrega a una lista. Esta
 lista es responsabilidad del superbloque de la partici\'on, que la mantiene. De esta manera, no se fragmenta la memoria producto de crear y
 liberar muchas veces un inodo, y se mejora la performance y se mantiene una interfaz m\'as simple. Cada inodo lleva para este prop\'osito un
@@ -165,3 +167,38 @@ los datos a disco de los buffers sucios correspondientes a un inodo (por ejemplo
 
 \subsection{Llamadas de sistema operativo}
 \label{sec::filesystem_syscalls}
+
+La interfaz con la que cuentan los procesos es la interfaz de llamadas de sistema de archivos. Estas llamadas son similares a las del estandar
+POSIX: Cada proceso guarda una estructura de hasta cierto n\'umero de file objects abiertos. Estos file objects se heredan entre llamadas de
+fork y se cierran al terminar el proceso (con excepcion de la entrada y salida estandares que se comparten con el shell como veremos
+posteriormente). Al usuario de estas llamadas no se le devuelve un file object directamente sino que se le devuelve un identificador dentro del
+arreglo del proceso, mas conocido en la jerga como un \textit{file descriptor}. Este se utiliza para el resto de las llamadas.
+
+A continuaci\'on describimos las llamadas de sistema implementadas.
+
+\begin{itemize}
+	\item open: Esta llamada a sistema recibe un directorio y una serie de flags que indican que se desea hacer con el archivo a abrir,
+	y el sistema entonces accede al archivo correspondiente, lo prepara para utilizarse, y devuelve un \textit{file descriptor} identificador
+	para llamadas posteriores. Si se produjo un error en este proceso, se devuelve el mismo en vez de un descriptor de archivo. Para diferenciar
+	identificadores de c\'odigos de error, los c\'odigos de error tienen valores negativos (el mismo sistema se usa para las dem\'as llamadas
+	a sistema).
+
+	\item read: Esta llamada a sistema toma un archivo abierto para lectura y lee una cantidad determinada de bytes a un buffer. Para evitar
+	indicar el \'indice cada vez, este se mantiene en el \textit{file object} correspondiente, y se actualiza de manera coherente. Si ocurre
+	un error en la lectura se retorna un c\'odigo de error. Sino, se retorna la cantidad efectiva de bytes leidos (el sistema de archivos se
+	ocupa de evitar que se pase de largo del archivo, lo cual facilita el uso de la interfaz mediante el uso de un buffer).		
+
+	\item write: La llamada es similar a read, pero para escribir a un archivo. A diferencia de read, esta llamada utiliza un flag (que se
+	determina a tiempo de apertura del archivo) para indicar si se desea sobreescribir un archivo o agregarle informaci\'on . Tambi\'en esta
+	llamada utiliza otro flag para indicar si al intentar escribir un archivo inexistente el mismo debe ser creado (FS\_TRUNC y FS\_CREAT
+	especificamente). Tambi\'en se retorna la cantidad de bytes escritos o un error en caso correspondiente.
+
+	\item readdir: Esta llamada es espec\'ifica para directorios y se provee como interfaz por sobre la llamada a read. Lo que hace es leer
+	la siguiente entrada de directorio en el archivo a un buffer. Regresa el tama\~no de una de estas entradas o un error como c\'odigo negativo.
+
+	\item close: Indica que el proceso no va a usar m\'as este archivo y que por lo tanto el sistema operativo debe liberar los recursos
+	asignados a este.
+\end{itemize}
+
+Para m\'as informaci\'on puede consultarse~\cite{minixfs}. Dada la falta de documentaci\'on del sistema de archivos Minix, dado que el autor no pudo conseguir una copia de \textit{Operating Systems Design and Implementation} correspondiente a las primeras ediciones, parte de los detalles
+fueron descubiertos por el mismo autor mediante el ex\'amen minuscioso de im\'agenes de disco construidas con el comando \texttt{mkfs.minix} y examinadas byte por byte con el uso del comando \texttt{hdd}.
