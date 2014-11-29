@@ -15,7 +15,7 @@ void dbg_print(char* s)
     dbg_putc('\n');
 }
 
-void dbg_vprintf(char* fmt, varg_list v)
+void dbg_vprintf(char* fmt, va_list v)
 {
     uint i;
     char buffer[32];
@@ -28,22 +28,22 @@ void dbg_vprintf(char* fmt, varg_list v)
                 dbg_putc(fmt[i]);
                 break;
             case 'u':
-                num_to_str(varg_yield(v,uint), 16, buffer);
+                num_to_str(va_arg(v,uint), 16, buffer);
                 dbg_print(buffer);
                 break;
             case 'd':
-                num_to_str(varg_yield(v,uint), 10, buffer);
+                num_to_str(va_arg(v,uint), 10, buffer);
                 dbg_print(buffer);
                 break;
             case 's':
-                dbg_print(varg_yield(v,char*));
+                dbg_print(va_arg(v,char*));
                 break;
             case 'c':
-                dbg_putc(varg_yield(v,char));
+                dbg_putc(va_arg(v,uint));
                 break;
             case 'b':
                 ;
-                dbg_print(varg_yield(v,uint) ? "true" : "false");
+                dbg_print(va_arg(v,uint) ? "true" : "false");
                 break;
             }
             break;
@@ -56,8 +56,8 @@ void dbg_vprintf(char* fmt, varg_list v)
 
 void dbg_printf(char* fmt, ...)
 {
-    varg_list v;
-    varg_set(v,fmt);
+    va_list v;
+    va_start(v,fmt);
     dbg_vprintf(fmt,v);
-    varg_end(v);
+    va_end(v);
 }
