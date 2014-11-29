@@ -24,6 +24,6 @@ bool is_alpha(char c);
 
 #define CEIL(a,b) ((a)+(b)-1)/(b)
 
-#define BOCHSBREAK __asm__ __volatile__ ("xchg %bx,%bx");
+#define BOCHSBREAK __asm__ __volatile__ ("xchg %bx,%bx")
 
 #endif
