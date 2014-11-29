@@ -237,7 +237,7 @@ create_new_stack(page_directory* new_dir, tss* new_tss, bool user)
 static void set_tss_kernel_mode(tss* new_tss, uint kernel_esp)
 {
     new_tss->ss = new_tss->ds = new_tss->es =
-                                    new_tss->fs = new_tss->gs = DATA_SEGMENT_KERNEL;
+    new_tss->fs = new_tss->gs = DATA_SEGMENT_KERNEL;
 
     new_tss->esp0 = new_tss->esp = kernel_esp;
     new_tss->cs = CODE_SEGMENT_KERNEL;
@@ -265,7 +265,7 @@ static void init_tss(tss* new_tss, gen_regs* regs,
         set_tss_gregs(new_tss,regs);
     }
     new_tss->ss = new_tss->es = new_tss->ds =
-                                    new_tss->fs = new_tss->gs = DATA_SEGMENT_USER;
+    new_tss->fs = new_tss->gs = DATA_SEGMENT_USER;
 
     new_tss->eip = eip;
     new_tss->cr3 = new_dir->physical_address;
