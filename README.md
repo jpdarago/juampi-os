@@ -6,14 +6,14 @@ Mi kernel con el TP final de Orga 2
 Features
 --------
 
-    * 32 bits.
-    * Multitarea con scheduler.
-    * Disco duro ATA por PIO.
-    * VFS y Filesystem de Minix.
-    * Loader de ELF32
-    * Mini libc
-    * Asignador de memoria
-    * _copy on write_
+* 32 bits.
+* Multitarea con scheduler.
+* Disco duro ATA por PIO.
+* VFS y Filesystem de Minix.
+* Loader de ELF32
+* Mini libc
+* Asignador de memoria
+* _copy on write_
 
 Dependencias
 ------------
