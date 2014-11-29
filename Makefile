@@ -12,6 +12,7 @@ LINKERFLAGS=-melf_i386 -T $(LINKSCRIPT)
 .PHONY=all clean
 
 CSOURCES=$(wildcard src/**/*.c src/*.c)
+CINCLUDES=$(wildcard include/*.h)
 ASMSOURCES=$(wildcard src/**/*.asm src/*.asm)
 ASMOBJS=$(patsubst %.asm,%.o,$(ASMSOURCES))
 COBJS=$(patsubst %.c,%.o,$(CSOURCES))
@@ -49,3 +50,6 @@ clean:
 	cd linkage/bootstrap && make clean
 	cd linkage/tasks && make clean
 	rm -rf $(ASMOBJS) $(COBJS) kernel.bin hdd.img floppy.img
+
+format:
+	uncrustify -c uncrustify.cfg --replace --no-backup $(CSOURCES) $(CINCLUDES)
