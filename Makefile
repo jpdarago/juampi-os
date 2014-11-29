@@ -48,4 +48,4 @@ run: all
 clean:
 	cd linkage/bootstrap && make clean
 	cd linkage/tasks && make clean
-	rm -rf $(ASMOBJS) $(COBJS) kernel.bin hdd.img
+	rm -rf $(ASMOBJS) $(COBJS) kernel.bin hdd.img floppy.img
