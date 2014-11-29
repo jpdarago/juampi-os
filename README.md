@@ -18,18 +18,22 @@ Features
 Dependencias
 ------------
 
-Ejecutar:
+Para instalar las dependencias, ejecutar
 
-    sudo apt-get install coreutils nasm e2tools
+    sudo apt-get install nasm e2tools
     ./install-bochs.sh
 
 Instalar
 --------
 
-Despues de instalar las dependencias, necesitas sudo para poder montar el disco.
-Ejecutar:
+Es necesario tener sudo para poder armar la imagen de disco Minix. Esto
+deberia desaparecer en un futuro lo mas cercano.
+
+Para compilar y correr, ejecutar:
 
     make && make run
+
+Para otros comandos mirar el Makefile
 
 TODOs
 ------
@@ -37,19 +41,23 @@ TODOs
 * 64 bits.
 * Multicore.
 * Implementar logica para SIGSEGV.
-* Pipes.
-* Mejor shell.
+* Mejor shell (pipes, mas comandos, etc.).
 * Portear una libc.
 * Multiples procesos puedan acceder al filesystem.
 * Background jobs.
 * Signals para procesos (groups).
 * Permisos en el filesystem.
+* Kernel preemteable.
+* _Swapping_ a disco.
+* I/O de disco por DMA.
+* Optimizar los algoritmos.
+* Driver VGA o VESA.
 
-Las dos primeras se implementaron para el proyecto DeliriOS (<github.com/Izikiel/intel_multicore>).
+Las dos primeras se implementaron para el proyecto DeliriOS (<http://github.com/Izikiel/intel_multicore>).
 Veanlo porque esta bueno.
 
 Agradecimientos
 ---------------
 
-* OSDEV Wiki: <osdev.org>
+* OSDEV Wiki: <http://osdev.org>
 * James Molloy kernel development tutorials: <http://jamesmolloy.co.uk/tutorial_html>
