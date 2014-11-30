@@ -40,7 +40,6 @@ void gdt_init()
 
 short gdt_add_tss(intptr tss_virtual)
 {
-    fail_unless(tss_virtual == tss_virtual);
     uint eflags = irq_cli();
     uint i;
     short res = -1;
