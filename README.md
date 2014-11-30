@@ -63,5 +63,6 @@ Veanlo porque esta bueno.
 Agradecimientos
 ---------------
 
+* Ver agradecimientos en el informe.
 * OSDEV Wiki: <http://osdev.org>
 * James Molloy kernel development tutorials: <http://jamesmolloy.co.uk/tutorial_html>
