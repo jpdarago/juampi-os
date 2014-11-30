@@ -20,7 +20,7 @@ Dependencias
 
 Para instalar las dependencias, ejecutar
 
-    sudo apt-get install nasm e2tools
+    sudo apt-get install nasm e2tools libgtk2.0-dev
     ./install-bochs.sh
 
 Instalar
