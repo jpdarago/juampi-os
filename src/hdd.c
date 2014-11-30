@@ -48,7 +48,7 @@ static void hdd_setup_lba(uint lba_address, uint sectors, uchar command)
 
 static void hdd_ata_wait(void)
 {
-    uchar status;
+    volatile uchar status;
     while(((status = inb(ATA_PRIMARY_COMSTAT)) & ATA_STATUS_BSY) == ATA_STATUS_BSY) ;
     return;
 }
