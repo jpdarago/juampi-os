@@ -39,6 +39,14 @@ Para compilar y correr, ejecutar:
 
 Para otros comandos mirar el Makefile
 
+Documentación
+-------------
+
+El informe del trabajo práctico se encuentra en la carpeta informe/.
+Para generar el PDF ejecutar desde la carpeta:
+
+    make
+
 TODOs
 ------
 
