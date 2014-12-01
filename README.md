@@ -20,7 +20,7 @@ Dependencias
 
 Para instalar las dependencias, ejecutar
 
-    sudo apt-get install nasm e2tools
+    sudo apt-get install nasm e2tools libgtk2.0-dev
     ./install-bochs.sh
 
 Instalar
@@ -38,6 +38,14 @@ Para compilar y correr, ejecutar:
     make && make run
 
 Para otros comandos mirar el Makefile
+
+Documentación
+-------------
+
+El informe del trabajo práctico se encuentra en la carpeta informe/.
+Para generar el PDF ejecutar desde la carpeta:
+
+    make
 
 TODOs
 ------
@@ -63,5 +71,6 @@ Veanlo porque esta bueno.
 Agradecimientos
 ---------------
 
+* Ver agradecimientos en el informe.
 * OSDEV Wiki: <http://osdev.org>
 * James Molloy kernel development tutorials: <http://jamesmolloy.co.uk/tutorial_html>
