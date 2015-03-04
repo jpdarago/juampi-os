@@ -43,8 +43,7 @@ memoria). _ASSUME NOTHING_ como dice Mike Abash.
 10. Toda función o simbolo que no se debe exportar se debe declarar static.
 11. DELEGAR TANTO COMO SE PUEDA AL COMPILADOR. ES MUY DIFICIL TESTEAR UN KERNEL.
 12. Todo el codigo esta en ingles. Los comentarios en español (preferentemente).
-13. Respete las licencias. No incluya codigo GPL o LGPL porque esto es MIT. 
-Incluya fuente de origen (link, libro) de todo codigo que se copie.
+13. Respete las licencias.
 
 Fuentes
 -------
