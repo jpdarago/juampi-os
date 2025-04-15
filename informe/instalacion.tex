@@ -1,0 +1,39 @@
+\appendix
+\section{Como correr el Sistema Operativo}
+
+Para correr el sistema operativo se necesita de una distribuci\'on de Linux
+que cuente con \texttt{gnuutils}, en particular GCC y LD, \textit{nasm} y \texttt{bash}. 
+Adem\'as, en particular se necesita 
+
+\begin{itemize}
+	\item Bochs 2.4.6 o m\'as moderno.
+	\item La suite de utilidades \texttt{e2tools} para copiar archivos a la
+	imagen de diskette. Se puede conseguir usando el \textit{package manager}
+	de la distribuci\'on de Linux utilizada. En el caso de Ubuntu, se puede
+	usar el comando \texttt{sudo apt-get install e2tools}.
+	\item La suite de utilidades de particiones \texttt{mkfs}, en particular
+	\texttt{mkfs.minix}. Para instalarlo puede utilizarse el comando
+	\texttt{sudo apt-get install util-linux}.
+\end{itemize}
+
+Tambi\'en, dado que uno de los pasos requiere configurar y montar un \textit{loopback
+device}, se necesitan privilegios de sudo para ejecutar ese script. Si bien se ha
+tenido cuidado de no conflictuar ningun nombre, se avisa que es posible que se produzcan
+problemas en este paso (por lo cual se recomienda leer el script \texttt{linkage/build\_image.sh} 
+antes de ejecutar el siguiente comando).
+
+Correr la simulaci\'on dadas las dependencias citadas anteriormente consiste en situarse en el directorio
+m\'as arriba y ejecutar:
+
+\begin{verbatim}
+	make run
+\end{verbatim}
+
+El Makefile asume que los binarios de Bochs (en particular \texttt{bximage} y \texttt{bochs}) 
+se encuentra en la carpeta \texttt{\textasciitilde /bochs/bin}
+siendo \texttt{\textasciitilde} la carpeta home del usuario actual. Esto sin embargo se puede modificar
+utilizando el prefijo \texttt{BOCHSDIR} al ejecutar \texttt{make} de la siguiente manera:
+
+\begin{verbatim}
+	make BOCHSDIR=path/a/bochs/bin run
+\end{verbatim}

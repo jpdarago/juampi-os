@@ -1,0 +1,77 @@
+\section{Disco duro}
+\label{sec::disk}
+
+Se implement\'o un sencillo driver de disco duro con el prop\'osito de dar un soporte
+f\'isico al sistema de archivos que describiremos posteriormente.
+
+El driver de disco implementado maneja un solo disco duro IDE, el disco duro maestro.
+La implementaci\'on del driver utiliza ATA PIO, o Programmed I/O. Los sectores en el
+disco se direccionan utilizando para ello LBA 28 (Logical Block Addressing) lo cual
+nos permite abstraernos sobre la estructura del disco en t\'erminos de Cylinders, Heads
+y Sectors (\textit{CHS Addressing}) y pensarlo como un arreglo secuencial de sectores.
+Se asume adicionalmente que el disco duro tiene un tama\~no de sector de 512 bytes (lo
+estandar para los discos duros ATA).
+
+La implementaci\'on realizada interactua con el controlador de disco duro ATA Master
+mediante una serie de puertos, que detallamos a continuaci\'on:
+
+\begin{itemize}
+	\item Los puertos $0x1F0$ a $0x1F7$ son puertos de control para las operaciones de
+	lectura y escritura. A continuaci\'on detallamos el uso de cada uno de los registros
+
+	\begin{itemize}
+		\item Puerto $0x1F0$: Este puerto es el puerto de datos, el cual nos permite enviar
+		y recibir datos del controlador en grupos de \textit{words} (2 bytes o 16 bits).
+		\item Puerto $0x1F1$: Puerto de error. En la implementaci\'on realizada, por simplicidad,
+		no se empleo este puerto. Se utiliza para verificaci\'on de errores entre transferencias
+		luego de leer el registro de control.
+		\item Puerto $0x1F2$: Conteo de sectores. Se emplea para multitrasferencias de m\'as de
+		un sector contiguo, lo cual prepara el controlador de disco con los datos.
+		\item Puerto $0x1F3$: Se usa para indicar el primer byte de la direcci\'on LBA donde empieza
+		la transferencia de sectores indicados.
+		\item Puertos $0x1F4$,$0x1F5$: Se usan con similar motivaci\'on al puerto anteriormente explicado,
+		pero para el segundo y tercer byte respectivamente.
+		\item Puerto $0x1F6$: Se utiliza para seleccionar que disco duro se va a usar (cuando se dispone de
+		slaves adem\'as de un master). Asimismo se utiliza para indicar los bits restantes de la direcci\'on
+		LBA.
+		\item Puerto $0x1F7$: Este puerto corresponde al puerto de control del controlador de disco. Se lee
+		para obtener el registro de estado del controlador como flag, y si se escribe es para indicar un
+		comando al controlador. Los bits del byte de estado devueltos que son importantes a la implementaci\'on
+		son:
+
+		\begin{itemize}
+			\item Bit 0 (ERR): Indica que ocurri\'o un error.
+			\item Bit 3 (DRQ): Indica que el controlador esta listo para recibir o enviar datos.
+			\item Bit 5 (DF):  Indica una falla en el disco
+			\item Bit 6 (RDY): Indica que termino la operaci\'on o que ocurri\'o un error.
+			\item Bit 7 (BSY): Indica que el disco esta ocupado atendiendo un comando.
+		\end{itemize}
+	\end{itemize}
+	
+	\item El puerto $0x3F6$ se utiliza para controlar el disco primario. En particular se utiliza para detectar e
+	inicializar el disco duro maestro.
+\end{itemize}
+
+Los algoritmos utilizados en si son sencillos: Las operaciones son bloqueantes en el sentido de que utilizan ciclos de CPU para ejecutarse y
+no se desaloja al proceso que las esta realizando (porque esta en modo kernel). Si bien esto es desventajoso, la velocidad de transferencia
+supera a la que se puede obtener utilizando por ejemplo ISA DMA por el chip 8237.
+
+En primer lugar se detecta y se realiza un reset por software del controlador de disco (funci\'on \texttt{ata\_reset} y \texttt{hdd\_init}).
+El reset se realiza enviando el valor 4 por el puerto $0x3F6$, valor que corresponde al comando de reseteo. La funci\'on \texttt{ata\_read\_stable} tiene como prop\'osito proveer un tiempo de espera de 400 ns (lo cual es requerido por la especificaci\'on) para que se estabilice la
+circuiter\'ia interna del controlador. El valor del registro corresponde al \'ultimo le\'ido. Una vez que el controlador resetea todos los
+discos ATA en el bus correspondiente al registro de control usado, liberamos el bit prendido anteriormente con el comando enviado.
+
+Para detectar el disco, simplemente enviamos un comando al puerto de direcci\'on LBA con un valor y esperamos volver a leer ese valor.
+
+Por \'ultimo, veamos el algoritmo para lectura y escritura. Lo primero que hacemos es, usando los registros de control, ubicar al controlador
+de disco en el sector de inicio y pasarle la cantidad de sectores que vamos a leer o escribir. Posteriormente esperamos a que el disco duro
+este listo para continuar haciendo \textit{busy-waiting} en el registro de control hasta obtener que se libere el bit BSY, indicando que el
+controlador esta listo para hacer la transferencia.
+
+La transferencia se realiza de a un sector por vez, enviando 256 words por el puerto de datos. No utilizamos las instrucciones del procesador
+\texttt{rep outsw} y \texttt{rep insw} puesto que el controlador de disco requiere de un tiempo entre transferencias para acomodar los datos
+y el procesador puede transferir demasiado r\'apido para \'el. Adicionalmente, despu\'es de la escritura de un sector enviamos un comando
+de flush de caches del controlador para evitar que siguientes escrituras fallen silenciosamente. Y luego de una escritura le damos un tiempo
+de 400ns para que se estabilice el controlador (en el caso de la escritura eso ya lo realiza de por si el flush de caches).
+
+Para m\'as informaci\'on se puede consultar~\cite{ataspec},~\cite{osdev}.

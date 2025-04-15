@@ -1,0 +1,91 @@
+\section{Drivers implementados}
+\label{sec::drivers}
+
+Adem\'as de proveer una interfaz al disco duro y un sistema de archivos para soportar
+la abstracci\'on de jerarqu\'ia de archivos, implementamos tambi\'en una serie de funciones
+para manejar dispositivos de la computadora. En particular, los drivers de video y teclado
+se unieron en un driver (representado en el sistema de archivos como \texttt{/dev/tty}) para
+terminal de manera que los procesos puedan acceder a estos recursos de manera transparente.
+Tambi\'en se implement\'o funciones para acceder al registro de reloj CMOS del procesador de
+manera de poder proveer al usuario fecha y hora.
+
+\subsection{Driver de teclado}
+
+El driver de teclado es muy sencillo: Consiste en una interrupcci\'on asociada al pin IRQ
+$0x1$ que se mapea al n\'umero de interrupcci\'on $0x21$ 
+(este valor se obtiene posteriormente a remapear el Programmable Interrupt Controller de manera
+que las interrupcciones por PIN no colisionen con las interrupcciones como se explica en~\cite{jamesmolloy}).
+Se instala entonces una funci\'on particular para manejar esta interrupcci\'on de manera que el manejador
+general de interrupcciones pueda llamarla apen\'as reciba una interrupcci\'on de teclado.
+
+Esta funci\'on \textit{handler} de la interrupcci\'on de teclado simplemente lee la tecla presionada usando
+el puerto $0x60$ de datos. Un evento de teclado consiste en el apretado de una tecla o la liberaci\'on de la
+misma. Para manejar esto de manera independiente al resto del sistema, se mantiene un buffer circular de teclas
+tal que la funci\'on de manejo de la interrupcci\'on solo tiene que tomar esta tecla de este puerto y agregarla
+al buffer circular. Se provee una funci\'on adem\'as para que los usuarios de este buffer puedan obtener las teclas
+presionadas. Esto se utiliza en el driver de consola (que el shell en particular emplea).
+
+\subsection{Driver de pantalla}
+
+El driver de pantalla es sencillo. Se utiliza modo texto en VGA. Las funciones de pantalla entonces actuan directamente
+sobre el \textit{framebuffer} de modo texto: Un arreglo contiguo de 25 filas, 80 columnas que empieza en la direcci\'on
+$0xb8000$. Este arreglo codifica cada pixel usando 2 bytes: un byte para el caracter a mostrar, y otro byte de formato que almacena 
+en su nibble alto el color del fondo y en su nibble inferior el color del car\'acter en esa posici\'on. 
+En particular en este trabajo usamos verde sobre negro como ciertos terminales de anta\~no.
+
+Adicionalmente se mantiene el cursor de posici\'on actual. Este cursor se controla mediante la interfaz por puertos de VGA:
+Se indica la posici\'on en dos comandos separados. El registro de comandos de VGA es el puerto $0x3D4$ y el de datos es el
+$0x3D5$. El proceso entonces para actualizar la posici\'on del cursor a una nueva posici\'on (dada por su offset lineal en
+el \textit{framebuffer} como word de 16 bits) es:
+
+\begin{itemize}
+	\item Enviar el comando 14 y luego el byte m\'as significativo de la posici\'on al puerto de datos.
+	\item Enviar el comando 15 y luego el byte menos significativo de la posici\'on al puerto de datos.
+\end{itemize}
+
+Lo cual actualiza el indicador de cursor de VGA. Las dem\'as funciones de manejo de la pantalla son relativamente triviales
+(puesto que escribir un caracter a pantalla consiste en manipular el buffer de pantalla) y su implementaci\'on es sencilla de
+entender del c\'odigo.
+
+\subsection{Driver de reloj CMOS}
+
+El reloj CMOS es un reloj de bater\'ia que mantiene la fecha y hora del CPU. Este reloj se mantiene actualizado incluso cuando
+la m\'aquina esta apagada. Almacena las horas en un sencillo formato que corresponde directamente con el que uno esperar\'ia: el
+tiempo en segundos,minutos,horas y la fecha en d\'ia, mes, a\~no y centuria. El formato es un poco distinto al presentado pero es
+en esp\'iritu similar.
+
+Para leer este reloj se utiliza el puerto $0x70$ para comandos y el puerto $0x71$ para datos. Los comandos son bytes correspondientes
+a que registro se desea leer, de los que el reloj CMOS almacena y hemos detallado en el parrafo anterior.
+
+Un cuidado necesario en este driver es deshabilitar interrupcciones para que la lectura no sea influenciada por el scheduler, y la otra
+es tener cuidado en que el estado del reloj es inconsistente entre updates del mismo: Un update se realiza incrementando el contador de
+segundos y luego modificando acordemente los otros valores de los registros. Para asegurar que no caemos en el borde de un update, se
+leen los registros del reloj hasta que se obtienen los mismos dos valores en lecturas consecutivas. Ahi se asume que el estado del mismo
+esta estabilizado. Para m\'as detalles consultar~\cite{osdev}.
+
+Otro cuidado es realizar la conversi\'on de valores seg\'un el formato. Los detalles de formato son los siguientes:
+
+\begin{itemize}
+	\item Normal o BCD (Binary Coded Decimal). BCD requiere simplemente realizar una serie de operaciones aritm\'eticas para convertir
+	los valores. Los detalles se pueden consultar en ~\cite{osdev} y en el c\'odigo de conversi\'on de formato.
+	\item Horas en formato 12 o 24.
+\end{itemize}     
+
+De ambos detalles se ocupan las funciones programadas.
+
+Un detalle a considerar es que no se implement\'o, por simplicidad, un driver con representaci\'on en disco de este driver. Se prefiri\'o
+mantener una sola llamada a sistema por simplicidad (ya que lo \'unico que puede hacer un proceso con la fecha y hora es leerla, no la puede
+modificar ni usar ninguna otra opci\'on).
+
+\subsection{Terminal}
+\label{sec::tty}
+
+Combinando las funciones de pantalla y driver implementamos entrada y salida estandares por terminal, para uso del shell y otros programas.
+Este driver se identifica por el \textit{major number} 0 y el \textit{minor number} 0. La interfaz es id\'entica a las llamadas de sistema
+para archivos descriptas en la secci\'on~\ref{sec::filesystem_syscalls}. Al abrirse el terminal, se limpia la pantalla y se establecen los offsets
+necesarios. Leer el terminal consiste en leer de teclado. Este procedimiento es bloqueante, pero sin embargo si el proceso que realizo la lectura
+no encuentra ningun caracter, simplemente libera el procesador mediante la llamada a sistema \texttt{do\_sleep} al siguiente proceso en la lista
+de scheduling. De esta manera no se bloquea el sistema. Escribir consiste en pasar el buffer de caracteres al \textit{framebuffer} del terminal.
+
+El terminal es asociado a los procesos con dos descriptores de archivo: el descriptor 0 para entrada estandar y el descriptor 1 para salida
+estandar.
