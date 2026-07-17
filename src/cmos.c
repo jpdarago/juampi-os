@@ -19,47 +19,48 @@ uchar get_rtc_register(uchar reg)
     return inb(CMOS_DATA);
 }
 
-void fetch_data(date * d)
+void fetch_data(date* d)
 {
-    d->second   = get_rtc_register(0x00);
-    d->minute   = get_rtc_register(0x02);
-    d->hour     = get_rtc_register(0x04);
-    d->day      = get_rtc_register(0x07);
-    d->month    = get_rtc_register(0x08);
+    d->second = get_rtc_register(0x00);
+    d->minute = get_rtc_register(0x02);
+    d->hour = get_rtc_register(0x04);
+    d->day = get_rtc_register(0x07);
+    d->month = get_rtc_register(0x08);
     // Caution: Some machines do not have
     // a century register and sometimes do not have it
     // in register 0x32 of the CMOS. It would need to be
     // read from the ACPI table.
-    d->year     = 100*get_rtc_register(0x32)
-                  + get_rtc_register(0x09);
+    d->year = 100 * get_rtc_register(0x32) + get_rtc_register(0x09);
 }
 
-void get_current_date(date * d)
+void get_current_date(date* d)
 {
     uint eflags = irq_cli();
     date tmp;
 
-    while(update_in_progress()) ;
+    while (update_in_progress())
+        ;
     fetch_data(d);
 
     do {
-        memcpy(&tmp,d,sizeof(date));
-        while(update_in_progress()) ;
+        memcpy(&tmp, d, sizeof(date));
+        while (update_in_progress())
+            ;
         fetch_data(d);
-    } while(memcmp(&tmp,d,sizeof(date)));
+    } while (memcmp(&tmp, d, sizeof(date)));
 
     uchar breg = get_rtc_register(0x0B);
-    if(!(breg & 0x04)) {
-        d->second   = (d->second & 0xF) + ((d->second / 16)*10);
-        d->minute   = (d->minute & 0xF) + ((d->minute / 16)*10);
-        d->hour     = ((d->hour & 0xF) + (((d->hour & 0x70) / 16)*10 ))
-                      | (d->hour & 0x80);
-        d->day      = (d->day & 0xF) + (d->day / 16)*10;
-        d->month    = (d->month & 0xF) + (d->month / 16)*10;
-        d->year     = (d->year & 0xF) + (d->year / 16)*10;
+    if (!(breg & 0x04)) {
+        d->second = (d->second & 0xF) + ((d->second / 16) * 10);
+        d->minute = (d->minute & 0xF) + ((d->minute / 16) * 10);
+        d->hour = ((d->hour & 0xF) + (((d->hour & 0x70) / 16) * 10)) |
+                  (d->hour & 0x80);
+        d->day = (d->day & 0xF) + (d->day / 16) * 10;
+        d->month = (d->month & 0xF) + (d->month / 16) * 10;
+        d->year = (d->year & 0xF) + (d->year / 16) * 10;
     }
 
-    if(!(breg & 0x2) && (d->hour & 0x80)) {
+    if (!(breg & 0x2) && (d->hour & 0x80)) {
         d->hour = ((d->hour & 0x7F) + 12) % 24;
     }
 

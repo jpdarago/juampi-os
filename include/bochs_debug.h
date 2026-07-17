@@ -5,7 +5,7 @@
 #include <vargs.h>
 
 void dbg_putc(char);
-void dbg_print(const char *);
-void dbg_printf(const char * fmt, ...);
+void dbg_print(const char*);
+void dbg_printf(const char* fmt, ...);
 
 #endif

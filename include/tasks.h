@@ -10,39 +10,34 @@
 #include <proc.h>
 #include <fs.h>
 
-typedef enum status {
-    P_RUNNING,
-    P_BLOCKED,
-    P_AVAILABLE,
-    P_COMA
-} status;
+typedef enum status { P_RUNNING, P_BLOCKED, P_AVAILABLE, P_COMA } status;
 
 typedef void (*signal_handler)(int);
 
 #define SIGNALS 4
 
-#define SIGINT  0
+#define SIGINT 0
 #define SIGKILL 1
 #define SIGSTOP 2
 #define SIGCONT 3
 
-#define ERRINVPID       -1
-#define ERRINVSIG       -2
-#define ERRIGNSIG       -3
-#define ERROUTMEM       -4
-#define ERRGDTFULL      -5
-#define ERRINVFILE      -6
-#define ERRBIGEXEC      -7
-#define ERRNOTELF       -8
-#define ERRREAD         -9
-#define ERRIMPOSSIBLE   -10
-#define ERRARGTOOBIG    -11
-#define ERRTOOMANYARGS  -12
-#define ERRREADINGELF   -13
+#define ERRINVPID -1
+#define ERRINVSIG -2
+#define ERRIGNSIG -3
+#define ERROUTMEM -4
+#define ERRGDTFULL -5
+#define ERRINVFILE -6
+#define ERRBIGEXEC -7
+#define ERRNOTELF -8
+#define ERRREAD -9
+#define ERRIMPOSSIBLE -10
+#define ERRARGTOOBIG -11
+#define ERRTOOMANYARGS -12
+#define ERRREADINGELF -13
 
-#define EXEC_MAX_FSIZE (1024*1024)
-#define EXEC_MAX_ARGC   16
-#define EXEC_MAX_ARGSZ  128
+#define EXEC_MAX_FSIZE (1024 * 1024)
+#define EXEC_MAX_ARGC 16
+#define EXEC_MAX_ARGSZ 128
 
 typedef struct process_info {
     // Process identifier
@@ -55,21 +50,21 @@ typedef struct process_info {
     // List of the pids of the child processes
     list_head children;
     // Structure with the parent process information
-    struct process_info * parent;
+    struct process_info* parent;
     // TSS selector corresponding to this process
     short tss_selector;
     // Memory space where the tss of this process
     // and the explicit tss of the process are located
-    void * tss_space_start;
-    tss * tss;
+    void* tss_space_start;
+    tss* tss;
     // How much time this process has remaining. It only makes
     // sense when status = P_RUNNING
     uint remaining_quantum;
     // Pointer to the page directory
-    page_directory * page_dir;
+    page_directory* page_dir;
     // Pointer to the child it is waiting for if it is
     // waiting for a child
-    struct process_info * waiting_child;
+    struct process_info* waiting_child;
     // Signal handlers
     signal_handler signal_handlers[SIGNALS];
     // Bitmap of signals pending to attend and to ignore (because
@@ -101,24 +96,24 @@ extern list_head processes;
 // Initializes the process scheduler
 void scheduler_init(void);
 // Helper for forking
-int do_fork(intptr,gen_regs,uint,intptr);
+int do_fork(intptr, gen_regs, uint, intptr);
 // Replace the current process image with the one passed
 // as parameter, with the indicated arguments on the stack.
 // Returns 0 if it succeeded, -1 if it failed
-int do_exec(char * filename, char ** args, int_trace *,void *);
+int do_exec(char* filename, char** args, int_trace*, void*);
 // Wait for the child process with the indicated pid
 int do_wait(uint child_pid);
 // Returns the tss of the next task to execute.
-process_info * next_task(void);
+process_info* next_task(void);
 // Loads the image from the elf file buffer passed as parameter
-int elf_overlay_image(elf_file * e);
+int elf_overlay_image(elf_file* e);
 // Returns a pointer to the current task structure, NULL if
 // there is no initial task
-process_info * get_current_task(void);
+process_info* get_current_task(void);
 // Switches task
-void perform_task_switch(process_info *);
+void perform_task_switch(process_info*);
 // Jumps to the initial task
-void jump_to_initial(void *);
+void jump_to_initial(void*);
 // Kills the current process
 int do_exit(void);
 
@@ -128,10 +123,10 @@ int do_sleep(void);
 // Blocks the current process and releases its quantum
 void block_current_process(void);
 // Unblocks the current process
-void wake_up(process_info * p);
+void wake_up(process_info* p);
 
 void switch_kernel_mode(void);
-void switch_user_mode(int_trace *);
+void switch_user_mode(int_trace*);
 bool kernel_mode(void);
 bool is_preemptable(void);
 
@@ -146,8 +141,8 @@ int do_coma(void);
 int do_clear_signal(int signal);
 
 // Current working directory of the current process
-void do_get_cwd(char * buf);
-int do_set_cwd(const char *);
+void do_get_cwd(char* buf);
+int do_set_cwd(const char*);
 
 // My pid
 int do_get_pid(void);

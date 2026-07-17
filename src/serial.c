@@ -21,16 +21,16 @@ void serial_putc(char c)
 {
     // Bounded wait: a missing or misbehaving UART must never hang the kernel
     // (a lesson from the ATA driver). If it never drains, we drop the byte.
-    for(int i = 0; i < 100000 && !transmit_empty(); i++) {
+    for (int i = 0; i < 100000 && !transmit_empty(); i++) {
         ;
     }
     outb(SERIAL_COM1 + SERIAL_THR, c);
 }
 
-void serial_print(const char * s)
+void serial_print(const char* s)
 {
-    while(*s) {
-        if(*s == '\n') {
+    while (*s) {
+        if (*s == '\n') {
             serial_putc('\r');
         }
         serial_putc(*s);

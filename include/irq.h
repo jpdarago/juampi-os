@@ -8,7 +8,7 @@
 #include <proc.h>
 
 // Type of the callbacks
-typedef void (*irq_handler)(uint,gen_regs);
+typedef void (*irq_handler)(uint, gen_regs);
 
 // Remapping of the PIC
 extern void remap_pic(void);
@@ -17,7 +17,7 @@ extern void remap_pic(void);
 extern void irq_init_handlers(void);
 
 // General handler for interrupts via PIC
-extern void irq_common_handler(gen_regs,uint,int_trace);
+extern void irq_common_handler(gen_regs, uint, int_trace);
 
 // Handlers to turn interrupts on and off
 // irq_sti decides whether it has to enable them or not according to eflags

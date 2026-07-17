@@ -1,8 +1,8 @@
 #ifndef __PARSER_H
 #define __PARSER_H
 
-#define MAXARGS     16
-#define MAXARGLEN   30
+#define MAXARGS 16
+#define MAXARGLEN 30
 
 typedef struct argument {
     char str[MAXARGLEN];
@@ -13,7 +13,7 @@ typedef struct argument_list {
     argument list[MAXARGS];
 } argument_list;
 
-argument_list * parse_arguments(const char * command);
-const char * get_parse_error();
+argument_list* parse_arguments(const char* command);
+const char* get_parse_error();
 
 #endif

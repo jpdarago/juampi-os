@@ -4,21 +4,17 @@
 #include <memory.h>
 
 static struct list_head buffer_list_head;
-dirty_ln * dirty_list;
+dirty_ln* dirty_list;
 
-void minix_hdd_read(uint start_block,
-                    uint blocks, void* data)
+void minix_hdd_read(uint start_block, uint blocks, void* data)
 {
-    hdd_read(start_block*MINIX_BLOCK_BSIZE,
-             blocks*MINIX_BLOCK_BSIZE,
-             data);
+    hdd_read(start_block * MINIX_BLOCK_BSIZE, blocks * MINIX_BLOCK_BSIZE, data);
 }
 
-void minix_hdd_write(uint start_block,
-                     uint blocks, void* data)
+void minix_hdd_write(uint start_block, uint blocks, void* data)
 {
-    hdd_write(start_block*MINIX_BLOCK_BSIZE,
-              blocks*MINIX_BLOCK_BSIZE,data);
+    hdd_write(start_block * MINIX_BLOCK_BSIZE, blocks * MINIX_BLOCK_BSIZE,
+              data);
 }
 
 void buffer_cache_init()
@@ -28,16 +24,16 @@ void buffer_cache_init()
 
 static void add_buffer_to_list(disk_buffer* b)
 {
-    list_add(&b->buffers,&buffer_list_head);
+    list_add(&b->buffers, &buffer_list_head);
 }
 
-static disk_buffer* buffer_create(uint block_number,uint block_size)
+static disk_buffer* buffer_create(uint block_number, uint block_size)
 {
     disk_buffer* b = kmalloc(sizeof(disk_buffer));
-    b->block        = block_number;
-    b->dirty        = false;
-    b->free         = true;
-    b->readers      = b->writers    = 0;
+    b->block = block_number;
+    b->dirty = false;
+    b->free = true;
+    b->readers = b->writers = 0;
     b->dlist_ptr = NULL;
 
     b->data = kmalloc(block_size);
@@ -48,13 +44,13 @@ static disk_buffer* buffer_create(uint block_number,uint block_size)
 
 void buffer_flush(disk_buffer* b)
 {
-    if(b->dirty) {
-        minix_hdd_write(b->block,1,b->data);
-        dirty_ln * dln = b->dlist_ptr;
-        if(dln != NULL) {
-            if(list_empty(&dirty_list->dlist)) {
+    if (b->dirty) {
+        minix_hdd_write(b->block, 1, b->data);
+        dirty_ln* dln = b->dlist_ptr;
+        if (dln != NULL) {
+            if (list_empty(&dirty_list->dlist)) {
                 dirty_list = NULL;
-            }else{
+            } else {
                 list_del(&dln->dlist);
             }
             kfree(dln);
@@ -67,17 +63,18 @@ void buffer_flush(disk_buffer* b)
 disk_buffer* get_buffer(uint block)
 {
     disk_buffer* res = NULL;
-    if(list_empty(&buffer_list_head)) {
+    if (list_empty(&buffer_list_head)) {
         return NULL;
     }
     disk_buffer* ptr;
     list_head* l;
     list_head* blh = &buffer_list_head;
-    list_for_each(l,blh) {
-        ptr = list_entry(l,disk_buffer,buffers);
-        if(ptr->block == block) {
+    list_for_each(l, blh)
+    {
+        ptr = list_entry(l, disk_buffer, buffers);
+        if (ptr->block == block) {
             res = ptr;
-            list_move(l,blh);
+            list_move(l, blh);
             buffer_flush(res);
             return res;
         }
@@ -88,16 +85,17 @@ disk_buffer* get_buffer(uint block)
 static disk_buffer* get_free_buffer(void)
 {
     disk_buffer* res = NULL;
-    if(list_empty(&buffer_list_head)) {
+    if (list_empty(&buffer_list_head)) {
         return NULL;
     }
-    list_head* l, * blh = &buffer_list_head;
-    list_for_each_prev(l,blh) {
-        disk_buffer* ptr = list_entry(l,disk_buffer,buffers);
-        if(ptr->free) {
+    list_head *l, *blh = &buffer_list_head;
+    list_for_each_prev(l, blh)
+    {
+        disk_buffer* ptr = list_entry(l, disk_buffer, buffers);
+        if (ptr->free) {
             res = ptr;
             res->free = false;
-            list_move(l,blh);
+            list_move(l, blh);
             buffer_flush(res);
             return res;
         }
@@ -108,20 +106,20 @@ static disk_buffer* get_free_buffer(void)
 void buffer_load(disk_buffer* b, uint block)
 {
     b->block = block;
-    minix_hdd_read(block,1,b->data);
+    minix_hdd_read(block, 1, b->data);
     b->dirty = false;
 }
 
 disk_buffer* obtain_buffer(uint block)
 {
     disk_buffer* b = get_buffer(block);
-    if(b == NULL) {
+    if (b == NULL) {
         b = get_free_buffer();
-        if(b == NULL) {
-            b = buffer_create(block,MINIX_BLOCK_SIZE);
+        if (b == NULL) {
+            b = buffer_create(block, MINIX_BLOCK_SIZE);
         }
-        if(b != NULL) {
-            buffer_load(b,block);
+        if (b != NULL) {
+            buffer_load(b, block);
         }
     }
     return b;
@@ -129,57 +127,55 @@ disk_buffer* obtain_buffer(uint block)
 
 void mark_buffer(disk_buffer* b)
 {
-    if(b->readers + b->writers == 0) {
+    if (b->readers + b->writers == 0) {
         b->free = true;
     }
 }
 
-void mark_dirty(uint inonum, disk_buffer * b){
+void mark_dirty(uint inonum, disk_buffer* b)
+{
     b->dirty = true;
     // Already linked into the dirty list; don't add a second node for the
     // same buffer (that would leak the node and risk a double free on flush).
-    if(b->dlist_ptr != NULL) {
+    if (b->dlist_ptr != NULL) {
         return;
     }
-    dirty_ln * d = kmalloc(sizeof(dirty_ln));
+    dirty_ln* d = kmalloc(sizeof(dirty_ln));
     d->inonum = inonum;
     d->buffer = b;
     b->dlist_ptr = d;
     INIT_LIST_HEAD(&d->dlist);
-    if(dirty_list == NULL) {
+    if (dirty_list == NULL) {
         dirty_list = d;
-    }else{
-        list_add(&d->dlist,&dirty_list->dlist);
+    } else {
+        list_add(&d->dlist, &dirty_list->dlist);
     }
 }
 
-int buffered_write(uint block, uint offset,
-                   uint bytes, uint inonum,
-                   void* data)
+int buffered_write(uint block, uint offset, uint bytes, uint inonum, void* data)
 {
-    if(offset >= MINIX_BLOCK_SIZE) {
+    if (offset >= MINIX_BLOCK_SIZE) {
         return -1;
     }
     disk_buffer* b = obtain_buffer(block);
     b->writers++;
     char* dump = b->data;
-    memcpy(dump + offset,data,bytes);
-    mark_dirty(inonum,b);
+    memcpy(dump + offset, data, bytes);
+    mark_dirty(inonum, b);
     b->writers--;
     mark_buffer(b);
     return 0;
 }
 
-int buffered_read(uint block, uint offset,
-                  uint bytes, void* data)
+int buffered_read(uint block, uint offset, uint bytes, void* data)
 {
-    if(offset >= MINIX_BLOCK_SIZE) {
+    if (offset >= MINIX_BLOCK_SIZE) {
         return -1;
     }
     disk_buffer* b = obtain_buffer(block);
     b->readers++;
     char* dump = b->data;
-    memcpy(data,dump+offset,bytes);
+    memcpy(data, dump + offset, bytes);
     b->readers--;
     mark_buffer(b);
     return bytes;
@@ -187,22 +183,22 @@ int buffered_read(uint block, uint offset,
 
 void buffers_flush(uint inode_number)
 {
-    if(dirty_list == NULL) return;
-    dirty_ln * dln, * dlntemp;
-    list_for_each_entry_safe(dln,dlntemp,
-                             &dirty_list->dlist,dlist){
-
+    if (dirty_list == NULL)
+        return;
+    dirty_ln *dln, *dlntemp;
+    list_for_each_entry_safe(dln, dlntemp, &dirty_list->dlist, dlist)
+    {
         buffer_flush(dln->buffer);
     }
 }
 
 void buffers_flush_all()
 {
-    if(dirty_list == NULL) return;
-    dirty_ln * dln, * dlntemp;
-    list_for_each_entry_safe(dln,dlntemp,
-                             &dirty_list->dlist,dlist){
-
+    if (dirty_list == NULL)
+        return;
+    dirty_ln *dln, *dlntemp;
+    list_for_each_entry_safe(dln, dlntemp, &dirty_list->dlist, dlist)
+    {
         buffer_flush(dln->buffer);
     }
 }
@@ -210,37 +206,36 @@ void buffers_flush_all()
 void buffer_free(uint block)
 {
     disk_buffer* b = get_buffer(block);
-    if(b == NULL) {
+    if (b == NULL) {
         return;
     }
-    if(b->readers == 0 && b->writers == 0) {
+    if (b->readers == 0 && b->writers == 0) {
         b->free = true;
     }
 }
 
-
-int buffered_write_several(uint start_block,
-                           uint blocks, uint inonum, void * _data)
+int buffered_write_several(uint start_block, uint blocks, uint inonum,
+                           void* _data)
 {
-    char * data = _data;
+    char* data = _data;
     int total = 0, last_block = start_block + blocks;
-    for(int block = start_block; block < last_block; ++block) {
-        int read = buffered_write(block,0,MINIX_BLOCK_SIZE,
-                                  inonum, data);
-        data += read; total += read;
+    for (int block = start_block; block < last_block; ++block) {
+        int read = buffered_write(block, 0, MINIX_BLOCK_SIZE, inonum, data);
+        data += read;
+        total += read;
         buffer_free(block);
     }
     return total;
 }
 
-int buffered_read_several(uint start_block,
-                          uint blocks, void* _data)
+int buffered_read_several(uint start_block, uint blocks, void* _data)
 {
-    char * data = _data;
+    char* data = _data;
     int total = 0, last_block = start_block + blocks;
-    for(int block = start_block; block < last_block; ++block) {
-        int read = buffered_read(block,0,MINIX_BLOCK_SIZE,data);
-        data += read; total += read;
+    for (int block = start_block; block < last_block; ++block) {
+        int read = buffered_read(block, 0, MINIX_BLOCK_SIZE, data);
+        data += read;
+        total += read;
         buffer_free(block);
     }
     return total;

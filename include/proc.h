@@ -5,7 +5,7 @@
 
 // Structure with the general purpose registers
 typedef struct {
-    uint32 edi,esi,ebp,esp,ebx,edx,ecx,eax;
+    uint32 edi, esi, ebp, esp, ebx, edx, ecx, eax;
 } gen_regs;
 
 // Interrupt trace
@@ -19,12 +19,12 @@ typedef struct {
 
 // Control registers
 typedef struct {
-    uint32 cr0,cr2,cr3,cr4;
+    uint32 cr0, cr2, cr3, cr4;
 } ctrl_regs;
 
 // Segment selector registers
 typedef struct {
-    uint32 cs,ds,es,fs,gs,ss;
+    uint32 cs, ds, es, fs, gs, ss;
 } sel_regs;
 
 typedef struct {

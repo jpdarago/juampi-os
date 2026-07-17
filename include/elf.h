@@ -67,25 +67,25 @@ typedef struct {
 } __attribute__((__packed__)) elf_pheader;
 
 typedef struct {
-    void * data;
+    void* data;
     intptr virtual_address;
     uint type;
-    uint file_size,mem_size;
+    uint file_size, mem_size;
     uint attributes;
     uint flags;
     uint alignment;
 } __attribute__((__packed__)) elf_segment;
 
 typedef struct {
-    elf_header  * header;
-    elf_pheader * program_header;
+    elf_header* header;
+    elf_pheader* program_header;
 } __attribute__((__packed__)) elf_file;
 
-elf_file * elf_read_exec(void * image);
-void elf_destroy(elf_file * elf);
+elf_file* elf_read_exec(void* image);
+void elf_destroy(elf_file* elf);
 
-unsigned int elf_entry_point(elf_file * elf);
-elf_segment * elf_get_segment(elf_file * elf, uint index);
-void elf_free_segment(elf_segment * e);
+unsigned int elf_entry_point(elf_file* elf);
+elf_segment* elf_get_segment(elf_file* elf, uint index);
+void elf_free_segment(elf_segment* e);
 
 #endif

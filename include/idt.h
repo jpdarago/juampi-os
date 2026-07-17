@@ -8,30 +8,30 @@ struct idt_entry {
     uint16 offset_l;
     uint16 selector;
     uint8 __padding__;
-    uint8 type  : 5;
-    uint8 dpl   : 2;
-    uint8 p     : 1;
+    uint8 type : 5;
+    uint8 dpl : 2;
+    uint8 p : 1;
     uint16 offset_h;
 } __attribute__((__packed__));
 typedef struct idt_entry idt_entry;
 
 struct idt_entry_flags {
-    uint8 d     : 1;
-    uint8 dpl   : 2;
-    uint8 type  : 5;
+    uint8 d : 1;
+    uint8 dpl : 2;
+    uint8 type : 5;
 } __attribute__((__packed__));
 typedef struct idt_entry_flags idt_entry_flags;
 
 struct idt_desc {
     uint16 idt_limit;
     uint32 idt_base;
-} __attribute__ ((__packed__));
+} __attribute__((__packed__));
 typedef struct idt_desc idt_desc;
 
 enum idt_descriptor_type {
-    IDT_TASK_GATE   = 5,
-    IDT_INT_GATE    = 6,
-    IDT_TRAP_GATE   = 7
+    IDT_TASK_GATE = 5,
+    IDT_INT_GATE = 6,
+    IDT_TRAP_GATE = 7
 };
 typedef enum idt_descriptor_type idt_descriptor_type;
 
@@ -39,12 +39,13 @@ extern idt_entry idt[];
 extern idt_desc IDT_DESC;
 
 // Loads a descriptor of the idt.
-extern void idt_load_desc(uint,uint,uint16,idt_entry_flags);
+extern void idt_load_desc(uint, uint, uint16, idt_entry_flags);
 // Brings up the exception idt so that the system can use it.
 extern void idt_init_exceptions(void);
 extern void idt_init_interrupts(void);
 extern void idt_init_syscalls(void);
-// Loads the idt. It is in assembler, because that is how it has to be. It is found in loader.asm
+// Loads the idt. It is in assembler, because that is how it has to be. It is
+// found in loader.asm
 extern void idt_flush(void);
 
 // Exception handlers

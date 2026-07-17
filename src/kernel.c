@@ -34,15 +34,17 @@ void ktest_main(void);
 
 void kmain(multiboot_info_t* mbd, unsigned long magic)
 {
-    if(magic != MULTIBOOT_BOOTLOADER_MAGIC) {
-        scrn_setmode(GREEN,BLACK);
-        scrn_print("Something went very very wrong. I don't know what else to tell you.");
+    if (magic != MULTIBOOT_BOOTLOADER_MAGIC) {
+        scrn_setmode(GREEN, BLACK);
+        scrn_print("Something went very very wrong. I don't know what else to "
+                   "tell you.");
         return;
     }
     scrn_cls();
-    scrn_setmode(GREEN,BLACK);
+    scrn_setmode(GREEN, BLACK);
     // Bring up the serial console early so boot progress is visible headlessly
-    // (qemu -serial stdio), which is much friendlier for CI than the VGA buffer.
+    // (qemu -serial stdio), which is much friendlier for CI than the VGA
+    // buffer.
     serial_init();
     serial_print("\n=== juampiOS booting (COM1 serial console) ===\n");
     scrn_print("WELCOME TO juampiOS\n\t"
@@ -64,14 +66,14 @@ void kmain(multiboot_info_t* mbd, unsigned long magic)
     irq_sti_force();
 
     scrn_printf("OK\nCHECKING MODULE STATE...");
-    scrn_printf("%u MODULES LOADED\n",mbd->mods_count);
+    scrn_printf("%u MODULES LOADED\n", mbd->mods_count);
 
     scrn_print("CHECKING MEMORY STATE\n");
     // We check the amount of RAM memory present.
-    if(mbd->flags & 1) {
+    if (mbd->flags & 1) {
         scrn_printf("\tAmount of RAM in the system:\n"
                     "\t\tLower: %u Kb, Upper: %u Kb\n",
-                    mbd->mem_lower,mbd->mem_upper);
+                    mbd->mem_lower, mbd->mem_upper);
     } else {
         kernel_panic("Invalid GRUB memory map");
     }
@@ -79,14 +81,15 @@ void kmain(multiboot_info_t* mbd, unsigned long magic)
 #ifdef KTEST
     // Test builds boot via `qemu -kernel` with no modules, so take the
     // end-of-kernel address from the linker symbol rather than a GRUB module.
-    uint kernel_end_addr = (uint) &kernel_end;
+    uint kernel_end_addr = (uint)&kernel_end;
 #else
-    module_t* grub_modules = (module_t*) mbd->mods_addr;
-    uint kernel_end_addr = grub_modules[mbd->mods_count-1].mod_end;
+    module_t* grub_modules = (module_t*)mbd->mods_addr;
+    uint kernel_end_addr = grub_modules[mbd->mods_count - 1].mod_end;
 #endif
     // The upper memory map starts from the first megabyte, ergo the first
-    // location where we go past the end is 1024 kilobytes plus the memory GRUB reports
-    paging_init(kernel_end_addr, (1024+mbd->mem_upper)*1024);
+    // location where we go past the end is 1024 kilobytes plus the memory GRUB
+    // reports
+    paging_init(kernel_end_addr, (1024 + mbd->mem_upper) * 1024);
     scrn_printf("OK\n");
 
 #ifdef KTEST
@@ -94,7 +97,8 @@ void kmain(multiboot_info_t* mbd, unsigned long magic)
     // stop before disk/FS/scheduler init, which need hardware and modules the
     // test VM does not provide.
     ktest_main();
-    while(1) ;
+    while (1)
+        ;
 #else
     scrn_print("INITIALIZING ATA DISK\n");
     hdd_init();
@@ -104,9 +108,10 @@ void kmain(multiboot_info_t* mbd, unsigned long magic)
     scheduler_init();
 
     serial_print("juampiOS: kernel init complete, entering userland\n");
-    void * buffer = (void *) grub_modules[0].mod_start;
+    void* buffer = (void*)grub_modules[0].mod_start;
     jump_to_initial(buffer);
 
-    while(1) ;
+    while (1)
+        ;
 #endif
 }

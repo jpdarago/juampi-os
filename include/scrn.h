@@ -8,16 +8,28 @@
 #define TAB_WIDTH 4
 
 enum color {
-    BLACK = 0, BLUE, GREEN, CYAN,
-    RED, MAGENTA, BROWN, LIGHTGREY,
-    DARKGREY, LIGHTBLUE, LIGHTGREEN, LIGHTCYAN,
-    LIGHTRED, LIGHTMAGENTA, LIGHTBROWN, WHITE
+    BLACK = 0,
+    BLUE,
+    GREEN,
+    CYAN,
+    RED,
+    MAGENTA,
+    BROWN,
+    LIGHTGREY,
+    DARKGREY,
+    LIGHTBLUE,
+    LIGHTGREEN,
+    LIGHTCYAN,
+    LIGHTRED,
+    LIGHTMAGENTA,
+    LIGHTBROWN,
+    WHITE
 };
 typedef enum color color;
 // Clears the screen
 void scrn_cls(void);
 // Sets the background color and the font.
-void scrn_setmode(color,color);
+void scrn_setmode(color, color);
 // Returns the background and font format
 ushort scrn_getmode(void);
 // Returns the cursor row
@@ -34,12 +46,12 @@ void scrn_move_back(void);
 void scrn_print(const char*);
 // Prints the message, with C printf-style formatting.
 // PRE: The number of parameters passed MUST be correct
-void scrn_printf(const char*,...);
+void scrn_printf(const char*, ...);
 // Prints the message at the indicated address. Returns 0
 // if everything is fine, -1 in case of error. It is used in the
 // direct-to-screen printing syscall
-int scrn_pos_print(uchar row, uchar col, const char * msg);
+int scrn_pos_print(uchar row, uchar col, const char* msg);
 // Like scrn_pos_print but printf
-int scrn_pos_printf(uchar row, uchar col, const char * msg,...);
+int scrn_pos_printf(uchar row, uchar col, const char* msg, ...);
 bool in_video_mem(uint address);
 #endif

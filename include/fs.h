@@ -5,17 +5,17 @@
 #include <vfs.h>
 
 void init_disk_super_block(void);
-super_block * get_disk_super_block(void);
+super_block* get_disk_super_block(void);
 
-int invalid_path(const char * dir);
-int do_open(char * pathname, uint flags);
-int do_read(int fd, int bytes, void * buffer);
-int do_write(int fd, int bytes, void * buffer);
-int do_readdir(int fd, dirent * d);
+int invalid_path(const char* dir);
+int do_open(char* pathname, uint flags);
+int do_read(int fd, int bytes, void* buffer);
+int do_write(int fd, int bytes, void* buffer);
+int do_readdir(int fd, dirent* d);
 int do_close(int fd);
-int do_mkdir(char * pathname);
-int do_unlink(char * pathname);
-int do_rmdir(char * pathname);
+int do_mkdir(char* pathname);
+int do_unlink(char* pathname);
+int do_rmdir(char* pathname);
 uint get_file_size(int fd);
 
 // Maximum number of file descriptors per process

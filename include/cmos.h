@@ -12,6 +12,6 @@ typedef struct {
     uint year;
 } date;
 
-void get_current_date(date * d);
+void get_current_date(date* d);
 
 #endif

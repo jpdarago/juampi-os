@@ -9,6 +9,6 @@
 #include <irq.h>
 
 extern void init_timer(uint);
-extern void schedule(uint,gen_regs);
+extern void schedule(uint, gen_regs);
 
 #endif

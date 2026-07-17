@@ -31,10 +31,10 @@ typedef struct {
     uint32 frame : 20;
 } page_entry;
 
-#define PAGEF_P     1
-#define PAGEF_RW    2
-#define PAGEF_U     4
-#define PAGEF_A     8
+#define PAGEF_P 1
+#define PAGEF_RW 2
+#define PAGEF_U 4
+#define PAGEF_A 8
 #define PAGEF_FULL (PAGEF_P | PAGEF_RW | PAGEF_U)
 
 typedef struct {
@@ -63,48 +63,48 @@ typedef struct {
     // The addresses (in virtual memory space)
     // corresponding to the contents of the directory
     // tables
-    page_table * tables_virtual[1024];
+    page_table* tables_virtual[1024];
     // Physical address where the directory entries
     // (the tables) begin. This goes in the kernel's cr3.
     uint32 physical_address;
 } page_directory;
 
 #define PAGE_DIR(x) ((x) >> 22)
-#define PAGE_TABLE(x) (((x)&0x3FF000) >> 12)
+#define PAGE_TABLE(x) (((x) & 0x3FF000) >> 12)
 #define PAGE_OFFSET(x) ((x) & 0xFFF)
 
 #define ALIGN(x) ((x) & ~0xFFF)
-#define NEXT_ALIGN(x) ALIGN((x)+0x1000)
+#define NEXT_ALIGN(x) ALIGN((x) + 0x1000)
 
 // Returns the physical address of the virtual address in
 // the directory, both passed as parameters
-uint32 physical_address(page_directory *, uint);
+uint32 physical_address(page_directory*, uint);
 // Initializes paging by doing identity mapping and creating
 // the exception handlers and necessary structures
 void paging_init(intptr end_address, intptr kernel_last_addr);
 // Maps a virtual address to a physical one in a directory given
 // the desired flags
-void map_page(page_directory * pd, uint va, uint pa, uint flags);
+void map_page(page_directory* pd, uint va, uint pa, uint flags);
 // Gets more memory for the indicated memory map
-void * paging_append_core(kmem_map_header *,uint);
+void* paging_append_core(kmem_map_header*, uint);
 // Changes the page directory to the one passed as parameter
-void switch_page_directory(page_directory * pd);
+void switch_page_directory(page_directory* pd);
 void page_fault_handler(exception_trace);
 // Clones a directory doing copy on write
-page_directory * clone_directory(page_directory *);
+page_directory* clone_directory(page_directory*);
 // Current page directory and kernel page directory
 // (the second one is to know which things belong to the kernel)
-extern page_directory * current_directory, * kernel_dir;
+extern page_directory *current_directory, *kernel_dir;
 // Copies two frames: It disables paging to do so and that is
 // why it is written in assembler in copy_frame.asm
 extern void copy_frame(uint dst, uint src);
 // Changes the current directory to another one
-void set_current_directory(page_directory *);
+void set_current_directory(page_directory*);
 // Returns the address of the kernel heap
-kmem_map_header * get_kernel_heap(void);
+kmem_map_header* get_kernel_heap(void);
 // Clears a page or table entry from the current directory
-void clear_page_entry(page_directory * pe, uint, uint);
-void clear_table_entry(page_directory * pe, uint);
+void clear_page_entry(page_directory* pe, uint, uint);
+void clear_table_entry(page_directory* pe, uint);
 // Delete a whole page directory
-void page_directory_destroy(page_directory *);
+void page_directory_destroy(page_directory*);
 #endif

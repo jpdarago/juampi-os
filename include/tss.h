@@ -18,9 +18,9 @@ typedef struct {
     uint32 cr3;
     intptr eip;
     uint32 eflags;
-    uint32 eax,ecx,edx,ebx;
+    uint32 eax, ecx, edx, ebx;
     intptr esp;
-    uint32 ebp,esi,edi;
+    uint32 ebp, esi, edi;
     uint16 es;
     uint16 __reserved6;
     uint16 cs;

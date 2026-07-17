@@ -3,7 +3,7 @@
 uint strlen(const char* str)
 {
     unsigned int i = 0;
-    while(str[i]) {
+    while (str[i]) {
         i++;
     }
     return i;
@@ -12,7 +12,7 @@ uint strlen(const char* str)
 void strcpy(char* dst, const char* src)
 {
     unsigned int i;
-    for(i = 0; src[i] != '\0'; i++) {
+    for (i = 0; src[i] != '\0'; i++) {
         dst[i] = src[i];
     }
     dst[i] = '\0';
@@ -21,22 +21,23 @@ void strcpy(char* dst, const char* src)
 void strcat(char* dst, const char* src)
 {
     unsigned int i = 0, j = 0;
-    while(dst[i]) {
+    while (dst[i]) {
         i++;
     }
-    while(src[j]) {
+    while (src[j]) {
         dst[i] = src[j];
-        i++; j++;
+        i++;
+        j++;
     }
     dst[i] = '\0';
 }
 
 int memcmp(const void* _m1, const void* _m2, uint bytes)
 {
-    const char* m1 = _m1, * m2 = _m2;
-    for(uint i = 0; i < bytes; i++)
-        if(m1[i] != m2[i]) {
-            return (m1[i]-m2[i] < 0) ? -1 : 1;
+    const char *m1 = _m1, *m2 = _m2;
+    for (uint i = 0; i < bytes; i++)
+        if (m1[i] != m2[i]) {
+            return (m1[i] - m2[i] < 0) ? -1 : 1;
         }
     return 0;
 }
@@ -44,11 +45,11 @@ int memcmp(const void* _m1, const void* _m2, uint bytes)
 int strcmp(const char* str1, const char* str2)
 {
     uint i;
-    for(i = 0; str1[i] == str2[i]; i++)
-        if(str1[i] == '\0') {
+    for (i = 0; str1[i] == str2[i]; i++)
+        if (str1[i] == '\0') {
             return 0;
         }
-    return str1[i]-str2[i];
+    return str1[i] - str2[i];
 }
 
 uint umax(unsigned int a, uint b)
@@ -58,47 +59,48 @@ uint umax(unsigned int a, uint b)
 
 static void remove_zeros(char* buffer)
 {
-    uint i,j;
-    for(i = 0; buffer[i]; i++) {
-        if(buffer[i] != '0') {
+    uint i, j;
+    for (i = 0; buffer[i]; i++) {
+        if (buffer[i] != '0') {
             break;
         }
     }
-    if(!buffer[i]) {
+    if (!buffer[i]) {
         buffer[0] = '0';
         buffer[1] = '\0';
         return;
     }
-    for(j = i; buffer[j]; j++) {
-        buffer[j-i]=buffer[j];
+    for (j = i; buffer[j]; j++) {
+        buffer[j - i] = buffer[j];
     }
-    buffer[j-i] = '\0';
+    buffer[j - i] = '\0';
 }
 
 void num_to_str(uint n, uint base, char* output)
 {
     char buf[33];
-    memset(buf,'0',sizeof(buf));
-    *(buf+32) = '\0'; // I'm going to print with all the leading zeros, so I need 8 fixed places.
+    memset(buf, '0', sizeof(buf));
+    *(buf + 32) = '\0'; // I'm going to print with all the leading zeros, so I
+                        // need 8 fixed places.
     uint ind = 31;
     do {
         char c = n % base;
-        if(c > 9) {
-            c = c-10+'A';
+        if (c > 9) {
+            c = c - 10 + 'A';
         } else {
-            c = c+'0';
+            c = c + '0';
         }
         buf[ind--] = c;
-        n = n/base;
-    } while(n > 0);
+        n = n / base;
+    } while (n > 0);
     remove_zeros(buf);
-    strcpy(output,buf);
+    strcpy(output, buf);
 }
 
 void strncpy(char* dst, const char* src, uint len)
 {
-    for(uint i = 0; i < len; i++) {
-        if(src[i] == '\0') {
+    for (uint i = 0; i < len; i++) {
+        if (src[i] == '\0') {
             dst[i] = '\0';
             return;
         }
@@ -108,8 +110,11 @@ void strncpy(char* dst, const char* src, uint len)
 
 bool is_alpha(char c)
 {
-    if(c >= 'a' && c <= 'z') return true;
-    if(c >= 'A' && c <= 'Z') return true;
-    if(c >= '0' && c <= '9') return true;
+    if (c >= 'a' && c <= 'z')
+        return true;
+    if (c >= 'A' && c <= 'Z')
+        return true;
+    if (c >= '0' && c <= '9')
+        return true;
     return false;
 }

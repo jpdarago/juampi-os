@@ -3,7 +3,7 @@
 
 #include <types.h>
 
-uint frame_alloc_init(void * mem_start,uint);
+uint frame_alloc_init(void* mem_start, uint);
 uint frame_alloc(void);
 void frame_free(uint frame);
 uint frames_available(void);

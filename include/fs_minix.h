@@ -4,30 +4,30 @@
 #include <vfs.h>
 #include <bitset.h>
 
-#define MINIX_BLOCK_SIZE                1024
-#define MINIX_BLOCK_BSIZE               2
+#define MINIX_BLOCK_SIZE 1024
+#define MINIX_BLOCK_BSIZE 2
 
-#define MINIX_SUPERBLOCK_SIZE           1024
-#define MINIX_SUPERBLOCK_BSIZE          2
-#define MINIX_SUPERBLOCK_START          1024
-#define MINIX_SUPERBLOCK_START_BLOCK    0x2
+#define MINIX_SUPERBLOCK_SIZE 1024
+#define MINIX_SUPERBLOCK_BSIZE 2
+#define MINIX_SUPERBLOCK_START 1024
+#define MINIX_SUPERBLOCK_START_BLOCK 0x2
 
-#define MINIX_INODEBMAP_STARTB          2
-#define MINIX_ZONEBMAP_STARTB           3
-#define MINIX_INODES_PER_BLOCK          32
+#define MINIX_INODEBMAP_STARTB 2
+#define MINIX_ZONEBMAP_STARTB 3
+#define MINIX_INODES_PER_BLOCK 32
 
-#define MINIX_MAGIC                 0x138F
+#define MINIX_MAGIC 0x138F
 
-#define MINIX_IFSOCK    0140000
-#define MINIX_IFLNK     0120000
-#define MINIX_IFREG     0100000
-#define MINIX_IFBLK     0060000
-#define MINIX_IFDIR     0040000
-#define MINIX_IFCHR     0020000
-#define MINIX_IFIFO     0010000
+#define MINIX_IFSOCK 0140000
+#define MINIX_IFLNK 0120000
+#define MINIX_IFREG 0100000
+#define MINIX_IFBLK 0060000
+#define MINIX_IFDIR 0040000
+#define MINIX_IFCHR 0020000
+#define MINIX_IFIFO 0010000
 
 #define MINIX_ROOT_INODE 1
-#define MINIX_TYPE_ONLY(x)  ((x) & ~0xFFF)
+#define MINIX_TYPE_ONLY(x) ((x) & ~0xFFF)
 
 typedef struct {
     ushort number_inodes;
@@ -86,6 +86,6 @@ typedef struct {
     uint block, offset;
 } disk_position;
 
-int fs_minix_init(super_block * block);
+int fs_minix_init(super_block* block);
 
 #endif
