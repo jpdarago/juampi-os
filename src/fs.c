@@ -2,6 +2,7 @@
 #include <tasks.h>
 #include <utils.h>
 #include <fs_minix.h>
+#include <fs_ext2.h>
 #include <asserts.h>
 #include <fdesc.h>
 #include <buffer_cache.h>
@@ -43,17 +44,17 @@ int invalid_path(const char* dir)
 void check_disk_super_block(super_block* b)
 {
     fail_if(b->block_size != 1024);
-    fail_if(b->magic != MINIX_MAGIC);
+    fail_if(b->magic != EXT2_MAGIC);
     fail_if(b->is_dirty);
     fail_if(!b->root);
-    fail_if(b->root->inode_number != MINIX_ROOT_INODE);
+    fail_if(b->root->inode_number != EXT2_ROOT_INO);
     fail_if(b->root->inode_type != FS_DIR);
 }
 
 void init_disk_super_block()
 {
     memset(&disk_super_block, 0, sizeof(super_block));
-    fs_minix_init(&disk_super_block);
+    fs_ext2_init(&disk_super_block);
     check_disk_super_block(&disk_super_block);
 }
 

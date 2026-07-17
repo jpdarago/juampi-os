@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-# Boot the full OS in QEMU (kernel + init module + Minix disk image) and assert
+# Boot the full OS in QEMU (kernel + init module + ext2 disk image) and assert
 # it boots through the filesystem mount into userland. Requires kernel.bin,
 # build/bootstrap/init and hdd.img to be built already, plus qemu.
 #
 # The check is the serial marker printed right before jumping to the initial
-# task: reaching it means the superblock read, the Minix mount and the init
+# task: reaching it means the superblock read, the ext2 mount and the init
 # module load all succeeded. If the filesystem were unreadable the kernel would
 # panic earlier and the marker would never appear.
 

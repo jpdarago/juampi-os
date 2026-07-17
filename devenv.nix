@@ -16,11 +16,11 @@
     pkgs.nasm
     pkgs.qemu_kvm # host-only QEMU with a display (qemu-system-i386), run + tests
     pkgs.clang-tools # clang-format for `make format` / `make lint`
+    pkgs.e2fsprogs # mke2fs / debugfs / e2fsck for the ext2 disk image
+    pkgs.e2tools # e2cp / e2mkdir to populate the ext2 image (and the floppy)
   ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
     pkgs.gcc_multi # host gcc with 32-bit multilib (the Makefile's default)
     pkgs.binutils # host ld with elf_i386 support
-    pkgs.util-linux # losetup + mkfs.minix, needed by build/build_image.sh
-    pkgs.e2tools # e2cp, used to populate the GRUB floppy image
   ];
 
   enterShell = ''
@@ -31,7 +31,7 @@
     echo "  make format|lint  run clang-format"
     echo
     echo "macOS / cross build: install an i686-elf toolchain and use"
-    echo "  make CROSS=i686-elf- kernel.bin   (and: make CROSS=i686-elf- test)"
-    echo "The image build (make image/run) uses mkfs.minix, currently Linux-only."
+    echo "  make CROSS=i686-elf- run   (the ext2 image build is sudo-free and"
+    echo "  cross-platform, so the full OS builds and runs on macOS too)."
   '';
 }

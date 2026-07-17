@@ -102,7 +102,7 @@ void kmain(multiboot_info_t* mbd, unsigned long magic)
 #else
     scrn_print("INITIALIZING ATA DISK\n");
     hdd_init();
-    scrn_printf("INITIALIZING MINIX FILESYSTEM\n");
+    scrn_printf("INITIALIZING EXT2 FILESYSTEM\n");
     init_disk_super_block();
     keybuffer_init(1024);
     scheduler_init();

@@ -12,7 +12,6 @@ hdd.img
 floppy.img
 build/tasks/*.run
 build/bootstrap/init
-build/mkminixfs
 build/hdd.img
 
 # QEMU / debug logs

@@ -9,7 +9,7 @@ Features
 * 32 bits.
 * Multitasking with a scheduler.
 * ATA hard disk via PIO.
-* VFS and a Minix filesystem.
+* VFS with a read-only ext2 filesystem.
 * ELF32 loader.
 * Mini libc.
 * Memory allocator.
@@ -20,7 +20,7 @@ Dependencies
 
 To install the dependencies, run:
 
-    sudo apt-get install nasm e2tools gcc-multilib clang-format qemu-system-x86
+    sudo apt-get install nasm e2tools e2fsprogs gcc-multilib clang-format qemu-system-x86
 
 `clang-format` is only needed for `make format` / `make lint`; `qemu-system-x86`
 provides the emulator used by `make run` and `make test`.
@@ -28,10 +28,11 @@ provides the emulator used by `make run` and `make test`.
 Building
 --------
 
-The Minix disk image is built entirely in userspace — no `sudo`, no loopback
-mount. `mkfs.minix` lays down an empty filesystem and `build/mkminixfs` copies
-the tasks/docs/`dev` node in by writing the on-disk structures directly (see
-`build/mkminixfs.c`).
+The ext2 disk image is built entirely in userspace — no `sudo`, no loopback
+mount, and it works on macOS too. `mke2fs` creates the filesystem on a plain
+file, `e2tools` (`e2cp`/`e2mkdir`) copies the tasks and docs in, and `debugfs`
+adds the `/dev/tty` node. The kernel mounts it with a read-only ext2 driver
+(`src/fs_ext2.c`).
 
 To build and run:
 
@@ -43,7 +44,7 @@ Useful targets (see `make help` for the full list):
 |-------------------|----------------------------------------------------------|
 | `make`            | Build the kernel, userland and bootable floppy image     |
 | `make kernel.bin` | Build just the kernel binary (no disk image, no sudo)    |
-| `make image`      | Build the Minix hard-disk image (needs sudo)             |
+| `make image`      | Build the ext2 hard-disk image (no sudo)                 |
 | `make run`        | Build and boot the OS in a QEMU window (override `QEMU_DISPLAY`) |
 | `make format`     | Reformat all C sources/headers with clang-format         |
 | `make lint`       | Check formatting without modifying files (used by CI)    |
@@ -62,10 +63,10 @@ to a freestanding i686 cross-compiler prefix to build anywhere:
     make CROSS=i686-elf- test
 
 Install the toolchain with `brew install i686-elf-gcc i686-elf-binutils` on
-macOS (also `nasm qemu coreutils`), or add one to `devenv.nix` on Nix. CI builds
-and tests the cross path on macOS; the host path on Linux. Note the Minix
-disk-image step (`make image`/`make run`) still needs Linux + `sudo` (loop
-mount), so on macOS you get `make CROSS=... kernel.bin` and `make CROSS=... test`.
+macOS (also `nasm qemu coreutils e2fsprogs e2tools`), or add one to `devenv.nix`
+on Nix. CI builds and tests the cross path on macOS; the host path on Linux. The
+ext2 disk image builds without sudo, so the full OS (`make CROSS=... run`) works
+on macOS too.
 
 Testing
 -------
