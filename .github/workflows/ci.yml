@@ -48,6 +48,10 @@ jobs:
           sudo apt-get install -y gcc-multilib nasm qemu-system-x86
       - name: Run in-kernel tests under QEMU
         run: make test
+      - name: Build the Minix disk image (userspace, no sudo)
+        run: make image
+      - name: Boot smoke test (full OS to userland)
+        run: ./tests/boot-smoke.sh
 
   cross-macos:
     name: cross build + tests (macOS)

@@ -25,14 +25,13 @@
 
   enterShell = ''
     echo "juampi-os dev shell"
-    echo "  make kernel.bin   build just the kernel (no sudo)"
-    echo "  make              full build (the disk-image step still needs sudo)"
+    echo "  make              full build (no sudo — userspace image builder)"
     echo "  make run          build and run in QEMU"
     echo "  make test         run the in-kernel tests under QEMU"
     echo "  make format|lint  run clang-format"
     echo
     echo "macOS / cross build: install an i686-elf toolchain and use"
     echo "  make CROSS=i686-elf- kernel.bin   (and: make CROSS=i686-elf- test)"
-    echo "The disk-image step (make image/run) needs Linux + sudo (losetup)."
+    echo "The image build (make image/run) uses mkfs.minix, currently Linux-only."
   '';
 }

@@ -4,7 +4,7 @@
 # Common targets:
 #   make            build the kernel, userland and bootable floppy image
 #   make kernel.bin build just the kernel binary (no disk image, no sudo)
-#   make image      build the Minix hard-disk image (needs sudo, see below)
+#   make image      build the Minix hard-disk image (no sudo needed)
 #   make run        build everything and boot it in QEMU
 #   make format     reformat all C sources/headers in place with clang-format
 #   make lint       check formatting without modifying files (used by CI)
@@ -76,6 +76,7 @@ KERNEL := kernel.bin
 # Every C source/header that clang-format should manage (kernel + userland).
 FORMAT_FILES := $(wildcard \
 	$(SRC_DIR)/*.c $(INCLUDE_DIR)/*.h \
+	$(BUILD_DIR)/mkminixfs.c \
 	$(BUILD_DIR)/tasks/*.c $(BUILD_DIR)/tasks/*.h \
 	$(BUILD_DIR)/tasks/parser/*.c $(BUILD_DIR)/tasks/parser/*.h \
 	$(BUILD_DIR)/bootstrap/*.c $(BUILD_DIR)/bootstrap/*.h)
@@ -113,10 +114,9 @@ init:
 
 # --- Disk / boot images -----------------------------------------------------
 
-# Builds the userland tasks and packs them into a Minix disk image.
-# WARNING: build_image.sh mounts a loopback device and needs sudo. Read it
-# before running this target. It attaches the image to the first free loop
-# device and mounts it on a temporary directory, cleaning up on exit.
+# Builds the userland tasks and packs them into a Minix disk image. This runs
+# entirely in userspace (mkfs.minix + the mkminixfs populate tool) — no sudo,
+# no loopback mount.
 image:
 	$(MAKE) -C $(BUILD_DIR)/tasks CROSS=$(CROSS)
 	cd $(BUILD_DIR) && ./build_image.sh
@@ -186,12 +186,13 @@ clean:
 	$(MAKE) -C $(BUILD_DIR)/bootstrap clean
 	$(MAKE) -C $(BUILD_DIR)/tasks clean
 	rm -rf $(OBJ_DIR) $(TEST_OBJ_DIR) $(KERNEL) $(TEST_KERNEL) hdd.img floppy.img
+	rm -f $(BUILD_DIR)/mkminixfs $(BUILD_DIR)/hdd.img
 
 help:
 	@echo "Targets: all init image floppy.img run format lint clean"
 	@echo "  make            build kernel, userland and floppy.img"
 	@echo "  make kernel.bin build just the kernel (no sudo)"
-	@echo "  make image      build the Minix disk image (needs sudo)"
+	@echo "  make image      build the Minix disk image (no sudo)"
 	@echo "  make run        build everything and boot in QEMU"
 	@echo "  make test       run the in-kernel test suite under QEMU"
 	@echo "  make format     reformat sources with clang-format"

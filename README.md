@@ -28,12 +28,10 @@ provides the emulator used by `make run` and `make test`.
 Building
 --------
 
-You need `sudo` to assemble the Minix disk image. This should go away in the
-near future.
-
-**WARNING:** THE DISK IMAGE IS BUILT BY ATTACHING IT TO A LOOP DEVICE AND
-MOUNTING IT. REVIEW `build/build_image.sh` BEFORE RUNNING `make run` SO YOU
-DON'T BREAK ANYTHING.
+The Minix disk image is built entirely in userspace — no `sudo`, no loopback
+mount. `mkfs.minix` lays down an empty filesystem and `build/mkminixfs` copies
+the tasks/docs/`dev` node in by writing the on-disk structures directly (see
+`build/mkminixfs.c`).
 
 To build and run:
 
