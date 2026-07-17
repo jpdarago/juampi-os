@@ -9,7 +9,7 @@ Features
 * 32 bits.
 * Multitasking with a scheduler.
 * ATA hard disk via PIO.
-* VFS with a read-only ext2 filesystem.
+* VFS with a read/write ext2 filesystem.
 * ELF32 loader.
 * Mini libc.
 * Memory allocator.
@@ -31,7 +31,7 @@ Building
 The ext2 disk image is built entirely in userspace — no `sudo`, no loopback
 mount, and it works on macOS too. `mke2fs` creates the filesystem on a plain
 file, `e2tools` (`e2cp`/`e2mkdir`) copies the tasks and docs in, and `debugfs`
-adds the `/dev/tty` node. The kernel mounts it with a read-only ext2 driver
+adds the `/dev/tty` node. The kernel mounts it with a read/write ext2 driver
 (`src/fs_ext2.c`).
 
 To build and run:

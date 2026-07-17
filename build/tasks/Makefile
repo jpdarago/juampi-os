@@ -10,7 +10,7 @@ CFLAGS += -m32
 endif
 ASMFLAGS=-i../../include/ -f elf32
 OBJ=syscall_wrappers.o stdio.o utils.o parser.o errors.o
-TASKS=cp.run ls.run cat.run shell.run echo.run date.run
+TASKS=cp.run ls.run cat.run shell.run echo.run date.run mkdir.run
 
 %.o: %.asm
 	$(ASM) $(ASMFLAGS) -o $@ $^

@@ -16,6 +16,7 @@
 %define SYSCALL_SET_CWD			15
 %define SYSCALL_READDIR			16
 %define SYSCALL_GETTIME			17
+%define SYSCALL_MKDIR			18
 %define SYSCALL_COMA			31
 
 

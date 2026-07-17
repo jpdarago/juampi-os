@@ -3,9 +3,9 @@
 
 #include <vfs.h>
 
-// Read-only ext2 driver. The image is built with 1024-byte blocks so it lines
-// up with the buffer cache (which works in 1024-byte units), and small enough
-// to avoid the extent-tree/64bit features that only ext4 needs.
+// ext2 driver (read + write). The image is built with 1024-byte blocks so it
+// lines up with the buffer cache (which works in 1024-byte units), and small
+// enough to avoid the extent-tree/64bit features that only ext4 needs.
 #define EXT2_BLOCK_SIZE 1024
 #define EXT2_MAGIC 0xEF53
 #define EXT2_ROOT_INO 2
@@ -92,6 +92,11 @@ typedef struct {
     uint8 file_type;
 } __attribute__((__packed__)) ext2_dir_entry_head;
 
+// ext2 directory entry file_type values (when the filetype feature is on).
+#define EXT2_FT_REG_FILE 1
+#define EXT2_FT_DIR 2
+#define EXT2_FT_CHRDEV 3
+
 // In-memory per-mount metadata (stored in super_block->fs_data).
 typedef struct {
     uint32 block_size;
@@ -101,6 +106,10 @@ typedef struct {
     uint32 first_data_block;
     uint32 inodes_count;
     uint32 groups_count;
+    uint32 gd_block;    // block where the group descriptor table starts
+    uint32 gd_blocks;   // how many blocks the group descriptor table spans
+    uint32 free_blocks; // superblock free block count (kept in sync on alloc)
+    uint32 free_inodes; // superblock free inode count
     ext2_group_desc* groups;
 } ext2_fs_data;
 

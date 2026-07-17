@@ -3,7 +3,8 @@
 #include <memory.h>
 
 static struct list_head buffer_list_head;
-dirty_ln* dirty_list;
+// Sentinel head of the list of dirty buffers awaiting flush.
+static struct list_head dirty_head;
 
 void block_hdd_read(uint start_block, uint blocks, void* data)
 {
@@ -12,13 +13,13 @@ void block_hdd_read(uint start_block, uint blocks, void* data)
 
 void block_hdd_write(uint start_block, uint blocks, void* data)
 {
-    hdd_write(start_block * BLOCK_SECTORS, blocks * BLOCK_SECTORS,
-              data);
+    hdd_write(start_block * BLOCK_SECTORS, blocks * BLOCK_SECTORS, data);
 }
 
 void buffer_cache_init()
 {
     INIT_LIST_HEAD(&buffer_list_head);
+    INIT_LIST_HEAD(&dirty_head);
 }
 
 static void add_buffer_to_list(disk_buffer* b)
@@ -45,16 +46,11 @@ void buffer_flush(disk_buffer* b)
 {
     if (b->dirty) {
         block_hdd_write(b->block, 1, b->data);
-        dirty_ln* dln = b->dlist_ptr;
-        if (dln != NULL) {
-            if (list_empty(&dirty_list->dlist)) {
-                dirty_list = NULL;
-            } else {
-                list_del(&dln->dlist);
-            }
-            kfree(dln);
+        if (b->dlist_ptr != NULL) {
+            list_del(&b->dlist_ptr->dlist);
+            kfree(b->dlist_ptr);
+            b->dlist_ptr = NULL;
         }
-        b->dlist_ptr = NULL;
     }
     b->dirty = false;
 }
@@ -143,12 +139,7 @@ void mark_dirty(uint inonum, disk_buffer* b)
     d->inonum = inonum;
     d->buffer = b;
     b->dlist_ptr = d;
-    INIT_LIST_HEAD(&d->dlist);
-    if (dirty_list == NULL) {
-        dirty_list = d;
-    } else {
-        list_add(&d->dlist, &dirty_list->dlist);
-    }
+    list_add(&d->dlist, &dirty_head);
 }
 
 int buffered_write(uint block, uint offset, uint bytes, uint inonum, void* data)
@@ -182,10 +173,8 @@ int buffered_read(uint block, uint offset, uint bytes, void* data)
 
 void buffers_flush(uint inode_number)
 {
-    if (dirty_list == NULL)
-        return;
     dirty_ln *dln, *dlntemp;
-    list_for_each_entry_safe(dln, dlntemp, &dirty_list->dlist, dlist)
+    list_for_each_entry_safe(dln, dlntemp, &dirty_head, dlist)
     {
         buffer_flush(dln->buffer);
     }
@@ -193,10 +182,8 @@ void buffers_flush(uint inode_number)
 
 void buffers_flush_all()
 {
-    if (dirty_list == NULL)
-        return;
     dirty_ln *dln, *dlntemp;
-    list_for_each_entry_safe(dln, dlntemp, &dirty_list->dlist, dlist)
+    list_for_each_entry_safe(dln, dlntemp, &dirty_head, dlist)
     {
         buffer_flush(dln->buffer);
     }
@@ -219,9 +206,11 @@ int buffered_write_several(uint start_block, uint blocks, uint inonum,
     char* data = _data;
     int total = 0, last_block = start_block + blocks;
     for (int block = start_block; block < last_block; ++block) {
-        int read = buffered_write(block, 0, BLOCK_SIZE, inonum, data);
-        data += read;
-        total += read;
+        // buffered_write returns 0 on success, so advance by the block size.
+        if (buffered_write(block, 0, BLOCK_SIZE, inonum, data) < 0)
+            break;
+        data += BLOCK_SIZE;
+        total += BLOCK_SIZE;
         buffer_free(block);
     }
     return total;

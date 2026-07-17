@@ -124,6 +124,12 @@ void syscall_gettime(gen_regs* r, int_trace* it)
     r->eax = 0;
 }
 
+void syscall_mkdir(gen_regs* r, int_trace* it)
+{
+    char* pathname = (char*)((intptr)r->ebx);
+    r->eax = do_mkdir(pathname);
+}
+
 // General stubs
 void syscall_register(uint code, syscall s)
 {
@@ -155,6 +161,7 @@ void syscalls_initialize()
     syscall_register(15, syscall_set_cwd);
     syscall_register(16, syscall_readdir);
     syscall_register(17, syscall_gettime);
+    syscall_register(18, syscall_mkdir);
     syscall_register(MAX_SYSCALLS - 1, syscall_coma);
 }
 

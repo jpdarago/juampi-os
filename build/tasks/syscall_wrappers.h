@@ -36,6 +36,8 @@ typedef struct date {
 
 void gettime(date* d);
 
+int mkdir(const char* pathname);
+
 #define SIGINT 0
 #define SIGKILL 1
 #define SIGSTOP 2
