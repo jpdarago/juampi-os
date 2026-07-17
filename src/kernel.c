@@ -17,7 +17,6 @@
 #include <tasks.h>
 #include <syscalls.h>
 #include <vfs.h>
-#include <fs_minix.h>
 #include <asserts.h>
 #include <keyboard.h>
 #include <cmos.h>

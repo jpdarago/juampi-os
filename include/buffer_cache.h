@@ -4,6 +4,10 @@
 #include <types.h>
 #include <klist.h>
 
+// The buffer cache works in fixed 1024-byte blocks (two 512-byte ATA sectors).
+#define BLOCK_SIZE 1024
+#define BLOCK_SECTORS 2
+
 typedef struct dirty_ln dirty_ln;
 
 typedef struct disk_buffer {
@@ -26,8 +30,8 @@ struct dirty_ln {
     struct list_head dlist;
 };
 
-void minix_hdd_read(uint start_block, uint blocks, void* data);
-void minix_hdd_write(uint start_block, uint blocks, void* data);
+void block_hdd_read(uint start_block, uint blocks, void* data);
+void block_hdd_write(uint start_block, uint blocks, void* data);
 
 void buffer_cache_init(void);
 int buffered_write(uint, uint block, uint offset, uint, void* data);

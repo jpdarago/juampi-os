@@ -1,6 +1,6 @@
-// Read-only ext2 driver. Mirrors the VFS ops that fs_minix.c implements, but
-// against the ext2 on-disk format. Write operations return -EPERMS for now;
-// booting, exec, ls and cat only need the read path.
+// ext2 driver: implements the VFS filesystem ops against the ext2 on-disk
+// format (superblock, block groups, inodes, directory entries, indirect
+// blocks).
 
 #include <fs_ext2.h>
 #include <buffer_cache.h>

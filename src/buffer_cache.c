@@ -1,19 +1,18 @@
 #include <buffer_cache.h>
 #include <hdd.h>
-#include <fs_minix.h>
 #include <memory.h>
 
 static struct list_head buffer_list_head;
 dirty_ln* dirty_list;
 
-void minix_hdd_read(uint start_block, uint blocks, void* data)
+void block_hdd_read(uint start_block, uint blocks, void* data)
 {
-    hdd_read(start_block * MINIX_BLOCK_BSIZE, blocks * MINIX_BLOCK_BSIZE, data);
+    hdd_read(start_block * BLOCK_SECTORS, blocks * BLOCK_SECTORS, data);
 }
 
-void minix_hdd_write(uint start_block, uint blocks, void* data)
+void block_hdd_write(uint start_block, uint blocks, void* data)
 {
-    hdd_write(start_block * MINIX_BLOCK_BSIZE, blocks * MINIX_BLOCK_BSIZE,
+    hdd_write(start_block * BLOCK_SECTORS, blocks * BLOCK_SECTORS,
               data);
 }
 
@@ -45,7 +44,7 @@ static disk_buffer* buffer_create(uint block_number, uint block_size)
 void buffer_flush(disk_buffer* b)
 {
     if (b->dirty) {
-        minix_hdd_write(b->block, 1, b->data);
+        block_hdd_write(b->block, 1, b->data);
         dirty_ln* dln = b->dlist_ptr;
         if (dln != NULL) {
             if (list_empty(&dirty_list->dlist)) {
@@ -106,7 +105,7 @@ static disk_buffer* get_free_buffer(void)
 void buffer_load(disk_buffer* b, uint block)
 {
     b->block = block;
-    minix_hdd_read(block, 1, b->data);
+    block_hdd_read(block, 1, b->data);
     b->dirty = false;
 }
 
@@ -116,7 +115,7 @@ disk_buffer* obtain_buffer(uint block)
     if (b == NULL) {
         b = get_free_buffer();
         if (b == NULL) {
-            b = buffer_create(block, MINIX_BLOCK_SIZE);
+            b = buffer_create(block, BLOCK_SIZE);
         }
         if (b != NULL) {
             buffer_load(b, block);
@@ -154,7 +153,7 @@ void mark_dirty(uint inonum, disk_buffer* b)
 
 int buffered_write(uint block, uint offset, uint bytes, uint inonum, void* data)
 {
-    if (offset >= MINIX_BLOCK_SIZE) {
+    if (offset >= BLOCK_SIZE) {
         return -1;
     }
     disk_buffer* b = obtain_buffer(block);
@@ -169,7 +168,7 @@ int buffered_write(uint block, uint offset, uint bytes, uint inonum, void* data)
 
 int buffered_read(uint block, uint offset, uint bytes, void* data)
 {
-    if (offset >= MINIX_BLOCK_SIZE) {
+    if (offset >= BLOCK_SIZE) {
         return -1;
     }
     disk_buffer* b = obtain_buffer(block);
@@ -220,7 +219,7 @@ int buffered_write_several(uint start_block, uint blocks, uint inonum,
     char* data = _data;
     int total = 0, last_block = start_block + blocks;
     for (int block = start_block; block < last_block; ++block) {
-        int read = buffered_write(block, 0, MINIX_BLOCK_SIZE, inonum, data);
+        int read = buffered_write(block, 0, BLOCK_SIZE, inonum, data);
         data += read;
         total += read;
         buffer_free(block);
@@ -233,7 +232,7 @@ int buffered_read_several(uint start_block, uint blocks, void* _data)
     char* data = _data;
     int total = 0, last_block = start_block + blocks;
     for (int block = start_block; block < last_block; ++block) {
-        int read = buffered_read(block, 0, MINIX_BLOCK_SIZE, data);
+        int read = buffered_read(block, 0, BLOCK_SIZE, data);
         data += read;
         total += read;
         buffer_free(block);

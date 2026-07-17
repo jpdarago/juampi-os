@@ -1,7 +1,6 @@
 #include <fs.h>
 #include <tasks.h>
 #include <utils.h>
-#include <fs_minix.h>
 #include <fs_ext2.h>
 #include <asserts.h>
 #include <fdesc.h>
