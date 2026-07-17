@@ -15,6 +15,7 @@
 #include <memory.h>
 #include <frames.h>
 #include <paging.h>
+#include <serial.h>
 
 #define QEMU_EXIT_PORT 0xf4
 #define KTEST_PASS     0x10 // -> QEMU exit code 33
@@ -111,6 +112,19 @@ static void test_paging(void)
              "physical_address reflects the new mapping");
 }
 
+// --- Serial (COM1 UART) ------------------------------------------------------
+
+static void test_serial(void)
+{
+    // The UART was initialized in kmain. A robust, emulation-independent check:
+    // the transmit-holding register reports empty, and serial_putc returns
+    // (its wait is bounded, so a wedged UART can never hang the suite).
+    kt_check((inb(SERIAL_COM1 + SERIAL_LSR) & SERIAL_LSR_THR_EMPTY) != 0,
+             "serial UART reports transmit-ready after init");
+    serial_print("[ktest] hello from the serial console\n");
+    kt_check(true, "serial_putc/serial_print return without hanging");
+}
+
 void ktest_main(void)
 {
     dbg_print("");
@@ -119,6 +133,7 @@ void ktest_main(void)
     test_kmalloc();
     test_frames();
     test_paging();
+    test_serial();
 
     if(failures == 0) {
         dbg_print("RESULT: all tests passed");

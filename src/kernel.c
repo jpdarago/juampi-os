@@ -21,6 +21,7 @@
 #include <asserts.h>
 #include <keyboard.h>
 #include <cmos.h>
+#include <serial.h>
 
 // Linker symbol for the end of the kernel. The address it contains is
 // a location right after the kernel ends. It is defined in the linker script
@@ -40,6 +41,10 @@ void kmain(multiboot_info_t* mbd, unsigned long magic)
     }
     scrn_cls();
     scrn_setmode(GREEN,BLACK);
+    // Bring up the serial console early so boot progress is visible headlessly
+    // (qemu -serial stdio), which is much friendlier for CI than the VGA buffer.
+    serial_init();
+    serial_print("\n=== juampiOS booting (COM1 serial console) ===\n");
     scrn_print("WELCOME TO juampiOS\n\t"
                "We are working to bring you "
                "the OS of the future.\n");
@@ -98,6 +103,7 @@ void kmain(multiboot_info_t* mbd, unsigned long magic)
     keybuffer_init(1024);
     scheduler_init();
 
+    serial_print("juampiOS: kernel init complete, entering userland\n");
     void * buffer = (void *) grub_modules[0].mod_start;
     jump_to_initial(buffer);
 

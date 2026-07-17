@@ -134,7 +134,8 @@ floppy.img: $(KERNEL) init
 # restricts writes to block 0, which breaks the filesystem.
 run: $(KERNEL) init image
 	$(QEMU) -kernel $(KERNEL) -initrd $(BUILD_DIR)/bootstrap/init \
-		-drive file=hdd.img,format=raw,if=ide -m 128 -display $(QEMU_DISPLAY)
+		-drive file=hdd.img,format=raw,if=ide -m 128 \
+		-display $(QEMU_DISPLAY) -serial stdio
 
 # --- Integration tests (QEMU) -----------------------------------------------
 
