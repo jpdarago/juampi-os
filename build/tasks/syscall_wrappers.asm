@@ -6,7 +6,7 @@ global 	fork,exit,scrn_print
 global	wait4,sleep,kill,signal
 global	open,read,write,close,exec
 global	get_pid,get_cwd,set_cwd
-global 	readdir,gettime,mkdir
+global 	readdir,gettime,mkdir,unlink,rmdir
 
 wait4:
 	push ebp
@@ -184,6 +184,30 @@ mkdir:
 	push ebx
 	mov ebx, [ebp+8]
 	mov eax, SYSCALL_MKDIR
+	int 0x80
+	pop ebx
+	pop ebp
+	ret
+
+;int unlink(char * pathname)
+unlink:
+	push ebp
+	mov ebp, esp
+	push ebx
+	mov ebx, [ebp+8]
+	mov eax, SYSCALL_UNLINK
+	int 0x80
+	pop ebx
+	pop ebp
+	ret
+
+;int rmdir(char * pathname)
+rmdir:
+	push ebp
+	mov ebp, esp
+	push ebx
+	mov ebx, [ebp+8]
+	mov eax, SYSCALL_RMDIR
 	int 0x80
 	pop ebx
 	pop ebp

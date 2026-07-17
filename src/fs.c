@@ -274,9 +274,9 @@ int do_rmdir(char* pathname)
         return -EINVPATH;
     if (ino->inode_type != FS_DIR)
         return -EINVOP;
-    if (ino->i_ops->mkdir == NULL)
+    if (ino->i_ops->rmdir == NULL)
         return -EINVOP;
-    return ino->i_ops->mkdir(ino, pathname);
+    return ino->i_ops->rmdir(ino, pathname);
 }
 
 uint get_file_size(int fd)

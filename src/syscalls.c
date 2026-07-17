@@ -130,6 +130,18 @@ void syscall_mkdir(gen_regs* r, int_trace* it)
     r->eax = do_mkdir(pathname);
 }
 
+void syscall_unlink(gen_regs* r, int_trace* it)
+{
+    char* pathname = (char*)((intptr)r->ebx);
+    r->eax = do_unlink(pathname);
+}
+
+void syscall_rmdir(gen_regs* r, int_trace* it)
+{
+    char* pathname = (char*)((intptr)r->ebx);
+    r->eax = do_rmdir(pathname);
+}
+
 // General stubs
 void syscall_register(uint code, syscall s)
 {
@@ -162,6 +174,8 @@ void syscalls_initialize()
     syscall_register(16, syscall_readdir);
     syscall_register(17, syscall_gettime);
     syscall_register(18, syscall_mkdir);
+    syscall_register(19, syscall_unlink);
+    syscall_register(20, syscall_rmdir);
     syscall_register(MAX_SYSCALLS - 1, syscall_coma);
 }
 

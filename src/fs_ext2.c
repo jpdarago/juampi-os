@@ -262,7 +262,34 @@ static uint32 ext2_bmap_alloc(super_block* s, ext2_inode* ei, uint32 index,
         }
         return ptrs[index];
     }
-    return 0; // double indirect writes unsupported
+    index -= EXT2_PPB;
+    if (index < (uint32)EXT2_PPB * EXT2_PPB) {
+        if (!ei->block[13]) {
+            ei->block[13] = ext2_alloc_block(s);
+            ei->blocks += per_sector;
+            *changed = true;
+        }
+        uint32 l1[EXT2_PPB];
+        ext2_read_block(ei->block[13], l1);
+        uint32 l1i = index / EXT2_PPB;
+        if (!l1[l1i]) {
+            l1[l1i] = ext2_alloc_block(s);
+            ei->blocks += per_sector;
+            *changed = true;
+            ext2_write_block(ei->block[13], l1);
+        }
+        uint32 l2[EXT2_PPB];
+        ext2_read_block(l1[l1i], l2);
+        uint32 l2i = index % EXT2_PPB;
+        if (!l2[l2i]) {
+            l2[l2i] = ext2_alloc_block(s);
+            ei->blocks += per_sector;
+            *changed = true;
+            ext2_write_block(l1[l1i], l2);
+        }
+        return l2[l2i];
+    }
+    return 0; // triple indirect writes unsupported
 }
 
 static int ext2_write_data(inode* ino, uint offset, uint bytes, void* _buf)
@@ -465,6 +492,81 @@ static int ext2_mkdir(inode* parent, char* name)
     return r;
 }
 
+static void ext2_free_inode(super_block* s, uint32 ino, bool is_dir)
+{
+    ext2_fs_data* fs = s->fs_data;
+    uint32 g = (ino - 1) / fs->inodes_per_group;
+    uint32 b = (ino - 1) % fs->inodes_per_group;
+    uint8 bm[EXT2_BLOCK_SIZE];
+    ext2_read_block(fs->groups[g].inode_bitmap, bm);
+    bm[b >> 3] &= ~(1 << (b & 7));
+    ext2_write_block(fs->groups[g].inode_bitmap, bm);
+    fs->groups[g].free_inodes_count++;
+    if (is_dir)
+        fs->groups[g].used_dirs_count--;
+    fs->free_inodes++;
+    ext2_flush_gdt(fs);
+    ext2_flush_super(s);
+}
+
+// Removes the named entry from a directory, merging its slot into the previous
+// entry (or blanking it if it is the first in the block).
+static int ext2_dir_remove(inode* dir, char* name)
+{
+    ext2_inode* dei = dir->info_disk;
+    uint name_len = strlen(name);
+    uint8 blk[EXT2_BLOCK_SIZE];
+    for (uint off = 0; off < dir->file_size; off += EXT2_BLOCK_SIZE) {
+        bool changed = false;
+        uint32 phys = ext2_bmap_alloc(dir->super_block, dei,
+                                      off / EXT2_BLOCK_SIZE, &changed);
+        ext2_read_block(phys, blk);
+        uint p = 0;
+        ext2_dir_entry_head* prev = NULL;
+        while (p < EXT2_BLOCK_SIZE) {
+            ext2_dir_entry_head* de = (ext2_dir_entry_head*)(blk + p);
+            if (de->rec_len < 8)
+                break;
+            if (de->inode != 0 && de->name_len == name_len &&
+                !memcmp((char*)de + 8, name, name_len)) {
+                if (prev != NULL)
+                    prev->rec_len += de->rec_len;
+                else
+                    de->inode = 0;
+                ext2_write_block(phys, blk);
+                return 0;
+            }
+            prev = de;
+            p += de->rec_len;
+        }
+    }
+    return -ENOFILE;
+}
+
+// True if a directory contains nothing but "." and "..".
+static bool ext2_dir_empty(inode* dir)
+{
+    for (uint off = 0; off < dir->file_size;) {
+        ext2_dir_entry_head de;
+        if (ext2_read_data(dir, off, sizeof(de), &de) != sizeof(de))
+            break;
+        if (de.rec_len == 0)
+            break;
+        if (de.inode != 0) {
+            char nbuf[FILE_MAXLEN];
+            uint nl = de.name_len;
+            if (nl >= FILE_MAXLEN)
+                return false;
+            ext2_read_data(dir, off + sizeof(de), nl, nbuf);
+            nbuf[nl] = '\0';
+            if (strcmp(nbuf, ".") && strcmp(nbuf, ".."))
+                return false;
+        }
+        off += de.rec_len;
+    }
+    return true;
+}
+
 static int ext2_flush(file_object* f)
 {
     if (f->inode->is_dirty)
@@ -600,16 +702,80 @@ static inode* ext2_lookup(inode* start, char* name)
     return NULL;
 }
 
-static int ext2_ro_dirop(inode* i, char* n)
+static int ext2_unlink(inode* parent, char* name)
 {
-    return -EPERMS;
+    super_block* s = parent->super_block;
+    inode* target = ext2_lookup(parent, name);
+    if (target == NULL)
+        return -ENOFILE;
+    if (target->inode_type == FS_DIR) {
+        s->ops->release_inode(target);
+        return -EINVTYPE; // use rmdir for directories
+    }
+    int r = ext2_dir_remove(parent, name);
+    if (r < 0) {
+        s->ops->release_inode(target);
+        return r;
+    }
+    ext2_inode* tei = target->info_disk;
+    if (tei->links_count > 0)
+        tei->links_count--;
+    if (tei->links_count == 0) {
+        ext2_truncate(target); // frees the data blocks
+        ext2_free_inode(s, target->inode_number, false);
+        memset(tei, 0, sizeof(ext2_inode));
+        target->file_size = 0;
+    }
+    target->is_dirty = true;
+    s->ops->write_inode(target);
+    s->ops->write_inode(parent);
+    s->ops->release_inode(target);
+    buffers_flush_all();
+    return 0;
+}
+
+static int ext2_rmdir(inode* parent, char* name)
+{
+    super_block* s = parent->super_block;
+    inode* target = ext2_lookup(parent, name);
+    if (target == NULL)
+        return -ENOFILE;
+    if (target->inode_type != FS_DIR) {
+        s->ops->release_inode(target);
+        return -EINVTYPE;
+    }
+    if (!ext2_dir_empty(target)) {
+        s->ops->release_inode(target);
+        return -EDIRNOTEMPTY;
+    }
+    int r = ext2_dir_remove(parent, name);
+    if (r < 0) {
+        s->ops->release_inode(target);
+        return r;
+    }
+    ext2_truncate(target); // frees the directory's block(s)
+    ext2_inode* tei = target->info_disk;
+    ext2_free_inode(s, target->inode_number, true);
+    memset(tei, 0, sizeof(ext2_inode));
+    target->file_size = 0;
+    target->is_dirty = true;
+    s->ops->write_inode(target);
+    // The removed directory's ".." no longer counts toward the parent.
+    ext2_inode* pei = parent->info_disk;
+    if (pei->links_count > 0)
+        pei->links_count--;
+    parent->is_dirty = true;
+    s->ops->write_inode(parent);
+    s->ops->release_inode(target);
+    buffers_flush_all();
+    return 0;
 }
 
 static const inode_ops ext2_dir_inode_ops = {.lookup = ext2_lookup,
                                              .mkdir = ext2_mkdir,
-                                             .rmdir = ext2_ro_dirop,
+                                             .rmdir = ext2_rmdir,
                                              .create = ext2_create,
-                                             .unlink = ext2_ro_dirop};
+                                             .unlink = ext2_unlink};
 
 // --- super block / inode lifecycle ------------------------------------------
 

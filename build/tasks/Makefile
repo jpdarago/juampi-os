@@ -10,13 +10,17 @@ CFLAGS += -m32
 endif
 ASMFLAGS=-i../../include/ -f elf32
 OBJ=syscall_wrappers.o stdio.o utils.o parser.o errors.o
-TASKS=cp.run ls.run cat.run shell.run echo.run date.run mkdir.run
+TASKS=cp.run ls.run cat.run shell.run echo.run date.run mkdir.run rm.run rmdir.run
 
 %.o: %.asm
-	$(ASM) $(ASMFLAGS) -o $@ $^
+	$(ASM) $(ASMFLAGS) -o $@ $<
+
+# The wrapper includes syscalls_codes.inc, which Make does not track otherwise;
+# rebuild it when the syscall numbers change.
+syscall_wrappers.o: ../../include/syscalls_codes.inc
 
 %.o: %.c
-	$(CC) $(CFLAGS) -c -o $@ $^
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 %.run: %.o $(OBJ)
 	$(LD) -emain -melf_i386 -o $@ $^
