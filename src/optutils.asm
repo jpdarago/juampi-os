@@ -49,8 +49,8 @@ memset:
 	mov al,  [ebp+12]
 	mov edi, [ebp +8] 
 
-	;Copiamos el byte mas bajo
-	;de al a todos los de eax
+	;We copy the lowest byte
+	;of al to all bytes of eax
 	mov edx, eax
 	shl eax, 8
 	or eax, edx

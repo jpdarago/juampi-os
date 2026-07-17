@@ -136,6 +136,11 @@ void mark_buffer(disk_buffer* b)
 
 void mark_dirty(uint inonum, disk_buffer * b){
     b->dirty = true;
+    // Already linked into the dirty list; don't add a second node for the
+    // same buffer (that would leak the node and risk a double free on flush).
+    if(b->dlist_ptr != NULL) {
+        return;
+    }
     dirty_ln * d = kmalloc(sizeof(dirty_ln));
     d->inonum = inonum;
     d->buffer = b;
@@ -160,7 +165,6 @@ int buffered_write(uint block, uint offset,
     char* dump = b->data;
     memcpy(dump + offset,data,bytes);
     mark_dirty(inonum,b);
-    b->dirty = true;
     b->writers--;
     mark_buffer(b);
     return 0;

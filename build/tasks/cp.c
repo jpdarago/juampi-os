@@ -7,19 +7,19 @@ char buf[1024];
 int main(int argc, const char * argv[])
 {
     if(argc != 3) {
-        printf("Numero de argumentos incorrectos\n");
-        printf("\tUso: cp <desde> <hasta>\n");
+        printf("Incorrect number of arguments\n");
+        printf("\tUsage: cp <from> <to>\n");
         exit();
     }
 
     int fd1 = open(argv[1],FS_RD);
     if(fd1 < 0) {
-        printf("Abrir el archivo %s fallo\n",argv[1]);
+        printf("Opening file %s failed\n",argv[1]);
         exit();
     }
     int fd2 = open(argv[2],FS_WR | FS_TRUNC | FS_CREAT);
     if(fd2 < 0) {
-        printf("Abrir el archivo %s fallo\n",argv[2]);
+        printf("Opening file %s failed\n",argv[2]);
         exit();
     }
     int rd;
@@ -28,13 +28,13 @@ int main(int argc, const char * argv[])
 
         if(rd <= 0) {
             if(rd < 0)
-                printf("Error en cp al leer: %d\n",rd);
+                printf("Error in cp while reading: %d\n",rd);
             break;
         }
 
         int wr = write(fd2,rd,buf);
         if(wr < rd) {
-            printf("Error en cp al escribir: %d\n",wr);
+            printf("Error in cp while writing: %d\n",wr);
         }
     }
 

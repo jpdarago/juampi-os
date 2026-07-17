@@ -44,18 +44,18 @@ int write_tty(file_object * obj, uint bytes, void * _data)
 int open_tty(inode * ino, file_object * obj)
 {
     if(!ino) {
-        kernel_panic("No hay inodo");
+        kernel_panic("There is no inode");
         return -EINVINODE;
     }
     if(ino->inode_type != FS_CHARDEV) {
-        kernel_panic("Inodo no es chardev");
+        kernel_panic("Inode is not a chardev");
         return -EINVINODETYPE;
     }
 
     char_dev * dev = ino->info_cdev;
     if(!dev || dev->major_number != TTY_MAJOR
        || dev->minor_number != TTY_MINOR) {
-        kernel_panic("Inodo no es terminal");
+        kernel_panic("Inode is not a terminal");
         return -EINVINODETYPE;
     }
 

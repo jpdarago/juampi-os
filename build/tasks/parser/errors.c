@@ -3,12 +3,12 @@
 
 static char * text_errors[] = {
     NULL,
-    "Comando demasiado largo",
-    "Comando invalido",
-    "Argumento demasiado largo",
-    "Demasiados argumentos",
-    "Caracter invalido",
-    "Expresion invalida"
+    "Command too long",
+    "Invalid command",
+    "Argument too long",
+    "Too many arguments",
+    "Invalid character",
+    "Invalid expression"
 };
 
 static unsigned int errors =

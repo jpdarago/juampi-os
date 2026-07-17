@@ -4,17 +4,17 @@ int dst[5];
 int src[5] = {0,1,2,3,4};
 
 char * mensajes_padre[] = {
-    "Hola soy una tarea   ",
-    "Hola soy una tarea.  ",
-    "Hola soy una tarea.. ",
-    "Hola soy una tarea..."
+    "Hello I am a task   ",
+    "Hello I am a task.  ",
+    "Hello I am a task.. ",
+    "Hello I am a task..."
 };
 
 char * mensajes_hija[] = {
-    "Hola soy una tarea hija   ",
-    "Hola soy una tarea hija.  ",
-    "Hola soy una tarea hija.. ",
-    "Hola soy una tarea hija..."
+    "Hello I am a child task   ",
+    "Hello I am a child task.  ",
+    "Hello I am a child task.. ",
+    "Hello I am a child task..."
 };
 
 void esperar(int tiempo){

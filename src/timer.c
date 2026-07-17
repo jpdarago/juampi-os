@@ -2,7 +2,7 @@
 #include <tasks.h>
 #include <proc.h>
 
-// Modificar frequencia del reloj
+// Modify the clock frequency
 void init_timer(uint freq)
 {
     uint div = 1193180/freq;

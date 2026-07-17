@@ -7,30 +7,30 @@
 #include <ports.h>
 #include <proc.h>
 
-// Tipo de los callbacks
+// Type of the callbacks
 typedef void (*irq_handler)(uint,gen_regs);
 
-// Remapeo del PIC
+// Remapping of the PIC
 extern void remap_pic(void);
 
-// Cargar los handlers de irq y amigas
+// Load the irq handlers and friends
 extern void irq_init_handlers(void);
 
-// Handler general interrupcciones por PIC
+// General handler for interrupts via PIC
 extern void irq_common_handler(gen_regs,uint,int_trace);
 
-// Handlers para prender y apagar interrupciones
-// irq_sti decide si tiene que activar o no segun eflags
+// Handlers to turn interrupts on and off
+// irq_sti decides whether it has to enable them or not according to eflags
 extern void irq_sti(uint eflags);
-// Activa si o si interrupciones
+// Enables interrupts unconditionally
 extern void irq_sti_force(void);
-// Desactiva interrupciones, devuelve el eflags anterior
+// Disables interrupts, returns the previous eflags
 extern uint irq_cli(void);
 
-// Registrar handler
+// Register handler
 extern void register_irq_handler(irq_handler e, uint code);
 
-// Maxima cantidad de interrupciones que maneja el sistema
+// Maximum number of interrupts that the system handles
 #define MAX_INTS 64
 
 #endif

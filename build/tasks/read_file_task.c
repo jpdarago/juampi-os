@@ -6,14 +6,14 @@ int start = 18;
 
 
 char buffer[2049];
-char * lecmessage = "Lei lo siguiente: ";
+char * lecmessage = "I read the following: ";
 
 void read_file(char * path)
 {
     int fd = open(path,FS_RD);
-    if(fd < 0) fail("File descriptor invalido");
+    if(fd < 0) fail("Invalid file descriptor");
     int bytes_read = read(fd,2048,buffer);
-    if(bytes_read < 0) fail("Lectura invalida");
+    if(bytes_read < 0) fail("Invalid read");
     buffer[bytes_read] = '\0';
     scrn_print(start,0,lecmessage);
     scrn_print(start,strlen(lecmessage),buffer);

@@ -6,8 +6,8 @@
 
 static char elf_magic[] = { 0x7F, 'E', 'L', 'F' };
 
-// Arma la estructura de un ELF a partir de un
-// buffer de memoria
+// Builds the structure of an ELF from a
+// memory buffer
 elf_file* elf_read_exec(void* image)
 {
     char* imagep = image;
@@ -42,7 +42,7 @@ uint elf_entry_point(elf_file* elf)
 
 elf_segment* elf_get_segment(elf_file* elf, uint index)
 {
-    if(index > elf->header->ph_entry_count) {
+    if(index >= elf->header->ph_entry_count) {
         return NULL;
     }
     elf_pheader* ph = &elf->program_header[index];

@@ -22,10 +22,10 @@ typedef struct {
     uint32 dirty : 1;
     uint32 __zero_1 : 1;
     uint32 global : 1;
-    // Copy on write: Si una pagina esta con este bit
-    // y alguien la trata de escribir cuando tiene modo solo
-    // lectura, hay que hacer una copia y reasignarla. Es parte
-    // de los bits disponibles de intel.
+    // Copy on write: If a page has this bit set
+    // and someone tries to write to it when it is in read-only
+    // mode, a copy must be made and reassigned. It is part
+    // of Intel's available bits.
     uint32 copy_on_write : 1;
     uint32 avail : 2;
     uint32 frame : 20;
@@ -56,16 +56,16 @@ typedef struct {
 } page_table;
 
 typedef struct {
-    // Las entradas (que contienen direcciones fisicas)
-    // de las tablas de este directorio. Esto es para cuando
-    // tenemos que clonar las entradas (al forkear el proceso).
+    // The entries (which contain physical addresses)
+    // of the tables of this directory. This is for when
+    // we have to clone the entries (when forking the process).
     page_table_entry tables_phys[1024];
-    // Las direcciones (en espacio de memorias virtual)
-    // correspondientes a los contenidos de las tablas
-    // de directorio
+    // The addresses (in virtual memory space)
+    // corresponding to the contents of the directory
+    // tables
     page_table * tables_virtual[1024];
-    // Direccion fisica donde comienzan las entradas
-    // de directorio (las tablas). Esto va en el cr3 del kernel.
+    // Physical address where the directory entries
+    // (the tables) begin. This goes in the kernel's cr3.
     uint32 physical_address;
 } page_directory;
 
@@ -76,35 +76,35 @@ typedef struct {
 #define ALIGN(x) ((x) & ~0xFFF)
 #define NEXT_ALIGN(x) ALIGN((x)+0x1000)
 
-// Devuelve la direccion fisica de la direccion virtual en
-// el directorio, ambos pasados por parametro
+// Returns the physical address of the virtual address in
+// the directory, both passed as parameters
 uint32 physical_address(page_directory *, uint);
-// Inicializa paginacion haciendo identity mapping y creando
-// los handlers de excepcion y estructuras necesarias
+// Initializes paging by doing identity mapping and creating
+// the exception handlers and necessary structures
 void paging_init(intptr end_address, intptr kernel_last_addr);
-// Mapea una direccion virtual a una fisica en un directorio dados
-// los flags que se desean
+// Maps a virtual address to a physical one in a directory given
+// the desired flags
 void map_page(page_directory * pd, uint va, uint pa, uint flags);
-// Consigue mas memoria para el mapa de memoria indicado
+// Gets more memory for the indicated memory map
 void * paging_append_core(kmem_map_header *,uint);
-// Cambia el directorio de paginas al pasado por parametro
+// Changes the page directory to the one passed as parameter
 void switch_page_directory(page_directory * pd);
 void page_fault_handler(exception_trace);
-// Clona un directorio haciendo copy on write
+// Clones a directory doing copy on write
 page_directory * clone_directory(page_directory *);
-// Directorio de paginas actual y directorio de paginas de
-// kernel (el segundo es para saber que cosas son de kernel)
+// Current page directory and kernel page directory
+// (the second one is to know which things belong to the kernel)
 extern page_directory * current_directory, * kernel_dir;
-// Copia dos frames: Deshabilita paginacion para ello y por
-// eso esta escrito en assembler en copy_frame.asm
+// Copies two frames: It disables paging to do so and that is
+// why it is written in assembler in copy_frame.asm
 extern void copy_frame(uint dst, uint src);
-// Cambia el directorio actual por otro
+// Changes the current directory to another one
 void set_current_directory(page_directory *);
-// Devuelve la direccion de la heap de kernel
+// Returns the address of the kernel heap
 kmem_map_header * get_kernel_heap(void);
-// Limpia una entrada de pagina o tabla del directorio actual
+// Clears a page or table entry from the current directory
 void clear_page_entry(page_directory * pe, uint, uint);
 void clear_table_entry(page_directory * pe, uint);
-// Eliminar un directorio de paginas completo
+// Delete a whole page directory
 void page_directory_destroy(page_directory *);
 #endif

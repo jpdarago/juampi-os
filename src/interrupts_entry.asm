@@ -1,11 +1,11 @@
 %include "mode_switch.inc"
 
-;Handler general
+;General handler
 extern irq_common_handler;
 
-;Handlers de interrupcciones
-;Macro que genera un handler de interrupcion. Lo que hace es pushear el codigo de la interrupcion
-;antes de saltar al handler comun.
+;Interrupt handlers
+;Macro that generates an interrupt handler. What it does is push the interrupt code
+;before jumping to the common handler.
 %macro IRQ 2
 global _irq %+ %1
 _irq %+ %1 %+ :
@@ -32,7 +32,7 @@ IRQ 13, 45
 IRQ 14, 46
 IRQ 15, 47
 
-;Stub comun a todas las excepciones.
+;Stub common to all exceptions.
 _irq_common:
 	pushad
 	

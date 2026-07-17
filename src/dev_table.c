@@ -16,9 +16,9 @@ inode_ops * iops_table[MAX_MAJOR][MAX_MINOR];
 void check_dev_numbers(ushort major, ushort minor)
 {
     if(minor >= MAX_MINOR)
-        kernel_panic("Minor number %d invalido",minor);
+        kernel_panic("Invalid minor number %d",minor);
     if(major >= MAX_MAJOR)
-        kernel_panic("Major number %d invalido",major);
+        kernel_panic("Invalid major number %d",major);
 }
 
 fs_ops* get_fops_table(ushort major, ushort minor)

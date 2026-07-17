@@ -10,13 +10,13 @@ typedef void (*exception_handler)(exception_trace);
 
 extern exception_handler exception_handlers[];
 
-// Registra un handler especial
+// Registers a special handler
 void register_exception_handler(exception_handler,uint);
 
-// Inicializa los handlers de excepcion a un default
+// Initializes the exception handlers to a default
 void initialize_exception_handlers(void);
 
-// Pantalla azul clasica
+// Classic blue screen
 extern void blue_screen(exception_trace);
 
 #define kernel_panic(m,...) \

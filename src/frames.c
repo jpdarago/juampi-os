@@ -8,15 +8,15 @@
 #define FRAME_MSK 0xFFF
 #define FRAME_ALIGN(x) ((x) & ~0xFFF)
 
-// Mapa de bits para los frames: 1 indica usado, 0 indica no usado
+// Bitmap for the frames: 1 indicates used, 0 indicates not used
 static bitset b;
-// Direccion (fisica) donde empieza la memoria a administrar
+// (Physical) address where the memory to manage starts
 static uint mem_start, total_count;
-// Conteo de cantidad de personas a las cuales les asignamos un frame
+// Count of the number of holders to which we assigned a frame
 static uint* count;
 
-// Inicializa el mapa de bits de administracion y regresa la posicion
-// del primer frame de datos utiles (o sea, calcula el tamaño del bitset)
+// Initializes the management bitmap and returns the position
+// of the first frame of useful data (i.e., computes the size of the bitset)
 uint frame_alloc_init(void* _mem_start, uint frames)
 {
     intptr mem = FRAME_ALIGN((intptr) _mem_start + FRAME_SZ - 1);
@@ -37,7 +37,7 @@ uint frame_alloc()
 {
     uint offset = bitset_search(&b);
     if(offset == (uint)-1) {
-        kernel_panic("No hay frames disponibles para usar");
+        kernel_panic("No frames available to use");
     }
     bitset_set(&b,offset);
     count[offset]++;
@@ -50,7 +50,7 @@ uint frame_alloc()
 void frame_free(uint frame)
 {
     if(frame < mem_start) {
-        kernel_panic("Se intento liberar un frame invalido");
+        kernel_panic("Attempted to free an invalid frame");
     }
     uint offset = (frame-mem_start)/FRAME_SZ;
     if(--count[offset] == 0) {
@@ -67,7 +67,7 @@ uint frames_available()
 void frame_add_alias(uint frame)
 {
     if(frame < mem_start) {
-        kernel_panic("Aliasing a frame invalido\n");
+        kernel_panic("Aliasing an invalid frame\n");
     }
     uint offset = (frame-mem_start)/FRAME_SZ;
     count[offset]++;

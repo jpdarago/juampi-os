@@ -1,8 +1,8 @@
-;La idea es bootear con GRUB.
+;The idea is to boot with GRUB.
 global loader                          
-extern kmain                            ; kmain es el punto de entrada al kernel posta, esta en un archivo aparte
+extern kmain                            ; kmain is the entry point to the real kernel, it is in a separate file
  
-;Header multiboot de GRUB
+;GRUB multiboot header
 MODULEALIGN equ  1<<0                   ; align loaded modules on page boundaries
 MEMINFO     equ  1<<1                   ; provide memory map
 FLAGS       equ  MODULEALIGN | MEMINFO  ; this is the Multiboot 'flag' field
@@ -18,28 +18,28 @@ align 4
  
 section .text
 
-;El codigo genuino del loader
+;The genuine loader code
 loader:
-	mov  esp, stack + STACKSIZE         ; Ponemos la pila
-	mov  ebp, stack + STACKSIZE	    ; Ponemos el piso de la pila
+	mov  esp, stack + STACKSIZE         ; We set the stack
+	mov  ebp, stack + STACKSIZE	    ; We set the bottom of the stack
 
-	push eax                            ; Pusheamos el magic number.
-	push ebx                            ; Pusheamos la informacion. Esto sirve para por ejemplo obtener cuanta ram tenemos.
+	push eax                            ; We push the magic number.
+	push ebx                            ; We push the information. This is useful for example to obtain how much ram we have.
 
 	cli
-	call kmain                          ; Llamamos al kernel posta
+	call kmain                          ; We call the real kernel
 	
 	cli
 .hang:
-	hlt                                 ; Halt por si no funca kmain (no deberia).
+	hlt                                 ; Halt in case kmain does not work (it shouldn't).
 	jmp  .hang
  
 
 section .bss
 
-;Pila
-;Reservamos un espacio de pila inicial, 64K
+;Stack
+;We reserve an initial stack space, 64K
 STACKSIZE equ 0x10000                    
 align 4
 stack:
-	resb STACKSIZE                      ; Reservamos la cantidad de la pila que queremos
+	resb STACKSIZE                      ; We reserve the amount of stack we want

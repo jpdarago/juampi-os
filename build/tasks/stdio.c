@@ -17,7 +17,7 @@ int putchar(char c)
 int puts(const char * s)
 {
     if(s == NULL)
-        fail("Escribiendo string nula");
+        fail("Writing null string");
     return write(STDOUT,strlen(s),s);
 }
 

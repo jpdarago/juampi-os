@@ -14,32 +14,32 @@ enum color {
     LIGHTRED, LIGHTMAGENTA, LIGHTBROWN, WHITE
 };
 typedef enum color color;
-// Limpia la pantalla
+// Clears the screen
 void scrn_cls(void);
-// Coloca el color de fondo y la fuente.
+// Sets the background color and the font.
 void scrn_setmode(color,color);
-// Devuelve el formato de fondo y fuente
+// Returns the background and font format
 ushort scrn_getmode(void);
-// Devuelve la fila del cursor
+// Returns the cursor row
 uchar scrn_getrow(void);
-// Devuelve la columna del cursor
+// Returns the cursor column
 uchar scrn_getcol(void);
-// Coloca el cursor en un lugar.
-// PRE: Las coordenadas pasadas son validas dentro de la memoria de video
+// Places the cursor at a location.
+// PRE: The coordinates passed are valid within video memory
 void scrn_setcursor(uchar, uchar);
-// Imprime un caracter a memoria de video. No utiliza format.
+// Prints a character to video memory. Does not use format.
 void scrn_putc(char, ushort);
 void scrn_move_back(void);
-// Imprime el mensaje, si es posible hacerlo
+// Prints the message, if it is possible to do so
 void scrn_print(const char*);
-// Imprime el mensaje, con formato estilo printf de C.
-// PRE: La cantidad de parametros pasados DEBE ser correcta
+// Prints the message, with C printf-style formatting.
+// PRE: The number of parameters passed MUST be correct
 void scrn_printf(const char*,...);
-// Imprime el mensaje en la direccion indicada. Devuelve 0
-// si esta todo bien, -1 en caso de error. Se usa en la syscall
-// de impresion directa a pantalla
+// Prints the message at the indicated address. Returns 0
+// if everything is fine, -1 in case of error. It is used in the
+// direct-to-screen printing syscall
 int scrn_pos_print(uchar row, uchar col, const char * msg);
-// Como scrn_pos_print pero printf
+// Like scrn_pos_print but printf
 int scrn_pos_printf(uchar row, uchar col, const char * msg,...);
 bool in_video_mem(uint address);
 #endif

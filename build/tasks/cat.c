@@ -7,15 +7,15 @@ char buffer[BUFFER_SIZE];
 int main(int argc, const char * argv[])
 {
     if(argc < 2) {
-        printf("Argumentos incorrectos\n");
-        printf("\tUso: cat <nombre archivo>\n");
+        printf("Incorrect arguments\n");
+        printf("\tUsage: cat <file name>\n");
         exit();
     }
 
     const char * name = argv[1];
     int fd = open(name,FS_RD), rd = 0;
     if(fd < 0) {
-        printf("Error en cat al abrir archivo %s: codigo %d\n", name, fd);
+        printf("Error in cat while opening file %s: code %d\n", name, fd);
         exit();
     }
 
@@ -24,7 +24,7 @@ int main(int argc, const char * argv[])
 
         if(rd <= 0) {
             if(rd < 0)
-                printf("Error en cat al leer el archivo %s: codigo%d\n", name, read);
+                printf("Error in cat while reading file %s: code%d\n", name, read);
             break;
         }
 

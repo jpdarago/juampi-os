@@ -2,8 +2,8 @@ section .text
 
 global bitset_search
 
-;Busca un bit libre en el bitmap.
-;La estructura del bitmap esta en bitmap.c
+;Searches for a free bit in the bitmap.
+;The bitmap structure is in bitmap.c
 bitset_search:
 	push ebp
 	mov ebp,esp
@@ -11,39 +11,39 @@ bitset_search:
 	push edi
 
 	mov eax, [ebp+8]
-	;En ecx ponemos el tamaño del bitset
+	;In ecx we put the size of the bitset
 	mov ecx, [eax+4]
-	;En edi podemos la direccion de inicio del bitset
+	;In edi we put the start address of the bitset
 	mov edi, [eax]
-	;Buscamos un bit vacio en el bitmap
-	;Para eso buscamos la primer double word
-	;que no tenga todos los bits prendidos
+	;We look for an empty bit in the bitmap
+	;For that we look for the first double word
+	;that does not have all its bits set
 	mov eax, 0xFFFFFFFF	
-	;En ebx copiamos esta direccion inicial para offsetear
+	;In ebx we copy this initial address to offset from it
 	mov ebx, edi
-	;Escaneamos hasta que no tengamos doublewords o una
-	;double word no sea cero
+	;We scan until we run out of doublewords or a
+	;double word is not zero
 	repe scasd
-	;Si ecx es cero paramos porque nos fuimos del mapa
+	;If ecx is zero we stop because we went past the map
 	cmp ecx, 0
-	;Si nos fuimos del mapa, devolvemos 0xFFFFFFF
-	;que en complemento a dos es igual a -1
+	;If we went past the map, we return 0xFFFFFFF
+	;which in two's complement is equal to -1
 	je .end
-	;No son iguales, hay un indice que no es cero
-	;en la doubleword encontrada en esi.
-	;Buscamos que indice no es cero.
-	;Estamos corridos un dword porque nos pasamos
+	;They are not equal, there is an index that is not zero
+	;in the doubleword found in esi.
+	;We look for which index is not zero.
+	;We are shifted one dword because we overshot
 	sub edi,4
 	mov ecx, [edi]
 	mov eax, edi
 	not ecx
 	sub eax, ebx
 	bsf edx,ecx
-	;Conseguimos el offset de la base en eax y el indice en
-	;esa double word en edx. Falta unirlos.
-	;Multiplicamos por ocho porque el offset es en bytes
+	;We get the offset from the base in eax and the index in
+	;that double word in edx. We still need to combine them.
+	;We multiply by eight because the offset is in bytes
 	shl eax, 3
-	;Agregamos el offset al indice del bit en la doubleword
+	;We add the offset to the bit index in the doubleword
 	add eax, edx
 .end:
 	pop edi

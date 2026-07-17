@@ -31,7 +31,7 @@ void gdt_load_desc(uint i, uint base, uint limit, seg_flags flags)
 void gdt_init()
 {
     memset(gdt,0,sizeof(gdt));
-    // Configuracion flat.
+    // Flat configuration.
     GDT_LOAD_DESC(1,0,0xFFFFF, .type = CODE_ER_NC, .dpl = 0);
     GDT_LOAD_DESC(2,0,0xFFFFF, .type = DATA_RW, .dpl = 0);
     GDT_LOAD_DESC(3,0,0xFFFFF, .type = CODE_ER_NC, .dpl = 3);
@@ -65,7 +65,7 @@ void gdt_remove_tss(short tss_selector)
     }
     short index = tss_selector >> 3;
     if(gdt[index].type != TSS_AVL && gdt[index].type != TSS_BUSY)
-        kernel_panic("Se trato de remover una entrada de GDT\n"
-                     "que no es una entrada de TSS");
+        kernel_panic("Attempted to remove a GDT entry\n"
+                     "that is not a TSS entry");
     memset(&gdt[index],0,sizeof(seg_desc));
 }

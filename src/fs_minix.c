@@ -9,14 +9,14 @@
 
 /* TODO:
 
- *  Considerar escribir el super block a disco
-    despues de un cierto tiempo (no inmediatamente).
- *  Considerar guardar la posicion de la entrada de directorio
-    para los inodos
- *  Fijarse el tema de contadores de uso para los inodos
-    y los files.
- *	Actualmente el filesystem no soporta archivos de lectura
-    y escritura. De todos modos esto no es complicado.
+ *  Consider writing the super block to disk
+    after a certain time (not immediately).
+ *  Consider storing the position of the directory entry
+    for the inodes
+ *  Look into the matter of use counters for the inodes
+    and the files.
+ *	Currently the filesystem does not support read
+    and write files. In any case this is not complicated.
  */
 
 static inode * minix_create_disk_inode(super_block *);
@@ -49,7 +49,7 @@ static minix_inode * get_disk_inode(inode * ino)
     return (minix_inode *) ino->info_disk;
 }
 
-// Consigue un bloque de disco libre del super bloque minix
+// Obtains a free disk block from the minix super block
 static ushort request_free_zone(minix_fs_data * mfd)
 {
     uint pos = bitset_search(&mfd->inode_bitmap);
@@ -68,14 +68,14 @@ static ushort read_data_entry(uint block, uint offset)
     return res;
 }
 
-static void write_data_entry(uint block, uint offset,ushort res)
+static void write_data_entry(uint block, uint offset,ushort res,uint inonum)
 {
-    buffered_read(block,offset*sizeof(ushort),sizeof(res),&res);
+    buffered_write(block,offset*sizeof(ushort),sizeof(res),inonum,&res);
 }
 
-// Determina que posicion en disco tiene el bloque numero
-// block_index del contenido fisico del inodo ino. create
-// indica si debe ser creado o no
+// Determines which disk position the block numbered
+// block_index of the physical content of the inode ino has. create
+// indicates whether it should be created or not
 static disk_position find_block_ptr(inode * ino,
                                     uint block_index,
                                     bool create)
@@ -102,9 +102,9 @@ static disk_position find_block_ptr(inode * ino,
     return p;
 }
 
-// Determina la posicion en disco donde empieza el contenido
-// del inodo ino, tomando el offset en bytes. create indica
-// si la zona debe ser creada en caso de que no exista
+// Determines the disk position where the content of the
+// inode ino starts, taking the offset in bytes. create indicates
+// whether the zone should be created in case it does not exist
 static disk_position inode_offset_position(inode * ino,
                                            uint offset,
                                            bool create)
@@ -130,14 +130,14 @@ static disk_position inode_offset_position(inode * ino,
     if(!block_ptr) {
         if(!create) return disk_pos(0,0);
         block_ptr = request_free_zone(mfd);
-        write_data_entry(p.block,p.offset,block_ptr);
+        write_data_entry(p.block,p.offset,block_ptr,ino->inode_number);
     }
 
     return disk_pos(block_ptr,block_offset);
 }
 
-// Procesa un inodo dada una accion: el codigo es para generalizar
-// read y write usando el mismo loop
+// Processes an inode given an action: the code is to generalize
+// read and write using the same loop
 static int minix_inode_data_read(inode * ino,uint offset,
                                  uint bytes, void * _data)
 {
@@ -200,8 +200,8 @@ static int minix_inode_data_write(inode * ino,
     return written;
 }
 
-// Convierte un tipo de archivo dado en formato minix
-// al formato del VFS
+// Converts a given file type in minix format
+// to the VFS format
 static fs_type minix_type(ushort mode)
 {
     switch(MINIX_TYPE_ONLY(mode)) {
@@ -218,7 +218,7 @@ static fs_type minix_type(ushort mode)
     }
 }
 
-// Reverso de la anterior
+// Reverse of the previous one
 static fs_type to_minix_type(uint inode_type)
 {
     switch(inode_type) {
@@ -246,7 +246,7 @@ static int minix_open_file(inode * ino, file_object * file)
     if(file->access_mode & FS_WR) {
         if(ino->inode_type == FS_DIR)
             return -EINVTYPE;
-        // Para escritura se lee por default en modo append
+        // For writing it reads by default in append mode
         file->file_write_offset = file->inode->file_size;
         if(file->flags & FS_TRUNC) {
             file->file_write_offset = 0;
@@ -474,7 +474,7 @@ static int minix_mkdir(inode * parent,char * name)
                             .inode = parent->inode_number };
 
     minix_inode_data_write(new_inode,0,sizeof(ode),&ode);
-    minix_inode_data_write(new_inode,0,sizeof(pde),&pde);
+    minix_inode_data_write(new_inode,sizeof(ode),sizeof(pde),&pde);
 
     new_inode->inode_type = FS_DIR;
     new_inode->file_size = MINIX_DEF_DIRSIZE;
@@ -563,7 +563,7 @@ static int initialize_file_type(inode * data, ushort mt)
         data->f_ops = &minix_dir_file_ops;
         break;
     case FS_CHARDEV:
-        // TODO: Conseguir las funciones de char device
+        // TODO: Get the char device functions
         data->info_cdev = kmalloc(sizeof(char_dev));
         tmp = mi->zones[0];
         major = tmp & 0xFF;
@@ -572,7 +572,7 @@ static int initialize_file_type(inode * data, ushort mt)
         data->i_ops = get_iops_table(major,minor);
         break;
     case FS_BLOCKDEV:
-        // TODO: Conseguir las funciones de block device
+        // TODO: Get the block device functions
         break;
     default:
         return -1;
@@ -586,8 +586,8 @@ static void add_to_super_list(inode * data)
              &data->super_block->open_inodes);
 }
 
-// Lee los datos del inodo desde disco duro,
-// utiliza el inode_number pasado con data
+// Reads the inode data from the hard disk,
+// uses the inode_number passed with data
 static int minix_read_inode(inode * data)
 {
     ushort ino_num = data->inode_number;
@@ -617,8 +617,8 @@ static int write_inode_entry(ushort ino_num,
     return 0;
 }
 
-// Flushea el inodo a disco duro, usando el inode_number
-// pasado en data como parametro
+// Flushes the inode to the hard disk, using the inode_number
+// passed in data as a parameter
 static int minix_write_inode(inode * data)
 {
     if(!data->is_dirty) return 0;
@@ -654,7 +654,7 @@ static inode * find_free_inode(super_block * s)
     return NULL;
 }
 
-// Devuelve un inodo inicializado
+// Returns an initialized inode
 static inode * minix_alloc_inode(super_block * s)
 {
     if(s->magic != MINIX_MAGIC)
@@ -694,7 +694,7 @@ static ushort get_unused_inode(super_block * s)
     if(ino_num == (uint)-1)
         return 0;
     clear_inode_entry(ino_num,mfd);
-    return ino_num+1; // Los inodos se cuentan desde 1
+    return ino_num+1; // Inodes are counted starting from 1
 }
 
 static void minix_release_incore_data(inode * data)
@@ -705,7 +705,7 @@ static void minix_release_incore_data(inode * data)
     kfree(data->info_pipe);
 }
 
-// Libera el inodo inicializado (destructor)
+// Frees the initialized inode (destructor)
 static int minix_release_inode(inode * data)
 {
     if(data == data->super_block->root)
@@ -721,8 +721,8 @@ static int minix_release_inode(inode * data)
     return 0;
 }
 
-// Obtiene un inodo asignandole un numero de inodo que este
-// libre
+// Obtains an inode assigning it an inode number that is
+// free
 static inode * minix_create_disk_inode(super_block * s)
 {
     if(s->magic != MINIX_MAGIC)
@@ -742,8 +742,8 @@ static inode * minix_create_disk_inode(super_block * s)
 
 static void minix_flush_bitmaps(super_block * s)
 {
-    // Los bitmaps son consecutivos en memoria, para flushearlos
-    // mas rapido a disco
+    // The bitmaps are consecutive in memory, to flush them
+    // to disk faster
     minix_fs_data * mfd = s->fs_data;
     buffered_write_several(
         mfd->inode_bitmap_start_block,
@@ -752,7 +752,7 @@ static void minix_flush_bitmaps(super_block * s)
         mfd->inode_bitmap.start );
 }
 
-// Flushea el super bloque a disco
+// Flushes the super block to disk
 static int minix_write_super_block(super_block * s)
 {
     if(s->magic != MINIX_MAGIC)
@@ -794,8 +794,8 @@ void release_inode_blocks(inode * ino, super_block * sb)
                          &diskino->doubly_indirect_block,1,depth+1);
 }
 
-// Borra el inodo, no solo destruyendo la memoria misma sino
-// que ademas libera el inodo en disco duro
+// Deletes the inode, not only destroying the memory itself but
+// also freeing the inode on the hard disk
 static int minix_delete_inode(inode * data)
 {
     if(data->super_block->magic != MINIX_MAGIC)
@@ -889,7 +889,7 @@ static void minix_initialize_fs_specific(super_block * block,
 {
     minix_fs_data * m = kmalloc(sizeof(minix_fs_data));
     if(m == NULL)
-        kernel_panic("No hay memoria para bitmaps de MINIX");
+        kernel_panic("No memory for MINIX bitmaps");
 
     load_minix_specific_metadata(m,d);
     load_minix_bitmaps(m,d);
@@ -907,7 +907,7 @@ static void read_super_block(minix_super_block * res)
 
 static void init_super_block(super_block * b)
 {
-    // TODO: Aca va lo que inicializa el super bloque
+    // TODO: Here goes what initializes the super block
     INIT_LIST_HEAD(&b->open_inodes);
 }
 
@@ -915,7 +915,7 @@ static void minix_obtain_root_inode(super_block * b)
 {
     b->root = b->ops->alloc_inode(b);
     if(b->root == NULL)
-        kernel_panic("No se pudo leer inodo raiz");
+        kernel_panic("Could not read root inode");
     b->root->inode_number = MINIX_ROOT_INODE;
     b->ops->read_inode(b->root);
 }
@@ -928,7 +928,7 @@ int fs_minix_init(super_block * block)
     read_super_block(&b);
 
     if(b.magic != MINIX_MAGIC)
-        kernel_panic("Magic Number invalido en superbloque");
+        kernel_panic("Invalid magic number in superblock");
 
     init_super_block(block);
     minix_init_disk_info(block,&b);

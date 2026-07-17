@@ -3,12 +3,12 @@
 
 #include <types.h>
 
-// Estructura con los registros de proposito general
+// Structure with the general purpose registers
 typedef struct {
     uint32 edi,esi,ebp,esp,ebx,edx,ecx,eax;
 } gen_regs;
 
-// Traza de interrupccion
+// Interrupt trace
 typedef struct {
     intptr eip;
     uint32 cs;
@@ -17,12 +17,12 @@ typedef struct {
     uint32 ss;
 } __attribute__((__packed__)) int_trace;
 
-// Registros de control
+// Control registers
 typedef struct {
     uint32 cr0,cr2,cr3,cr4;
 } ctrl_regs;
 
-// Registros de selectores de segmento
+// Segment selector registers
 typedef struct {
     uint32 cs,ds,es,fs,gs,ss;
 } sel_regs;
@@ -36,7 +36,7 @@ typedef struct {
     int_trace itrace;
 } exception_trace;
 
-// Setter y getter para la task register (tr)
+// Setter and getter for the task register (tr)
 short get_tr(void);
 void set_tr(short);
 

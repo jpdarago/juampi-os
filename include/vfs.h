@@ -4,9 +4,9 @@
 #include "types.h"
 #include "klist.h"
 
-// Longitud maxima de un path absoluto
+// Maximum length of an absolute path
 #define FS_MAXLEN 128
-// Longitud maxima de un pedazo de un path absoluto
+// Maximum length of a piece of an absolute path
 #define FILE_MAXLEN 30
 
 typedef struct inode inode;
@@ -38,41 +38,41 @@ typedef struct fs_ops {
 } fs_ops;
 
 typedef struct inode_ops {
-    // Dado un nombre de archivo y un inodo de directorio
-    // busca un archivo que tenga el nombre correspondiente
+    // Given a file name and a directory inode
+    // finds a file that has the corresponding name
     inode * (*lookup)(inode *, char *);
-    // Borra un inodo del disco
+    // Deletes an inode from disk
     int (*unlink)(inode *, char * name);
-    // Crea una nueva entrada de directorio
+    // Creates a new directory entry
     int (*mkdir)(inode *, char *);
-    // Borra una entrada de directorio
+    // Deletes a directory entry
     int (*rmdir)(inode *, char *);
-    // Ubica un inodo como subarchivo de un directorio
+    // Places an inode as a subfile of a directory
     int (*create)(inode *, char *);
 } inode_ops;
 
 typedef struct super_block_ops {
-    // Crea una estructura en memoria correspondiente a un
-    // inodo para este fileystem
+    // Creates an in-memory structure corresponding to an
+    // inode for this filesystem
     inode * (*alloc_inode)(super_block *);
-    // Consigue un inodo libre en este filesystem
+    // Gets a free inode in this filesystem
     inode * (*obtain_inode)(super_block *);
-    // Lee los datos de un inodo desde el filesystem
+    // Reads the data of an inode from the filesystem
     int (*read_inode)(inode*);
-    // Escribe los datos del inodo a disco
+    // Writes the inode data to disk
     int (*write_inode)(inode*);
-    // Borra un inodo de disco, destruyendo la memoria tambien
+    // Deletes an inode from disk, destroying the memory too
     int (*delete_inode)(inode*);
-    // Destruye la estructura del inodo en memoria
+    // Destroys the inode structure in memory
     int (*release_inode)(inode*);
-    // Flushea el super bloque a disco duro
+    // Flushes the super block to hard disk
     int (*write_super)(super_block *);
-    // Flushea todo el filesystem  a disco duro
+    // Flushes the whole filesystem  to hard disk
     int (*sync_fs)(super_block *);
 } super_block_ops;
 
 typedef struct pipe {
-    void * data; // Un buffer de size bytes
+    void * data; // A buffer of size bytes
     uint offset;
     uint size;
 } pipe;
@@ -106,10 +106,10 @@ struct inode {
     inode_ops const * i_ops;
     fs_ops const * f_ops;
 
-    pipe        * info_pipe; // Si es pipe
-    char_dev    * info_cdev; // Si es char device
-    block_dev   * info_bdev; // Si es block device
-    void        * info_disk; // Si es archivo en disco (MINIX)
+    pipe        * info_pipe; // If it is a pipe
+    char_dev    * info_cdev; // If it is a char device
+    block_dev   * info_bdev; // If it is a block device
+    void        * info_disk; // If it is a file on disk (MINIX)
 };
 
 struct super_block {
@@ -134,7 +134,7 @@ struct super_block {
 #define FS_RDBIT    1
 #define FS_WRBIT    2
 
-// Flags de apertura
+// Opening flags
 #define FS_TRUNC    4
 #define FS_CREAT    8
 

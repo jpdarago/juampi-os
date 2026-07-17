@@ -4,9 +4,9 @@
 #include <scrn.h>
 #include <exception.h>
 
-// El manejador de memoria es una adaptacion minima del propuesto en el K & R.
-// Inicializa el manejador de memoria del Kernel para funcionar sobre
-// el espacio y tamanio dados.
+// The memory manager is a minimal adaptation of the one proposed in the K & R.
+// Initializes the Kernel memory manager to work over
+// the given space and size.
 kmem_map_header* kmem_init(void* memory_start, int memory_units)
 {
     kmem_map_header* mem = memory_start;
@@ -33,7 +33,7 @@ static kmem_header* best_fit_prev(kmem_map_header* mh,int units)
     return best_prev;
 }
 
-// Pide mas memoria
+// Requests more memory
 static void* kmem_append_core(kmem_map_header* mh, uint units)
 {
     uint pages = (units + 0xFFF) / 0x1000;
@@ -47,30 +47,30 @@ static void* kmem_append_core(kmem_map_header* mh, uint units)
     return mh->freep;
 }
 
-// Asigna memoria RAM libre de Kernel. Devuelve NULL si no hay memoria
+// Allocates free Kernel RAM memory. Returns NULL if there is no memory
 void* kmem_alloc(kmem_map_header* mh, int size)
 {
-    if(size == 0) {
+    if(size <= 0) {
         return NULL;
     }
-    // Necesito pedir el espacio para el encabezado tambien.
+    // I also need to request the space for the header.
     int units = size + sizeof(kmem_header);
-    // Encontrar bloque libre del tamanio necesario.
-    // Implementacion: Best Fit
+    // Find a free block of the necessary size.
+    // Implementation: Best Fit
     kmem_header* best_prev = best_fit_prev(mh,units), * best;
     if(best_prev == NULL) {
         kmem_append_core(mh,units);
         best_prev = best_fit_prev(mh,units);
         if(best_prev == NULL) {
-            kernel_panic("No hay mas heap de kernel");
+            kernel_panic("No more kernel heap");
             return NULL;
         }
     }
     best = best_prev->next;
-    // Actualizar lista circular de bloques libres
+    // Update the circular list of free blocks
     if(best->size == units) {
         if(best == best->next) {
-            // El bloque es el unico de la lista libre.
+            // The block is the only one in the free list.
             mh->freep = NULL;
         } else {
             mh->freep = best_prev;
@@ -85,17 +85,17 @@ void* kmem_alloc(kmem_map_header* mh, int size)
     return (void*)(best+1);
 }
 
-// Libera memoria RAM del Kernel. Es invalido tratar de devolver memoria
-// no asignada con malloc.
+// Frees Kernel RAM memory. It is invalid to try to return memory
+// not allocated with malloc.
 void kmem_free(kmem_map_header* mh, void* p)
 {
     if(p == NULL) {
         return;
     }
     kmem_header* bptr = (kmem_header*)p - 1;
-    // Buscar con que bloque hay que enlazarlo.
+    // Search for which block it should be linked to.
     if(!mh->freep) {
-        // No hay nadie libre. El unico bloque es el de p. A liberarlo
+        // No one is free. The only block is p's. Free it
         mh->freep = bptr;
         bptr->next = bptr;
         return;
@@ -105,7 +105,7 @@ void kmem_free(kmem_map_header* mh, void* p)
         if(ptr >= ptr->next && (bptr > ptr || bptr < ptr->next)) {
             break;
         }
-    // Limpiar los bloques de los extremos que estan libres
+    // Clean up the end blocks that are free
     intptr bptr_addr = (intptr)bptr,ptr_addr = (intptr)ptr;
     if(bptr_addr + bptr->size == (intptr) ptr->next) {
         bptr->size += ptr->next->size;
@@ -119,33 +119,33 @@ void kmem_free(kmem_map_header* mh, void* p)
     } else {
         ptr->next = bptr;
     }
-    // Marcar como nuevo tipo libre, para acelerar.
+    // Mark as the new free entry, to speed things up.
     mh->freep = ptr;
 }
 
-// Asigna memoria RAM libre de Kernel, alineada a pagina.
+// Allocates free Kernel RAM memory, page-aligned.
 void* kmem_alloc_aligned(kmem_map_header* mh, int size)
 {
     if(size == 0) {
         return NULL;
     }
-    // Necesito pedir el espacio para el encabezado tambien.
-    // Pido PAGE_SIZE - 1 adicionales asi me aseguro que en el
-    // espacio de memoria obtenido va a haber un trozo alineado.
+    // I also need to request the space for the header.
+    // I request an additional PAGE_SIZE - 1 so that I ensure that in the
+    // obtained memory space there will be an aligned chunk.
     uint units = size + PAGE_SZ - 1 + sizeof(kmem_header);
-    // Encontrar bloque libre del tamanio necesario.
-    // Implementacion: Best Fit
+    // Find a free block of the necessary size.
+    // Implementation: Best Fit
     kmem_header* best_prev = best_fit_prev(mh,units), * best;
     if(best_prev == NULL) {
         kmem_append_core(mh,units);
         best_prev = best_fit_prev(mh,units);
         if(best_prev == NULL) {
-            kernel_panic("No hay mas memoria para asignar alineada");
+            kernel_panic("No more memory to allocate aligned");
             return NULL;
         }
     }
     best = best_prev->next;
-    // Obtengo la direccion del pedazo de memoria
+    // Get the address of the chunk of memory
     intptr best_addr = (intptr) best, header_sz = sizeof(kmem_header);
     intptr block_addr= ALIGN(PAGE_SZ - 1 + header_sz + best_addr);
     intptr header_addr = block_addr - header_sz;
@@ -153,18 +153,18 @@ void* kmem_alloc_aligned(kmem_map_header* mh, int size)
     kmem_header* header = (kmem_header*) header_addr;
     header->size = size+header_sz;
     if(best_addr != header_addr) {
-        // Acomodar el trozo original para que tenga la memoria entre
-        // el bloque original y el bloque alineado.
+        // Adjust the original chunk so that it holds the memory between
+        // the original block and the aligned block.
         best->size = header_addr - best_addr - header_sz;
     } else {
-        // Como el original esta alineado, solo hay que acomodar para
-        // el espacio que queremos y mover best_prev (como pedimos mas espacio
-        // que el necesario seguro sobra).
+        // Since the original is aligned, we only need to adjust for
+        // the space we want and move best_prev (since we requested more space
+        // than necessary there is surely leftover).
         best_prev->next = (kmem_header*)(block_addr+size);
     }
     if(block_addr + size < best_addr + header_sz + prev_size) {
-        // Sobra espacio seguido del bloque. Hay que crear un bloque nuevo que
-        // contenga este espacio, y agregarlo a la lista de bloques libres.
+        // There is leftover space following the block. We need to create a new block that
+        // contains this space, and add it to the list of free blocks.
         kmem_header* new_header = (kmem_header*)(block_addr + size);
         new_header->size = best_addr + prev_size -
                            (block_addr + size + header_sz);
@@ -194,8 +194,8 @@ void* kmalloc(uint size)
     kmem_map_header * kernel_heap = get_kernel_heap();
     void * res = kmem_alloc(kernel_heap,size);
     if(res == NULL)
-        kernel_panic("No hay mas memoria para "
-                     "alloc de %d bytes\n",size);
+        kernel_panic("No more memory to "
+                     "alloc %d bytes\n",size);
     return res;
 }
 

@@ -1,21 +1,21 @@
 %include "mode_switch.inc"
 
-;Funcion de manejo de excepciones
+;Exception handling function
 extern exception_handlers
 
-;Handlers de excepciones.
+;Exception handlers.
 %assign ir_index 0
 %rep 20
 global _isr %+ ir_index
 _isr %+ ir_index %+ :
 	%if ir_index != 8 && (ir_index < 10 || ir_index > 14)
-	;Si la excepcion no pushea un error code, pusheamos uno propio
+	;If the exception does not push an error code, we push our own
 	push dword 0xFFFFFFFF
 	%endif	
 
 	pushad
-	;Asumimos que preserva convencion C y que
-	;por lo tanto no toca edi
+	;We assume it preserves the C convention and that
+	;therefore it does not touch edi
 	SAVEINTTRACE GEN_REGS_SIZEOF + 4
 
 	push ss
@@ -37,34 +37,34 @@ _isr %+ ir_index %+ :
 	
 	push dword ir_index
 
-	;Movemos el procesador a modo kernel en
-	;segmentos tambien. Asumimos que el 
-	;handler que llamamos sigue la convencion C
-	;y por lo tanto preserva ebx
+	;We move the processor to kernel mode in
+	;segments too. We assume that the
+	;handler we call follows the C convention
+	;and therefore preserves ebx
 	KSPACESWITCH
 
-	;Ahora hay que conseguir el handler 
+	;Now we need to get the handler
 	mov eax, exception_handlers
 	mov ecx, ir_index
 	mov eax, [eax+4*ecx]
 
-	;Apagamos interrupciones: esto es critico
-	;Asumimos que el handler sigue convencion C
-	;y por lo tanto no toca edi
+	;We turn off interrupts: this is critical
+	;We assume the handler follows the C convention
+	;and therefore does not touch edi
 	pushfd
 	pop edi
 	cli
 
 	call eax
 
-	;Restauramos interrupciones	
+	;We restore interrupts
 	push edi
 	popfd
 
 	add esp, 44
 	
-	;Restauramos los registros de segmento
-	;de datos del ebx preservado
+	;We restore the data segment registers
+	;from the preserved ebx
 	USPACESWITCH
 
 	popad

@@ -9,9 +9,9 @@ extern switch_user_mode
 %endmacro
 
 %macro KSPACESWITCH 0
-	;Pasamos el procesador al control del kernel	
+	;We hand the processor over to the kernel's control
 	mov bx, ds
-	mov ax, 0x10 ;Segmento de datos del kernel
+	mov ax, 0x10 ;Kernel data segment
 	mov ds,ax
 	mov es,ax
 	mov fs,ax
@@ -22,7 +22,7 @@ extern switch_user_mode
 
 %assign _jmp_i 0
 %macro USPACESWITCH 0
-	;Volvemos el procesador a como estaba antes
+	;We return the processor to how it was before
 	
 	cmp bx, 0x23
 	jne .was_kernel %+ _jmp_i

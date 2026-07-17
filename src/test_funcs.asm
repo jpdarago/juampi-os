@@ -1,6 +1,6 @@
 section .rodata
 
-msg: db "Hola mundo de la syscall!",0
+msg: db "Hello world from the syscall!",0
 
 section .text
 

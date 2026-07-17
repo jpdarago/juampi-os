@@ -4,10 +4,10 @@
 
 #define DWORD_SZ 32
 
-// Esta funcion inicializa solamente los parametros de
-// offsets de un bitset. Es porque se utiliza para minix
-// donde no queremos borrar el pedazo final del bitmap
-// porque minix ya nos lo da bien
+// This function initializes only the offset
+// parameters of a bitset. It is because it is used for minix
+// where we do not want to clear the final chunk of the bitmap
+// because minix already gives it to us correctly
 uint32 * bitset_load(bitset* b, void* start, uint size)
 {
     b->start = start;
@@ -15,9 +15,9 @@ uint32 * bitset_load(bitset* b, void* start, uint size)
     return (uint32 *)(b->start + b->size);
 }
 
-// Inicializa el bitset para que utilice el bitmap
-// cargado en el cacho de memoria que empieza en start.
-// El size es la cantidad de cosas a administrar
+// Initializes the bitset so that it uses the bitmap
+// loaded in the chunk of memory that starts at start.
+// The size is the number of things to manage
 uint32 * bitset_init(bitset* b, void* start, uint size)
 {
     uint32 * res = bitset_load(b,start,size);

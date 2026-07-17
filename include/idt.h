@@ -38,16 +38,16 @@ typedef enum idt_descriptor_type idt_descriptor_type;
 extern idt_entry idt[];
 extern idt_desc IDT_DESC;
 
-// Carga un descriptor de la idt.
+// Loads a descriptor of the idt.
 extern void idt_load_desc(uint,uint,uint16,idt_entry_flags);
-// Levanta la idt de las excepciones para que la use el sistema.
+// Brings up the exception idt so that the system can use it.
 extern void idt_init_exceptions(void);
 extern void idt_init_interrupts(void);
 extern void idt_init_syscalls(void);
-// Carga la idt. Esta en assembler, porque asi tiene que ser. Se encuentra en loader.asm
+// Loads the idt. It is in assembler, because that is how it has to be. It is found in loader.asm
 extern void idt_flush(void);
 
-// Handlers de excepcion
+// Exception handlers
 extern void _isr0(void);
 extern void _isr1(void);
 extern void _isr2(void);
@@ -69,8 +69,8 @@ extern void _isr17(void);
 extern void _isr18(void);
 extern void _isr19(void);
 
-// Interrupciones
-extern void _irq0(void); // Tick de reloj
+// Interrupts
+extern void _irq0(void); // Clock tick
 extern void _irq1(void);
 extern void _irq2(void);
 extern void _irq3(void);
@@ -87,7 +87,7 @@ extern void _irq13(void);
 extern void _irq14(void);
 extern void _irq15(void);
 
-// Handler de syscalls
+// Syscall handler
 extern void _isr0x80(void);
 
 #endif

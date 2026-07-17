@@ -2,13 +2,13 @@
 #include <utils.h>
 #include <vargs.h>
 #include <irq.h>
-// Posicion de inicio de la memoria de video
-static ushort* video_mem = (ushort*) 0xb8000;   // La memoria de video empieza en la direccion 0xb8000
-// Variables de alineacion
+// Start position of the video memory
+static ushort* video_mem = (ushort*) 0xb8000;   // The video memory starts at address 0xb8000
+// Alignment variables
 static uchar cursor_r = 0, cursor_c = 0, align_c = 0;
 static ushort format;
 
-uint in_video_mem(uint address)
+bool in_video_mem(uint address)
 {
     return address >= 0xb8000 &&
            address <= 0xb8000 +
@@ -17,8 +17,8 @@ uint in_video_mem(uint address)
 
 static int scrn_valid_pos(uchar cursor_row, uchar cursor_col)
 {
-    return cursor_row <= VIDEO_HEIGHT &&
-           cursor_col <= VIDEO_WIDTH;
+    return cursor_row < VIDEO_HEIGHT &&
+           cursor_col < VIDEO_WIDTH;
 }
 
 uchar scrn_getrow()
@@ -91,7 +91,7 @@ void scrn_putc(char c, ushort fmt)
         scrn_setcursor(VIDEO_HEIGHT-1,cursor_c);
     }
     switch(c) {
-    case '\n': // nueva linea con retorno de carro (irse a la izquierda)
+    case '\n': // new line with carriage return (go to the left)
         scrn_setcursor(cursor_r+1,0);
         break;
     case '\r':
@@ -102,7 +102,7 @@ void scrn_putc(char c, ushort fmt)
     case '\t': // tab
         scrn_setcursor(cursor_r,cursor_c + TAB_WIDTH);
         break;
-    default: // caracter (se supone imprimible).
+    default: // character (assumed printable).
         if(cursor_c < VIDEO_WIDTH && cursor_r < VIDEO_HEIGHT) {
             video_mem[cursor_r*VIDEO_WIDTH+cursor_c] = (fmt | c);
             scrn_setcursor(cursor_r,cursor_c+1);
@@ -169,8 +169,8 @@ void scrn_printf(const char* msg, ...)
     va_end(l);
 }
 
-// Imprime en la direccion indicada: Devuelve 0 si esta todo
-// bien o -1 en caso de error
+// Prints at the indicated position: Returns 0 if everything is
+// fine or -1 in case of error
 int scrn_pos_print(uchar row, uchar col, const char* msg)
 {
     uint eflags = irq_cli();

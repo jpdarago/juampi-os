@@ -18,7 +18,7 @@ int do_unlink(char * pathname);
 int do_rmdir(char * pathname);
 uint get_file_size(int fd);
 
-// Cantidad maxima de file descriptors por proceso
+// Maximum number of file descriptors per process
 #define MAX_FDS 16
 
 #endif

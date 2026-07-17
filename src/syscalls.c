@@ -9,7 +9,7 @@
 #define MAX_SYSCALLS 32
 syscall syscalls[MAX_SYSCALLS];
 
-// Syscalls de monitor
+// Monitor syscalls
 void syscall_scrn_print(gen_regs* r, int_trace* it)
 {
     uchar row = r->ebx, col = r->ecx;
@@ -83,8 +83,8 @@ void syscall_write(gen_regs *r, int_trace *it)
 
 void syscall_exec(gen_regs *r, int_trace *it)
 {
-    // TODO: el cli aca implica que la llamada a disco
-    // que hace exec es super bloqueante. Considerar cambiar eso.
+    // TODO: the cli here implies that the disk call
+    // that exec makes is super blocking. Consider changing that.
     uint eflags = irq_cli();
     char * filename = (char *) ((intptr)r->ebx);
     char ** args = (char **) ((intptr)r->ecx);
@@ -124,12 +124,12 @@ void syscall_gettime(gen_regs *r, int_trace *it)
     r->eax = 0;
 }
 
-// Stubs generales
+// General stubs
 void syscall_register(uint code, syscall s)
 {
     if(syscalls[code] || code >= MAX_SYSCALLS) {
-        kernel_panic("Se intento cargar una syscall "
-                     "ya existente o invalida");
+        kernel_panic("Attempted to register a syscall "
+                     "that already exists or is invalid");
     }
     syscalls[code] = s;
 }
@@ -163,8 +163,6 @@ void syscalls_entry_point(gen_regs g,int_trace t)
     uint code = g.eax;
     if(code < MAX_SYSCALLS && syscalls[code]) {
         syscall handler = syscalls[code];
-        if(syscalls[code] == NULL)
-            kernel_panic("Syscall invalida");
         handler(&g,&t);
     }
 }

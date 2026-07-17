@@ -18,9 +18,9 @@ void * kmem_alloc(kmem_map_header *, int);
 void kmem_free(kmem_map_header *, void *);
 void * kmem_alloc_aligned(kmem_map_header *, int);
 
-// Consigue memoria de kernel
+// Gets kernel memory
 void * kmalloc(uint size);
-// Devuelve memoria a la heap de kernel
+// Returns memory to the kernel heap
 void kfree(void * mem);
 
 #endif

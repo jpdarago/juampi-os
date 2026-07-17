@@ -45,52 +45,52 @@ typedef void (*signal_handler)(int);
 #define EXEC_MAX_ARGSZ  128
 
 typedef struct process_info {
-    // Identificador de proceso
+    // Process identifier
     int pid;
-    // Estado del proceso:
-    // 	P_RUNNING: Tiene actualmente la CPU
-    // 	P_BLOCKED: Bloqueado por I/O
-    // 	P_AVAILABLE: Disponible y listo para correr
+    // Process state:
+    // 	P_RUNNING: Currently has the CPU
+    // 	P_BLOCKED: Blocked on I/O
+    // 	P_AVAILABLE: Available and ready to run
     status status;
-    // Lista de los pid de los procesos hijos
+    // List of the pids of the child processes
     list_head children;
-    // Estructura con la informacion del proceso padre
+    // Structure with the parent process information
     struct process_info * parent;
-    // Selector de TSS correspondiente a este proceso
+    // TSS selector corresponding to this process
     short tss_selector;
-    // Espacio de memoria donde esta la tss de este
-    // proceso y la tss explicita del proceso
+    // Memory space where the tss of this process
+    // and the explicit tss of the process are located
     void * tss_space_start;
     tss * tss;
-    // Cuanto tiempo restante tiene este proceso. Solo tiene
-    // sentido cuando status = P_RUNNING
+    // How much time this process has remaining. It only makes
+    // sense when status = P_RUNNING
     uint remaining_quantum;
-    // Puntero al directorio de paginas
+    // Pointer to the page directory
     page_directory * page_dir;
-    // Puntero al hijo que esta esperando si esta
-    // esperando a un hijo
+    // Pointer to the child it is waiting for if it is
+    // waiting for a child
     struct process_info * waiting_child;
-    // Handlers de señales
+    // Signal handlers
     signal_handler signal_handlers[SIGNALS];
-    // Bitmap de señales pendientes a atender y a ignorar (porque
-    // ya se esta procesando una de ese tipo)
+    // Bitmap of signals pending to attend and to ignore (because
+    // one of that type is already being processed)
     int signal_bitmap, ignore_bitmap;
-    // Flag que dice si el proceso esta corriendo
-    // en modo kernel, para que no lo preempteen si es asi
+    // Flag that tells whether the process is running
+    // in kernel mode, so that it is not preempted if so
     bool kernel_mode;
-    // Valores donde estan el esp y eip cuando vuelva de
-    // la system call (solo valido si esta en kernel mode)
+    // Values where the esp and eip are when it returns from
+    // the system call (only valid if it is in kernel mode)
     intptr prev_esp_pos, prev_eip_pos;
-    // Posicion en la lista de procesos
+    // Position in the process list
     list_head process_list;
-    // Posicion en la lista de procesos del padre
+    // Position in the parent's process list
     list_head parent_list;
-    // Posicion en la lista de semaforos donde duerme
+    // Position in the semaphore list where it sleeps
     list_head sem_queue;
-    // Lista de file objects. Cada numero es un file
-    // descriptor abierto
+    // List of file objects. Each number is an open file
+    // descriptor
     file_object fds[MAX_FDS];
-    // Directorio actual (current working directory)
+    // Current directory (current working directory)
     char cwd[FS_MAXLEN];
 } __attribute__((__packed__)) process_info;
 
@@ -98,36 +98,36 @@ typedef struct process_info {
 
 extern list_head processes;
 
-// Inicializa el scheduler de procesos
+// Initializes the process scheduler
 void scheduler_init(void);
-// Helper para forkear
+// Helper for forking
 int do_fork(intptr,gen_regs,uint,intptr);
-// Cambiar la imagen de proceso actual por la pasada
-// por parametro, con los argumentos en la pila indicados.
-// Devuelve 0 si tuvo exito, -1 si fallo
+// Replace the current process image with the one passed
+// as parameter, with the indicated arguments on the stack.
+// Returns 0 if it succeeded, -1 if it failed
 int do_exec(char * filename, char ** args, int_trace *,void *);
-// Esperar por el proceso hijo de pid indicado
+// Wait for the child process with the indicated pid
 int do_wait(uint child_pid);
-// Devuelve la tss de la proxima tarea a ejecutar.
+// Returns the tss of the next task to execute.
 process_info * next_task(void);
-// Pega la imagen del buffer de archivo elf pasado por parametro
+// Loads the image from the elf file buffer passed as parameter
 int elf_overlay_image(elf_file * e);
-// Devuelve un puntero a la estructura de la tarea actual, NULL si
-// no hay tarea inicial
+// Returns a pointer to the current task structure, NULL if
+// there is no initial task
 process_info * get_current_task(void);
-// Salta de tarea
+// Switches task
 void perform_task_switch(process_info *);
-// Salta a la tarea inicial
+// Jumps to the initial task
 void jump_to_initial(void *);
-// Mata al proceso actual
+// Kills the current process
 int do_exit(void);
 
-// Duerme al proceso actual (liberando asi su quantum).
+// Puts the current process to sleep (thus releasing its quantum).
 int do_sleep(void);
 
-// Bloquea al proceso actual y libera su quantum
+// Blocks the current process and releases its quantum
 void block_current_process(void);
-// Desbloquea al proceso actual
+// Unblocks the current process
 void wake_up(process_info * p);
 
 void switch_kernel_mode(void);
@@ -139,17 +139,17 @@ bool is_preemptable(void);
 int do_kill(int pid, int signal);
 int do_signal(int signal, signal_handler);
 
-// Estas dos funciones son kludges para implementar una syscall que
-// deseschedulee a un proceso (usado para manejar las señales SIGSTOP
-// y SIGCONT).
+// These two functions are kludges to implement a syscall that
+// deschedules a process (used to handle the SIGSTOP
+// and SIGCONT signals).
 int do_coma(void);
 int do_clear_signal(int signal);
 
-// Directorio actual de trabajo del proceso actual
+// Current working directory of the current process
 void do_get_cwd(char * buf);
 int do_set_cwd(const char *);
 
-// Mi pid
+// My pid
 int do_get_pid(void);
 
 #endif

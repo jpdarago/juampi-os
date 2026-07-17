@@ -113,7 +113,7 @@ exec:
 	push ebp
 	mov ebp, esp
 	push ebx
-	;Aca llama a la syscall
+	;Here it calls the syscall
 	mov ebx, [ebp+8]
 	mov ecx, [ebp+12]
 	mov eax, SYSCALL_EXEC

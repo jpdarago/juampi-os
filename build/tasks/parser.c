@@ -114,9 +114,9 @@ argument_list * parse_arguments(const char * _command)
 const char * get_parse_error()
 {
     if(error_code == 0)
-        return "No hay error";
-    printf("El error es %d\n",-error_code);
+        return "No error";
+    printf("The error is %d\n",-error_code);
     char * res = error_message(-error_code);
-    if(res == NULL) return "Error invalido";
+    if(res == NULL) return "Invalid error";
     return res;
 }

@@ -3,9 +3,9 @@ section .text
 global syscall_fork
 extern do_fork
 
-;System call de fork. Dado que necesitamos hacer magia negra
-;con la tss para que salte al lugar correcto, lo mas 
-;conveniente era droppear a assembly y punto.
+;Fork system call. Since we need to do black magic
+;with the tss so that it jumps to the correct place, the most
+;convenient thing was to drop down to assembly, period.
 
 %define EAX_POS 7*4
 syscall_fork:
@@ -13,38 +13,38 @@ syscall_fork:
 	mov ebp, esp
 	push esi	
 
-	;No me interrumpan que esto es RECONTRA critico	
+	;Don't interrupt me, this is SUPER critical
 	pushfd
 	cli
 		
 	mov esi, [ebp+8]
 
-	;Le pasamos el eip de a donde queremos que salte
+	;We pass it the eip of where we want it to jump to
 	push task_ret
-	;Le pasamos los flags que tenemos actualmente
+	;We pass it the flags we currently have
 	pushfd	
-	;Pasamos todos los registros generales para generar una copia
+	;We pass all the general registers to generate a copy
 	pushad
-	;Le decimos donde esta la pila de kernel asi la copia
-	;El esp - 4 es porque al pushear el esp la pila queda corrida
-	;entonces en realidad no es esp el valor final sino esp - 4 por
+	;We tell it where the kernel stack is so it copies it
+	;The esp - 4 is because when pushing esp the stack gets shifted
+	;so the final value is not really esp but esp - 4 due to
 	;push
 	lea eax, [esp-4]
 	push eax
 
 	call do_fork
 
-;En este lugar deberia aparecer la tarea nueva
+;At this place the new task should appear
 task_ret:
-	;Restauramos la pila 
+	;We restore the stack
 	add esp, 4+4+8*4+4
 	
-	;Ahora tenemos que toquetear el eax con el valor 
-	;que obtuvimos (o con el que llegamos) aca. struct gen_regs
-	;termina con eax asi que este copy debiera ser correcto
+	;Now we have to tweak eax with the value
+	;we obtained (or with the one we arrived with) here. struct gen_regs
+	;ends with eax so this copy should be correct
 	mov [esi+EAX_POS], eax
 	
-	;Ahora si restauramos
+	;Now we do restore
 	popfd
 
 	pop esi

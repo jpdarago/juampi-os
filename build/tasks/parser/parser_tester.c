@@ -10,7 +10,7 @@ START_TEST (test_parse_name_only)
     char * program_name = "programa";
     argument_list * l = parse_arguments(program_name);
     fail_unless(l != NULL, get_parse_error());
-    fail_unless(l->length == 1,"Se esperaba %d se obtuvo %d\n",1,l->length);
+    fail_unless(l->length == 1,"Expected %d got %d\n",1,l->length);
     fail_unless(!strcmp(l->list[0].str,program_name));
 } END_TEST
 
@@ -52,7 +52,7 @@ START_TEST (test_too_long_argument)
     argument_list * l = parse_arguments(program);
     fail_unless(l == NULL);
     fail_unless(!strcmp(get_parse_error(),
-                        "Argumento demasiado largo"));
+                        "Argument too long"));
 }
 END_TEST
 
@@ -70,7 +70,7 @@ START_TEST (test_too_many_arguments)
     argument_list * l = parse_arguments(program);
     fail_unless(l == NULL);
     fail_unless(!strcmp(get_parse_error(),
-                        "Demasiados argumentos"));
+                        "Too many arguments"));
 }
 END_TEST
 
@@ -81,7 +81,7 @@ START_TEST (test_incorrect_argument)
     argument_list * l = parse_arguments(program);
     fail_unless(l == NULL);
     fail_unless(!strcmp(get_parse_error(),
-                        "Caracter invalido"));
+                        "Invalid character"));
 }
 END_TEST
 
@@ -127,7 +127,7 @@ TFun tests[] = {
 
 int main()
 {
-    Suite * s = suite_create("Parser de shell");
+    Suite * s = suite_create("Shell parser");
 
     TCase * tc_core = tcase_create("Core");
     for(int i = 0; tests[i]; i++)

@@ -2,8 +2,8 @@
 
 extern syscalls_entry_point
 
-;Handler de interrupcion 0x80, el punto de 
-;entrada de las llamadas a sistema.
+;Handler for interrupt 0x80, the entry
+;point of the system calls.
 global _isr0x80
 _isr0x80:
 	pushad
@@ -11,7 +11,7 @@ _isr0x80:
 	
 	KSPACESWITCH
 
-	;Volvemos a habilitar interrupcciones
+	;We re-enable interrupts
 	sti
 		
 	call syscalls_entry_point	

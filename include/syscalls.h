@@ -5,11 +5,11 @@
 #include <proc.h>
 
 typedef void (*syscall)(gen_regs *,int_trace *);
-// Registra una systemcall dado su codigo y el handler deseado
+// Registers a syscall given its code and the desired handler
 void syscall_register(uint, syscall);
-// Inicializa las systemcalls
+// Initializes the syscalls
 void syscalls_initialize(void);
-// Punto de entrada de todas las system calls
+// Entry point of all system calls
 void syscall_entry_point(gen_regs, int_trace);
 
 #endif

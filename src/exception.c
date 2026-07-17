@@ -28,7 +28,7 @@ static const char* msgs[]= {
 
 exception_handler exception_handlers[EXCEPTIONS] = { 0 };
 
-// Registra un handler de excepcion nuevo
+// Registers a new exception handler
 void register_exception_handler(exception_handler e, uint i)
 {
     if(i < EXCEPTIONS) {
@@ -36,7 +36,7 @@ void register_exception_handler(exception_handler e, uint i)
     }
 }
 
-// Inicializa los handlers de exception a defaultear a blue_screen
+// Initializes the exception handlers to default to blue_screen
 void initialize_exception_handlers()
 {
     for(uint i = 0; i < EXCEPTIONS; i++) {
@@ -44,15 +44,15 @@ void initialize_exception_handlers()
     }
 }
 
-// Handler default: imprime el estado de programa y muere
+// Default handler: prints the program state and dies
 void blue_screen(exception_trace e)
 {
     scrn_cls();
     scrn_setcursor(0,0);
     scrn_setmode(GREEN,BLACK);
-    scrn_printf("EXCEPCION %s",msgs[e.excp_index]);
-    scrn_print("\n\n\tHa ocurrido una excepcion del procesador.\n\tPor favor, tomese la situacion con mucha soda, picaron :).");
-    scrn_print("\n\nESTADO DE LA MAQUINA:\n\n");
+    scrn_printf("EXCEPTION %s",msgs[e.excp_index]);
+    scrn_print("\n\n\tA processor exception has occurred.\n\tPlease, take the situation with plenty of soda, buddy :).");
+    scrn_print("\n\nMACHINE STATE:\n\n");
     scrn_printf("CR0= %u, CR2= %u, CR3= %u, CR4= %u\n\n",
                 e.ctrace.cr0,e.ctrace.cr2,e.ctrace.cr3,e.ctrace.cr4);
     scrn_printf("EAX= %u,EBX= %u,ECX= %u,EDX= %u,\nESI= %u, EDI= %u,ESP= %u, EBP= %u\n\n",

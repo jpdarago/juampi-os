@@ -5,8 +5,8 @@
 static uchar ata_read_stable(void)
 {
     uchar status;
-    // Se lee el registro 5 veces para generar un
-    // delay de 400 ns de acuerdo a la especificacion
+    // The register is read 5 times to generate a
+    // 400 ns delay according to the specification
     status = inb(ATA_PRIMARY_COMSTAT);
     status = inb(ATA_PRIMARY_COMSTAT);
     status = inb(ATA_PRIMARY_COMSTAT);
@@ -21,12 +21,12 @@ static void ata_reset(void)
     outb(ATA_PRIMARY_DEVCONTROL,ATA_CTRL_SRST);
     status = ata_read_stable();
     if(status & ATA_STATUS_BSY) {
-        kernel_panic("ERROR: ATA RESET FALLO\n");
+        kernel_panic("ERROR: ATA RESET FAILED\n");
     }
     outb(ATA_PRIMARY_DEVCONTROL,0x0);
     status = ata_read_stable();
     if(status & ATA_STATUS_BSY) {
-        kernel_panic("ERROR: ATA RESET FALLO\n");
+        kernel_panic("ERROR: ATA RESET FAILED\n");
     }
 }
 
@@ -92,12 +92,12 @@ void hdd_write(uint lba_address, uint sectors, void* _buffer)
 
 void hdd_init()
 {
-    // Resetear los discos
+    // Reset the disks
     ata_reset();
     outb(ATA_PRIMARY_LBALOW,0xAA);
     if(inb(ATA_PRIMARY_LBALOW) == 0xAA) {
-        scrn_printf("HAY DISCO ATA MASTER!\n");
+        scrn_printf("ATA MASTER DISK PRESENT!\n");
     } else {
-        kernel_panic("No se ha detectado un disco.");
+        kernel_panic("No disk was detected.");
     }
 }

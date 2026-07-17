@@ -16,13 +16,13 @@ int main(int argc, const char * argv[])
 
     int fd = open(dir,FS_RD);
     if(fd < 0) {
-        printf("Abrir el directorio %s fallo\n",dir);
+        printf("Opening directory %s failed\n",dir);
         exit();
     }
     dirent d;
     for(int res = readdir(fd,&d);; res = readdir(fd,&d)) {
         if(res < 0) {
-            printf("Leer fallo: ERROR %d\n",-res);
+            printf("Read failed: ERROR %d\n",-res);
             break;
         }
         if(res == 0) break;

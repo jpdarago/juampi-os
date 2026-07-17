@@ -8,19 +8,19 @@ typedef struct {
     uint32 size;
 } bitset;
 
-// Inicializa el bitset: El tamaño es la
-// cantidad de cosas a administrar. Devuelve la
-// direccion de memoria donde termina el bitset
+// Initializes the bitset: The size is the
+// number of things to manage. Returns the
+// memory address where the bitset ends
 uint32 * bitset_init(bitset * b, void * start, uint size);
-// Carga un bitset dada memoria ya existente (para MINIX por ejemplo)
+// Loads a bitset given already existing memory (for MINIX for example)
 uint32 * bitset_load(bitset *, void *, uint);
-// Marca el bit como usado
+// Marks the bit as used
 void bitset_set(bitset * b, uint index);
-// Marca el bit como libre
+// Marks the bit as free
 void bitset_clear(bitset * b, uint index);
-// Devuelve el indice de un bit libre en
-// el mapa de bits. Debido a su importancia
-// esta en bitset_search en assembler.
+// Returns the index of a free bit in
+// the bitmap. Due to its importance
+// bitset_search is written in assembler.
 uint bitset_search(bitset * b);
 
 #endif
