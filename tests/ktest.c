@@ -112,6 +112,69 @@ static void test_paging(void)
              "physical_address reflects the new mapping");
 }
 
+// --- Syscall-boundary pointer validation -------------------------------------
+
+static void test_user_access(void)
+{
+    // Kernel pages are mapped without the user bit, so a user pointer into
+    // kernel/identity-mapped memory must be rejected. This is the core defense:
+    // a user program cannot hand the kernel one of its own addresses.
+    kt_check(!user_access_ok(0x100000, 4, false),
+             "user_access_ok rejects kernel identity-mapped memory");
+
+    // Wholly unmapped high memory (no page table) is rejected.
+    kt_check(!user_access_ok(0x7F000000, 4, false),
+             "user_access_ok rejects an unmapped address");
+
+    // A read/write user page: reads and writes are both allowed.
+    uint rw_va = 0x50000000;
+    map_page(current_directory, rw_va, frame_alloc(), PAGEF_P | PAGEF_RW | PAGEF_U);
+    kt_check(user_access_ok(rw_va, 4, false),
+             "user_access_ok accepts a readable user page");
+    kt_check(user_access_ok(rw_va, 4, true),
+             "user_access_ok accepts a writable user page");
+
+    // A read-only user page: reads pass, writes are rejected.
+    uint ro_va = 0x51000000;
+    map_page(current_directory, ro_va, frame_alloc(), PAGEF_P | PAGEF_U);
+    kt_check(user_access_ok(ro_va, 4, false),
+             "user_access_ok accepts reading a read-only user page");
+    kt_check(!user_access_ok(ro_va, 4, true),
+             "user_access_ok rejects writing a read-only user page");
+
+    // A range that spans from a mapped user page into the unmapped next page
+    // must fail: every page it touches has to be valid.
+    kt_check(!user_access_ok(rw_va + PAGE_SZ - 2, 4, false),
+             "user_access_ok rejects a range crossing into unmapped memory");
+
+    // Address+length wraparound past the top of memory is rejected.
+    kt_check(!user_access_ok(0xFFFFF000, 0x2000, false),
+             "user_access_ok rejects an address/length wraparound");
+
+    // Zero length is trivially OK (nothing is dereferenced).
+    kt_check(user_access_ok(0x100000, 0, false),
+             "user_access_ok accepts a zero-length range");
+
+    // A NUL-terminated string living in a user page is accepted; the same bytes
+    // read as kernel memory are not.
+    char* s = (char*) rw_va;
+    s[0] = 'h';
+    s[1] = 'i';
+    s[2] = '\0';
+    kt_check(user_string_ok(s, 16),
+             "user_string_ok accepts a terminated user string");
+    kt_check(!user_string_ok((const char*) 0x100000, 16),
+             "user_string_ok rejects a string in kernel memory");
+    // Fill the entire user page with non-NUL bytes so the scan finds no
+    // terminator and runs off the end into the unmapped next page: the guard
+    // must reject it rather than read past the mapping.
+    for(uint i = 0; i < PAGE_SZ; i++) {
+        s[i] = 'A';
+    }
+    kt_check(!user_string_ok(s, 2 * PAGE_SZ),
+             "user_string_ok rejects a string that runs into unmapped memory");
+}
+
 // --- Serial (COM1 UART) ------------------------------------------------------
 
 static void test_serial(void)
@@ -133,6 +196,7 @@ void ktest_main(void)
     test_kmalloc();
     test_frames();
     test_paging();
+    test_user_access();
     test_serial();
 
     if(failures == 0) {

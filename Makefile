@@ -117,7 +117,7 @@ init:
 # entirely in userspace (mke2fs + e2tools + debugfs) — no sudo, no loopback
 # mount, and works on macOS too.
 image:
-	$(MAKE) -C $(BUILD_DIR)/tasks CROSS=$(CROSS)
+	$(MAKE) -C $(BUILD_DIR)/tasks CROSS=$(CROSS) all
 	cd $(BUILD_DIR) && ./build_image.sh
 
 # Assemble the bootable GRUB floppy from the raw template image.

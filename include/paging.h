@@ -107,4 +107,8 @@ void clear_page_entry(page_directory* pe, uint, uint);
 void clear_table_entry(page_directory* pe, uint);
 // Delete a whole page directory
 void page_directory_destroy(page_directory*);
+// Validate that a user-supplied pointer/range or string lies in the current
+// process's user-accessible address space (used to guard the syscall boundary).
+bool user_access_ok(uint addr, uint len, bool write);
+bool user_string_ok(const char* s, uint max);
 #endif

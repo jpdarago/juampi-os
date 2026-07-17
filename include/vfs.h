@@ -165,7 +165,8 @@ enum fs_error {
     EINVFD,
     ENOFDSPACE,
     EINVPATH,
-    ETOOLONG
+    ETOOLONG,
+    EFAULT // bad user-space pointer crossing the syscall boundary
 };
 
 #endif

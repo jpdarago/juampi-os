@@ -278,6 +278,49 @@ void clear_table_entry(page_directory* pd, uint entry)
     pd->tables_virtual[entry] = NULL;
 }
 
+// Checks that [addr, addr+len) is entirely mapped in the current directory with
+// the user bit (and, for writes, the read/write bit) set. This is the gate for
+// any pointer that crosses the syscall boundary: it rejects kernel addresses
+// and unmapped pages so a user program cannot make the kernel read or write
+// outside its own address space.
+bool user_access_ok(uint addr, uint len, bool write)
+{
+    if (len == 0)
+        return true;
+    if (addr + len < addr) // wraparound
+        return false;
+    uint last_page = (addr + len - 1) & ~0xFFFu;
+    for (uint page = addr & ~0xFFFu;; page += PAGE_SZ) {
+        page_table* pt = current_directory->tables_virtual[PAGE_DIR(page)];
+        if (pt == NULL)
+            return false;
+        page_entry* pe = &pt->entries[PAGE_TABLE(page)];
+        if (!pe->present || !pe->user)
+            return false;
+        if (write && !pe->read_write)
+            return false;
+        if (page >= last_page)
+            break;
+    }
+    return true;
+}
+
+// Checks that a NUL-terminated user string is entirely readable in user space,
+// scanning at most `max` bytes (including the terminator).
+bool user_string_ok(const char* s, uint max)
+{
+    uint addr = (uint)s;
+    for (uint i = 0; i < max; i++) {
+        if (i == 0 || ((addr + i) & 0xFFF) == 0) {
+            if (!user_access_ok(addr + i, 1, false))
+                return false;
+        }
+        if (((const char*)addr)[i] == '\0')
+            return true;
+    }
+    return false;
+}
+
 // Maps a page, possibly obtaining kernel space
 // for a page table. We can use it freely even
 // before having a kernel heap because we pre-allocate (that is what
