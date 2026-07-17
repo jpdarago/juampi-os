@@ -1,0 +1,30 @@
+# clang-format configuration for juampi-os.
+# Replaces the legacy uncrustify.cfg. Mirrors the conventions in STYLE.md:
+#   - 80 columns per line
+#   - 4 spaces per indent level, never tabs
+#   - Linux-kernel brace style (function braces on their own line, control
+#     statement braces on the same line)
+#   - pointers bound to the type (kmem_header* p)
+Language: Cpp
+BasedOnStyle: LLVM
+Standard: c++03            # closest match for C99 layout rules
+ColumnLimit: 80
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 8
+BreakBeforeBraces: Linux
+PointerAlignment: Left
+DerivePointerAlignment: false
+AlignAfterOpenBracket: Align
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+AllowShortBlocksOnASingleLine: Never
+SpaceBeforeParens: ControlStatements
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+IndentCaseLabels: false
+SortIncludes: false        # kernel headers have order dependencies
+AlignTrailingComments: true
+SpacesBeforeTrailingComments: 1

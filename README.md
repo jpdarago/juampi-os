@@ -1,76 +1,88 @@
 juampi-os
 =========
 
-Mi kernel con el TP final de Organización del Computador II (UBA - FCEyN).
+My kernel — the final project for *Organización del Computador II* (UBA - FCEyN).
 
 Features
 --------
 
 * 32 bits.
-* Multitarea con scheduler.
-* Disco duro ATA por PIO.
-* VFS y Filesystem de Minix.
-* Loader de ELF32
-* Mini libc
-* Asignador de memoria
-* _copy on write_
+* Multitasking with a scheduler.
+* ATA hard disk via PIO.
+* VFS and a Minix filesystem.
+* ELF32 loader.
+* Mini libc.
+* Memory allocator.
+* Copy on write.
 
-Dependencias
+Dependencies
 ------------
 
-Para instalar las dependencias, ejecutar
+To install the dependencies, run:
 
-    sudo apt-get install nasm e2tools libgtk2.0-dev
-    ./install-bochs.sh
+    sudo apt-get install nasm e2tools gcc-multilib libgtk2.0-dev clang-format
+    ./install_bochs.sh
 
-Instalar
+`clang-format` is only needed to run `make format` / `make lint`.
+
+Building
 --------
 
-Es necesario tener sudo para poder armar la imagen de disco Minix. Esto
-deberia desaparecer en un futuro lo mas cercano.
+You need `sudo` to assemble the Minix disk image. This should go away in the
+near future.
 
-PRECAUCION: LA MANERA EN LA QUE SE HACE LA IMAGEN DE DISCO ES MONTANDO EN
-/dev/loop0 Y MONTANDO EN /mnt. REVISAR build/build_image.sh ANTES DE CORRER
-EL COMANDO make run PARA NO ROMPER NADA.
+**WARNING:** THE DISK IMAGE IS BUILT BY ATTACHING IT TO A LOOP DEVICE AND
+MOUNTING IT. REVIEW `build/build_image.sh` BEFORE RUNNING `make run` SO YOU
+DON'T BREAK ANYTHING.
 
-Para compilar y correr, ejecutar:
+To build and run:
 
     make && make run
 
-Para otros comandos mirar el Makefile
+Useful targets (see `make help` for the full list):
 
-Documentación
+| Target            | Description                                              |
+|-------------------|----------------------------------------------------------|
+| `make`            | Build the kernel, userland and bootable floppy image     |
+| `make kernel.bin` | Build just the kernel binary (no disk image, no sudo)    |
+| `make image`      | Build the Minix hard-disk image (needs sudo)             |
+| `make run`        | Build everything and boot it in Bochs                    |
+| `make format`     | Reformat all C sources/headers with clang-format         |
+| `make lint`       | Check formatting without modifying files (used by CI)    |
+| `make clean`      | Remove all build artifacts                               |
+
+For anything else, look at the Makefile.
+
+Documentation
 -------------
 
-El informe del trabajo práctico se encuentra en la carpeta informe/.
-Para generar el PDF ejecutar desde la carpeta:
-
-    make
+The project report lives in the `informe/` folder (in Spanish). To generate the
+PDF, run `make` from inside that folder.
 
 TODOs
 ------
 
 * 64 bits.
 * Multicore.
-* Implementar logica para SIGSEGV.
-* Mejor shell (pipes, _output redirection_, mas comandos, etc.).
-* Portear una libc.
-* Multiples procesos puedan acceder al filesystem.
-* _Background jobs_.
-* Signals para procesos (groups).
-* Permisos en el filesystem.
-* Kernel preemteable.
-* _Swapping_ a disco.
-* I/O de disco por DMA.
-* Optimizar los algoritmos.
-* Driver VGA o VESA.
+* Implement SIGSEGV logic.
+* Better shell (pipes, output redirection, more commands, etc.).
+* Port a libc.
+* Allow multiple processes to access the filesystem.
+* Background jobs.
+* Signals for processes (groups).
+* Filesystem permissions.
+* Preemptible kernel.
+* Swapping to disk.
+* Disk I/O via DMA.
+* Optimize the algorithms.
+* VGA or VESA driver.
 
-Las dos primeras se implementaron para el proyecto DeliriOS (<http://github.com/Izikiel/intel_multicore>).
-Veanlo porque esta bueno.
+The first two were implemented for the DeliriOS project
+(<http://github.com/Izikiel/intel_multicore>). Check it out, it's cool.
 
-Agradecimientos
+Acknowledgements
 ---------------
 
-* Ver agradecimientos en el informe.
-* OSDEV Wiki: <http://osdev.org>
-* James Molloy kernel development tutorials: <http://jamesmolloy.co.uk/tutorial_html>
+* See the acknowledgements in the report.
+* OSDev Wiki: <http://osdev.org>
+* James Molloy's kernel development tutorials: <http://jamesmolloy.co.uk/tutorial_html>

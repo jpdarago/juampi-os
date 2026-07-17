@@ -1,14 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
-# El proposito de este script es instalar bochs en la carpeta actual, con
-# soporte para SMP y demas chiches. Lo hace automaticamente para evitar
-# problemas de versiones.
+# This script installs Bochs into the current directory, with SMP support and
+# the other goodies enabled. It builds it automatically to avoid version
+# mismatches.
 #
-# PREREQUISITO: libgtk2.0-dev
+# PREREQUISITE: libgtk2.0-dev
 
 if [[ -f ./bochs/bin/bochs ]]; then
-	echo "Bochs ya esta instalado"
+	echo "Bochs is already installed"
 	exit 0
 fi
 
@@ -16,7 +16,7 @@ install() {
     DIR=$(pwd)
     pushd $(mktemp -d)
     URL="http://downloads.sourceforge.net/project/bochs/bochs/2.6.2/bochs-2.6.2.tar.gz"
-    #Prerequisito para bochs, tener gtk
+    # Bochs needs GTK
     wget -O bochs.tar.gz $URL
     mkdir $DIR/bochs
     tar zxvf bochs.tar.gz

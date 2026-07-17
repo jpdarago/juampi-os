@@ -1,26 +1,50 @@
 #!/bin/bash
 set -euo pipefail
 
-#Construir la imagen usando el directorio testdir para los archivos
+# Build the Minix hard-disk image that holds the userland tasks and docs.
+#
+# WARNING: this script needs sudo because it mounts a loopback device. Unlike
+# the old version it no longer hardcodes /dev/loop0 or /mnt: it attaches the
+# image to the first free loop device (losetup --find) and mounts it on a
+# private temporary directory, cleaning both up on exit even on failure.
+
 cd "$(dirname "$0")"
-#Paso 1: Crear el .img (dd)
-../bochs/bin/bximage -hd -mode=flat -size=16 -q hdd.img
-#Paso 2: Armar el sistema de archivos
-mkfs -V -t minix hdd.img
-#Paso 3: Montarlo
-sudo losetup /dev/loop0 hdd.img
+
+IMG=hdd.img
+MNT="$(mktemp -d)"
+LOOP=""
+
+cleanup() {
+    if mountpoint -q "$MNT"; then
+        sudo umount "$MNT" || true
+    fi
+    if [[ -n "$LOOP" ]]; then
+        sudo losetup -d "$LOOP" || true
+    fi
+    rmdir "$MNT" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+# Step 1: create the raw image. BXIMAGE can point at a system bximage (e.g. the
+# one provided by the Nix dev shell); it defaults to the locally built Bochs.
+"${BXIMAGE:-../bochs/bin/bximage}" -hd -mode=flat -size=16 -q "$IMG"
+# Step 2: create the Minix filesystem on it.
+mkfs -V -t minix "$IMG"
+# Step 3: attach it to a free loop device and mount it.
+LOOP="$(sudo losetup --find --show "$IMG")"
 sleep 2
-sudo mount /dev/loop0 /mnt
-#Paso 4: Armar los directorios
-sudo cp -r docs /mnt
+sudo mount "$LOOP" "$MNT"
+# Step 4: populate the directory tree.
+sudo cp -r docs "$MNT"
 make -C tasks/
-sudo mkdir /mnt/tasks
-sudo cp tasks/*.run /mnt/tasks
-sudo mkdir /mnt/dev
-sudo mknod /mnt/dev/tty c 0 0
-#Paso 5: Desmontarlo a imagen
-sudo umount /dev/loop0
-sleep 2
-sudo losetup -d /dev/loop0
-#Paso 6: Ponerlo donde va
-mv hdd.img ../hdd.img
+sudo mkdir "$MNT/tasks"
+sudo cp tasks/*.run "$MNT/tasks"
+sudo mkdir "$MNT/dev"
+sudo mknod "$MNT/dev/tty" c 0 0
+# Step 5: flush and detach explicitly (cleanup would also handle this).
+sync
+sudo umount "$MNT"
+sudo losetup -d "$LOOP"
+LOOP=""
+# Step 6: move the finished image into place.
+mv "$IMG" ../hdd.img

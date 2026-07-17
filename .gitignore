@@ -1,8 +1,22 @@
+# devenv / direnv
+/.devenv/
+/.direnv/
+/devenv.local.nix
+
+# Build output
+/obj/
+kernel.bin
+hdd.img
+floppy.img
+build/tasks/*.run
+build/bootstrap/init
+
 # Object files
 *.o
 *.ko
 *.obj
 *.elf
+*.d
 
 # Precompiled Headers
 *.gch
