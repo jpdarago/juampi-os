@@ -5,11 +5,16 @@
 
 # Build output
 /obj/
+/obj-test/
 kernel.bin
+kernel-test.bin
 hdd.img
 floppy.img
 build/tasks/*.run
 build/bootstrap/init
+
+# QEMU / debug logs
+*.log
 
 # Object files
 *.o

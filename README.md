@@ -20,10 +20,10 @@ Dependencies
 
 To install the dependencies, run:
 
-    sudo apt-get install nasm e2tools gcc-multilib libgtk2.0-dev clang-format
-    ./install_bochs.sh
+    sudo apt-get install nasm e2tools gcc-multilib clang-format qemu-system-x86
 
-`clang-format` is only needed to run `make format` / `make lint`.
+`clang-format` is only needed for `make format` / `make lint`; `qemu-system-x86`
+provides the emulator used by `make run` and `make test`.
 
 Building
 --------
@@ -46,12 +46,32 @@ Useful targets (see `make help` for the full list):
 | `make`            | Build the kernel, userland and bootable floppy image     |
 | `make kernel.bin` | Build just the kernel binary (no disk image, no sudo)    |
 | `make image`      | Build the Minix hard-disk image (needs sudo)             |
-| `make run`        | Build everything and boot it in Bochs                    |
+| `make run`        | Build and boot the OS in a QEMU window (override `QEMU_DISPLAY`) |
 | `make format`     | Reformat all C sources/headers with clang-format         |
 | `make lint`       | Check formatting without modifying files (used by CI)    |
 | `make clean`      | Remove all build artifacts                               |
 
 For anything else, look at the Makefile.
+
+Testing
+-------
+
+Integration tests run the kernel under QEMU headless. `make test` builds a
+dedicated `kernel-test.bin` (compiled with `-DKTEST`) that boots, runs an
+in-kernel test suite against the real allocator, frame allocator and MMU, and
+then exits QEMU with a pass/fail code:
+
+    make test
+
+It needs `qemu-system-i386` (Debian/Ubuntu: `apt-get install qemu-system-x86`).
+The kernel boots directly via `qemu -kernel` (no floppy/GRUB/sudo image), prints
+results to the debug console, and signals the result through QEMU's
+`isa-debug-exit` device. The tests live in `tests/ktest.c`; the runner is
+`tests/run-qemu.sh`. Override the emulator or timeout if needed, e.g.
+`make test TIMEOUT=60 QEMU=qemu-system-i386`. This job also runs in CI.
+
+Host-side unit tests for the hardware-independent modules are a planned
+follow-up (there are starting points under `workbench/`).
 
 Documentation
 -------------

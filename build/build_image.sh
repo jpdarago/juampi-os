@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 # Build the Minix hard-disk image that holds the userland tasks and docs.
@@ -25,9 +25,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Step 1: create the raw image. BXIMAGE can point at a system bximage (e.g. the
-# one provided by the Nix dev shell); it defaults to the locally built Bochs.
-"${BXIMAGE:-../bochs/bin/bximage}" -hd -mode=flat -size=16 -q "$IMG"
+# Step 1: create the raw 16 MiB image (formerly Bochs' bximage).
+truncate -s 16M "$IMG"
 # Step 2: create the Minix filesystem on it.
 mkfs -V -t minix "$IMG"
 # Step 3: attach it to a free loop device and mount it.

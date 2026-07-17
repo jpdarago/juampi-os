@@ -1,6 +1,6 @@
-CC=c99
+CC=gcc
 ASM=nasm
-CFLAGS=-m32 -nostdlib -fno-builtin -nostartfiles -nodefaultlibs -fno-stack-protector -Wall -O0
+CFLAGS=-m32 -std=c99 -mno-mmx -mno-sse -mno-sse2 -mno-3dnow -nostdlib -fno-builtin -nostartfiles -nodefaultlibs -fno-stack-protector -Wall -O0
 ASMFLAGS=-i../../include/ -f elf32
 OBJ=syscall_wrappers.o stdio.o utils.o parser.o errors.o
 TASKS=cp.run ls.run cat.run shell.run echo.run date.run

@@ -1,5 +1,5 @@
-CC=c99
-CFLAGS=-Wall -ggdb -pedantic -nostdlib -nodefaultlibs -fno-builtin
+CC=gcc
+CFLAGS=-std=c99 -Wall -ggdb -pedantic -nostdlib -nodefaultlibs -fno-builtin
 LDFLAGS=-lcheck
 CSOURCES=$(wildcard *.c)
 ASMSOURCES=$(wildcard *.asm)

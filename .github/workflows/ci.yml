@@ -36,3 +36,15 @@ jobs:
         run: make -C build/bootstrap
       - name: Build userland tasks
         run: make -C build/tasks
+
+  test:
+    name: qemu integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain + QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib nasm qemu-system-x86
+      - name: Run in-kernel tests under QEMU
+        run: make test

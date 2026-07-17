@@ -26,6 +26,11 @@
 // a location right after the kernel ends. It is defined in the linker script
 extern uint kernel_end;
 
+#ifdef KTEST
+// Defined in tests/ktest.c; runs the in-kernel test suite and exits QEMU.
+void ktest_main(void);
+#endif
+
 void kmain(multiboot_info_t* mbd, unsigned long magic)
 {
     if(magic != MULTIBOOT_BOOTLOADER_MAGIC) {
@@ -66,13 +71,26 @@ void kmain(multiboot_info_t* mbd, unsigned long magic)
         kernel_panic("Invalid GRUB memory map");
     }
     scrn_print("INITIALIZING KERNEL MEMORY STRUCTURES...");
+#ifdef KTEST
+    // Test builds boot via `qemu -kernel` with no modules, so take the
+    // end-of-kernel address from the linker symbol rather than a GRUB module.
+    uint kernel_end_addr = (uint) &kernel_end;
+#else
     module_t* grub_modules = (module_t*) mbd->mods_addr;
     uint kernel_end_addr = grub_modules[mbd->mods_count-1].mod_end;
+#endif
     // The upper memory map starts from the first megabyte, ergo the first
     // location where we go past the end is 1024 kilobytes plus the memory GRUB reports
     paging_init(kernel_end_addr, (1024+mbd->mem_upper)*1024);
     scrn_printf("OK\n");
 
+#ifdef KTEST
+    // Memory subsystems are up. Run the integration tests and exit QEMU. We
+    // stop before disk/FS/scheduler init, which need hardware and modules the
+    // test VM does not provide.
+    ktest_main();
+    while(1) ;
+#else
     scrn_print("INITIALIZING ATA DISK\n");
     hdd_init();
     scrn_printf("INITIALIZING MINIX FILESYSTEM\n");
@@ -84,4 +102,5 @@ void kmain(multiboot_info_t* mbd, unsigned long magic)
     jump_to_initial(buffer);
 
     while(1) ;
+#endif
 }
