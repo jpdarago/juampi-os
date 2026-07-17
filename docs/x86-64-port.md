@@ -76,22 +76,34 @@ Limine boot protocol worked. Validated by `make test` (serial marker
 Limine hands us HHDM at `0xffff800000000000` and a 35-entry memory map, so the
 higher-half environment and the protocol are both confirmed working.
 
-## Milestone 1 — 4-level paging
+## Milestone 1 — 4-level paging + memory subsystem  ✅ DONE
 
-**Checkpoint:** kernel heap and frame allocator work under the new page tables.
+**Checkpoint:** the frame allocator, kernel heap, and a fresh 4-level mapping all
+work. Validated by `make test` (marker `memory subsystem OK`): 4-level
+`map_page`/`physical_address` round-trip a value, `kmalloc` returns writable
+memory, and `frame_alloc` yields distinct frames.
 
-- `include/paging.h`: replace the 2-level structures with PML4/PDPT/PD/PT
-  (512 × 8-byte entries). New index macros: `PML4(x)=(x>>39)&0x1FF`,
-  `PDPT(x)=(x>>30)&0x1FF`, `PD(x)=(x>>21)&0x1FF`, `PT(x)=(x>>12)&0x1FF`.
-  `page_entry` becomes a 64-bit entry (present/rw/user/nx/frame:40).
-- `src/paging.c`: rewrite `physical_address`, `map_page`, `create_table_entry`,
-  `clone_directory`, and `user_access_ok`/`user_string_ok` (walk four levels;
-  the syscall-hardening logic ports directly, just deeper). Heap window
-  constants move into canonical high memory.
-- `include/memory.h`, `src/frames.c`: addresses widen to 64-bit; the frame
-  bitmap can cover more than 4 GB.
+- `include/paging.h`: replaced the 2-level structures with a single 64-bit
+  entry type and PML4/PDPT/PD/PT indexing (`PML4_INDEX(x)=(x>>39)&0x1FF`, etc.).
+  A `page_directory` is now just the physical address of its PML4 — under the
+  HHDM there is no need for a software shadow of the tables.
+- `src/paging.c`: rewritten for the HHDM model — `map_page`, `physical_address`
+  and the `user_access_ok`/`user_string_ok` guards walk four levels and edit the
+  live tables directly through `phys_to_virt`. The kernel heap lives in a private
+  higher-half window (PML4 slot 384). Fork/copy-on-write, the page-fault handler
+  and teardown are intentionally deferred (they need the task/exception
+  subsystems) and return in milestones 2–3.
+- `src/frames.c`, `include/frames.h`: 64-bit physical addresses; initialised
+  over the largest usable region from the Limine memory map, with the bitmap and
+  refcounts stored in that region via the HHDM.
+- `src/bitset.c`: `bitset_search` ported from the 32-bit asm to portable C.
+- `src/utils.c`: portable C `memset`/`memcpy` (were in the 32-bit optutils.asm).
+- `include/panic.h`: port-era serial `kernel_panic` (the VGA/scrn one returns
+  once scrn is ported).
+- `include/types.h`: add `uintptr`/`uint64` aliases.
 
-**Risk:** largest code volume; higher-half addressing bugs.
+**Risk (realised):** largest code volume; the HHDM model actually *simplified*
+page-table editing versus the 32-bit temporary-mapping dance.
 
 ## Milestone 2 — 64-bit IDT and interrupt/exception entry
 

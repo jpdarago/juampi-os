@@ -129,6 +129,45 @@ void kmain(void)
     serial_u64(usable / (1024 * 1024));
     serial_print(" MiB\n");
 
+    // --- Milestone 1: frame allocator + 4-level paging + kernel heap --------
+    // Use the largest usable region Limine reported as the physical frame pool.
+    uintptr best_base = 0, best_len = 0;
+    for (uint64_t i = 0; i < memmap_request.response->entry_count; i++) {
+        struct limine_memmap_entry* e = memmap_request.response->entries[i];
+        if (e->type == LIMINE_MEMMAP_USABLE && e->length > best_len) {
+            best_base = e->base;
+            best_len = e->length;
+        }
+    }
+    paging_init(hhdm_request.response->offset, best_base, best_len);
+
+    // Self-test: distinct frames, a writable kernel-heap block, and a fresh
+    // 4-level mapping that round-trips a value and resolves back to its frame.
+    uintptr free_before = frames_available();
+    uintptr f1 = frame_alloc();
+    uintptr f2 = frame_alloc();
+    int* h = kmalloc(64);
+    h[0] = 0x1234;
+    h[15] = 0x5678;
+
+    uintptr scratch_va = 0xffffd00000000000ull;
+    uintptr scratch_pa = frame_alloc();
+    map_page(kernel_dir, scratch_va, scratch_pa, PAGEF_P | PAGEF_RW);
+    volatile uint64_t* p = (volatile uint64_t*)scratch_va;
+    *p = 0xCAFEBABEDEADBEEFull;
+
+    bool ok = f1 != f2 && f1 != 0 && h[0] == 0x1234 && h[15] == 0x5678 &&
+              *p == 0xCAFEBABEDEADBEEFull &&
+              physical_address(kernel_dir, scratch_va) == scratch_pa;
+
+    serial_print("juampiOS: free frames=");
+    serial_u64(free_before);
+    serial_print(", heap+paging self-test ");
+    serial_print(ok ? "OK\n" : "FAILED\n");
+    if (ok) {
+        serial_print("juampiOS: memory subsystem OK\n");
+    }
+
     while (1) {
         __asm__ __volatile__("hlt");
     }

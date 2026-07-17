@@ -1,8 +1,7 @@
 #include <memory.h>
 #include <frames.h>
 #include <paging.h>
-#include <scrn.h>
-#include <exception.h>
+#include <panic.h>
 
 // The memory manager is a minimal adaptation of the one proposed in the K & R.
 // Initializes the Kernel memory manager to work over

@@ -72,7 +72,12 @@ LDFLAGS   := -melf_x86_64 -z noexecstack -z max-page-size=0x1000 -T $(LINKSCRIPT
 PORT64_CSOURCES := \
 	$(SRC_DIR)/kernel.c \
 	$(SRC_DIR)/serial.c \
-	$(SRC_DIR)/ports.c
+	$(SRC_DIR)/ports.c \
+	$(SRC_DIR)/utils.c \
+	$(SRC_DIR)/bitset.c \
+	$(SRC_DIR)/frames.c \
+	$(SRC_DIR)/paging.c \
+	$(SRC_DIR)/memory.c
 PORT64_ASMSOURCES :=
 
 CSOURCES   := $(PORT64_CSOURCES)
