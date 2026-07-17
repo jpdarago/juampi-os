@@ -8,10 +8,20 @@ milestone is one commit.
 
 ## Guiding decisions
 
+- **Bootloader: Limine.** Rather than hand-roll a long-mode trampoline, the
+  kernel is booted by [Limine](https://github.com/limine-bootloader/limine), the
+  modern OSDev-standard bootloader. It enters the kernel already in 64-bit long
+  mode with a higher-half direct map (HHDM) set up, and hands over a clean memory
+  map via its boot protocol. Crucially for the *later* multicore project, Limine
+  can also start the application processors for us (its `mp`/`smp` request),
+  which is the fiddliest part of SMP bringup. The kernel declares protocol
+  requests in a `.limine_requests` section and reads the responses in `kmain`.
+  (An earlier iteration used a hand-written PVH trampoline; Limine replaced it
+  because it does more for us and is the path to SMP.)
 - **Address-space layout: higher-half.** The kernel is linked at
-  `0xFFFFFFFF80000000` (the top 2 GB canonical region) and loaded physically at
-  1 MB. User space lives in the low canonical half. 64-bit is the natural time
-  to make this change.
+  `0xFFFFFFFF80000000` (the top 2 GB canonical region, which `-mcmodel=kernel`
+  targets) and loaded there by Limine. User space lives in the low canonical
+  half.
 - **Syscall mechanism: keep `int 0x80` through the port.** Only the entry stub
   and register widths change. Migrating to the `syscall`/`sysret` instructions
   is a separate, later change — rewriting the ABI and the mechanism at once is
@@ -22,6 +32,9 @@ milestone is one commit.
   host `gcc -m32`. `-mno-red-zone` is mandatory: the SysV red zone is unsafe in
   interrupt handlers. The `-mno-sse/mmx` set stays (the kernel saves no SIMD
   state across context switches).
+- **Boot image + test loop.** `make boot.img` packs the kernel and Limine into a
+  sudo-free UEFI FAT image (via `mtools`); `make run` boots it under OVMF, and
+  `make test` boots it headless and greps the serial log for a milestone marker.
 
 ## The single biggest conceptual change
 
@@ -37,27 +50,31 @@ real locking.
 
 ---
 
-## Milestone 0 — Toolchain + long-mode trampoline
+## Milestone 0 — Limine boot into long mode  ✅ DONE
 
-**Checkpoint:** the kernel prints from 64-bit code.
+**Checkpoint:** the kernel boots via Limine into 64-bit long mode and reports the
+Limine boot protocol worked. Validated by `make test` (serial marker
+`Limine boot protocol OK`).
 
-- `Makefile`, `build/tasks/Makefile`: drop `-m32`; add `-mcmodel=kernel`,
-  `-mno-red-zone`, `-fno-pic -fno-pie`; keep `-mno-sse/mmx`. `nasm -felf64`,
-  `ld -melf_x86_64`.
-- `devenv.nix`: ensure `qemu-system-x86_64` is available (it is).
-- `src/loader.asm`: keep the Multiboot-1 header (GRUB still enters in 32-bit
-  protected mode). Add a 32-bit stub that builds temporary PML4/PDPT/PD tables
-  (identity-map + higher-half alias the first 1 GB with 2 MB pages), sets
-  `CR4.PAE`, `EFER.LME` (MSR `0xC0000080`), `CR0.PG`, loads a 64-bit GDT, and
-  far-jumps into a 64-bit code segment that sets `rsp` and calls `kmain`.
-- `build/linker.ld`: link high (`. = 0xFFFFFFFF80100000`) while loading at 1 MB
-  (`AT(...)`).
-- `src/gdt.c`, `include/gdt.h`, `src/desc.asm`: a minimal 64-bit GDT (null,
-  kernel code `L=1`, kernel data, user code, user data). `gdt_desc` base widens
-  to 64-bit.
+- `devenv.nix`: add `limine` and `xorriso`. (`mtools`, OVMF are already present.)
+- `Makefile`: drop `-m32`; add `-mcmodel=kernel -mno-red-zone -fno-pic -fno-pie`;
+  keep `-mno-sse/mmx`. `nasm -felf64`, `ld -melf_x86_64`. Switch to an explicit
+  source list (`PORT64_CSOURCES`) that grows per milestone, so every commit
+  builds and boots exactly what is ported. New targets: `boot.img` (Limine UEFI
+  image via `build/mkboot.sh`), `run` (QEMU + OVMF), `test` (headless boot-smoke).
+- `include/limine.h`: vendored Limine protocol header.
+- `build/linker.ld`: rewritten for the Limine higher-half layout — link at
+  `0xFFFFFFFF80000000`, `PHDRS` per segment, keep the `.limine_requests`
+  section. Entry point is `kmain`.
+- `build/limine.conf`, `build/mkboot.sh`: boot config and the sudo-free
+  (`mtools`) UEFI image builder.
+- `src/kernel.c`: Limine base-revision tag + memmap/HHDM requests; a minimal
+  `kmain(void)` that proves long mode and the protocol, then halts. The original
+  32-bit boot body is preserved under `#if 0` and re-enabled milestone by
+  milestone. The old `src/loader.asm` trampoline is removed (Limine replaces it).
 
-**Risk:** the 32→64 handoff triple-faults silently. Debug with
-`qemu -d int,cpu_reset -no-reboot`.
+Limine hands us HHDM at `0xffff800000000000` and a 35-entry memory map, so the
+higher-half environment and the protocol are both confirmed working.
 
 ## Milestone 1 — 4-level paging
 

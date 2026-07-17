@@ -18,6 +18,8 @@
     pkgs.clang-tools # clang-format for `make format` / `make lint`
     pkgs.e2fsprogs # mke2fs / debugfs / e2fsck for the ext2 disk image
     pkgs.e2tools # e2cp / e2mkdir to populate the ext2 image (and the floppy)
+    pkgs.limine # 64-bit bootloader: boots the kernel straight into long mode
+    pkgs.xorriso # builds the bootable Limine ISO for `make run` / tests
   ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
     pkgs.gcc_multi # host gcc with 32-bit multilib (the Makefile's default)
     pkgs.binutils # host ld with elf_i386 support

@@ -13,6 +13,8 @@ floppy.img
 build/tasks/*.run
 build/bootstrap/init
 build/hdd.img
+boot.img
+.ovmf.fd
 
 # QEMU / debug logs
 *.log

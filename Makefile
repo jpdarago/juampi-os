@@ -44,28 +44,39 @@ CFLAGS := -O2 -std=c99 -Werror -Wall -Wextra \
 	-Wjump-misses-init -Wlogical-op \
 	-nostdlib -fno-builtin -nostartfiles \
 	-nodefaultlibs -fno-stack-protector -I$(INCLUDE_DIR) \
-	-mno-mmx -mno-sse -mno-sse2 -mno-3dnow
+	-mno-mmx -mno-sse -mno-sse2 -mno-3dnow \
+	-mno-red-zone -mcmodel=kernel -fno-pic -fno-pie
 # The kernel never enables SSE (CR4.OSFXSR) nor saves XMM state on a context
 # switch, so GCC must not auto-vectorize with SIMD — those instructions would
-# #UD (or corrupt state). This is the standard freestanding-kernel flag set.
-
-# A host compiler needs -m32 to emit 32-bit code; a cross i686 compiler is
-# already 32-bit (and may reject -m32), so only add it for the host build.
-ifeq ($(strip $(CROSS)),)
-CFLAGS += -m32
-endif
+# #UD (or corrupt state). -mno-red-zone is mandatory for kernel code: the SysV
+# red zone is unsafe once interrupts reuse the stack. This is the standard
+# freestanding 64-bit kernel flag set.
 
 # Generate per-object .d dependency files so header edits trigger rebuilds.
 CPPFLAGS  := -MMD -MP
-NASMFLAGS := -i$(INCLUDE_DIR)/ -felf32
+NASMFLAGS := -i$(INCLUDE_DIR)/ -felf64
 LINKSCRIPT := $(BUILD_DIR)/linker.ld
 # -z noexecstack silences the "missing .note.GNU-stack" warning from the NASM
 # objects; an executable-stack note is meaningless for a freestanding kernel.
-LDFLAGS   := -melf_i386 -z noexecstack -T $(LINKSCRIPT)
+LDFLAGS   := -melf_x86_64 -z noexecstack -z max-page-size=0x1000 -T $(LINKSCRIPT)
 
 # Sources and (out-of-tree) objects. The sources live in a flat src/ dir.
-CSOURCES   := $(wildcard $(SRC_DIR)/*.c)
-ASMSOURCES := $(wildcard $(SRC_DIR)/*.asm)
+#
+# x86-64 port in progress (see docs/x86-64-port.md): the tree is migrated from
+# 32-bit one milestone at a time. Only the sources already ported to long mode
+# are compiled — this list grows with each milestone so every commit builds and
+# boots. The remaining 32-bit sources stay in src/ untouched until their turn.
+# Limine enters the kernel directly at the C entry point kmain in 64-bit long
+# mode, so there is no hand-written boot trampoline; the asm list stays empty
+# until the interrupt/task-switch stubs are ported (milestones 2-3).
+PORT64_CSOURCES := \
+	$(SRC_DIR)/kernel.c \
+	$(SRC_DIR)/serial.c \
+	$(SRC_DIR)/ports.c
+PORT64_ASMSOURCES :=
+
+CSOURCES   := $(PORT64_CSOURCES)
+ASMSOURCES := $(PORT64_ASMSOURCES)
 COBJS      := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CSOURCES))
 ASMOBJS    := $(patsubst $(SRC_DIR)/%.asm,$(OBJ_DIR)/%.o,$(ASMSOURCES))
 OBJS       := $(COBJS) $(ASMOBJS)
@@ -74,22 +85,27 @@ DEPS       := $(COBJS:.o=.d)
 KERNEL := kernel.bin
 
 # Every C source/header that clang-format should manage (kernel + userland).
-FORMAT_FILES := $(wildcard \
+# include/limine.h is vendored from the Limine project and kept verbatim, so it
+# is excluded from our formatting rules.
+FORMAT_FILES := $(filter-out $(INCLUDE_DIR)/limine.h,$(wildcard \
 	$(SRC_DIR)/*.c $(INCLUDE_DIR)/*.h \
 	$(BUILD_DIR)/tasks/*.c $(BUILD_DIR)/tasks/*.h \
 	$(BUILD_DIR)/tasks/parser/*.c $(BUILD_DIR)/tasks/parser/*.h \
-	$(BUILD_DIR)/bootstrap/*.c $(BUILD_DIR)/bootstrap/*.h)
+	$(BUILD_DIR)/bootstrap/*.c $(BUILD_DIR)/bootstrap/*.h))
 
 # QEMU drives both `make run` and the tests (tests/run-qemu.sh). make run opens
 # a GTK window; override the backend if you prefer, e.g.
 # `make run QEMU_DISPLAY=curses` (text mode, in-terminal) or QEMU_DISPLAY=sdl.
-QEMU         ?= qemu-system-i386
+QEMU         ?= qemu-system-x86_64
 QEMU_DISPLAY ?= gtk
 export QEMU
 
-.PHONY: all init image run test clean format lint help
+.PHONY: all init image run test clean format lint help boot
 
-all: init image $(KERNEL) floppy.img
+# During the x86-64 port the userland/disk pipeline (init, image, floppy) is not
+# yet wired up; `all` builds the kernel and its bootable Limine image. The old
+# targets remain defined below and return as their subsystems are ported.
+all: $(KERNEL) boot.img
 
 # --- Kernel -----------------------------------------------------------------
 
@@ -127,14 +143,23 @@ floppy.img: $(KERNEL) init
 	e2cp $(BUILD_DIR)/menu.lst $@:/boot/grub/menu.lst
 	e2cp $(BUILD_DIR)/bootstrap/init $@:/init
 
-# Boot the OS in QEMU. The kernel loads directly via multiboot (-kernel), with
-# the userland "init" as a module (-initrd) and the Minix image as the disk.
-# The disk format is stated explicitly; otherwise QEMU probes it as raw and
-# restricts writes to block 0, which breaks the filesystem.
-run: $(KERNEL) init image
-	$(QEMU) -kernel $(KERNEL) -initrd $(BUILD_DIR)/bootstrap/init \
-		-drive file=hdd.img,format=raw,if=ide -m 128 \
-		-display $(QEMU_DISPLAY) -serial stdio
+# --- Limine boot image (x86-64) ---------------------------------------------
+
+# OVMF UEFI firmware, resolved from nixpkgs at recipe time (only `run`/`test`
+# need it, so we don't pay for it on every make invocation). Override to point
+# at a local firmware file if you are not using Nix.
+OVMF_FD ?= $$(nix build --no-link --print-out-paths nixpkgs\#OVMF.fd)/FV/OVMF.fd
+
+# Pack the kernel into a bootable UEFI image with Limine (sudo-free, mtools).
+boot.img: $(KERNEL) $(BUILD_DIR)/limine.conf $(BUILD_DIR)/mkboot.sh
+	bash $(BUILD_DIR)/mkboot.sh $(KERNEL) $@
+
+# Boot the OS in QEMU under OVMF. Limine loads the kernel straight into 64-bit
+# long mode. OVMF vars must be writable, so we boot from a private copy.
+run: boot.img
+	cp "$(OVMF_FD)" .ovmf.fd && chmod +w .ovmf.fd
+	$(QEMU) -bios .ovmf.fd -drive file=boot.img,format=raw -m 512 \
+		-display $(QEMU_DISPLAY) -serial stdio -no-reboot
 
 # --- Integration tests (QEMU) -----------------------------------------------
 
@@ -166,10 +191,11 @@ $(TEST_OBJ_DIR)/%.o: $(SRC_DIR)/%.asm | $(TEST_OBJ_DIR)
 $(TEST_KERNEL): $(TEST_OBJS)
 	$(LD) $(LDFLAGS) -o $@ $^
 
-# Build the test kernel and run it under QEMU (headless). Override QEMU or
-# TIMEOUT on the command line, e.g. `make test TIMEOUT=60`.
-test: $(TEST_KERNEL)
-	tests/run-qemu.sh $(TEST_KERNEL)
+# Boot the Limine image headless and assert the kernel reached 64-bit long mode
+# and answered the boot protocol. The in-kernel ktest harness (TEST_KERNEL,
+# machinery kept below) returns once the memory subsystems are ported.
+test: boot.img
+	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/boot-smoke.sh
 
 # --- Formatting / linting ---------------------------------------------------
 
