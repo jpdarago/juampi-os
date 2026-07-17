@@ -48,3 +48,17 @@ jobs:
           sudo apt-get install -y gcc-multilib nasm qemu-system-x86
       - name: Run in-kernel tests under QEMU
         run: make test
+
+  cross-macos:
+    name: cross build + tests (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install i686-elf cross toolchain + QEMU
+        run: |
+          brew update
+          brew install i686-elf-gcc i686-elf-binutils nasm qemu coreutils
+      - name: Build kernel (cross)
+        run: make CROSS=i686-elf- kernel.bin
+      - name: Run in-kernel tests under QEMU (cross)
+        run: make CROSS=i686-elf- test

@@ -15,18 +15,30 @@ TIMEOUT="${TIMEOUT:-30}"
 PASS_CODE=33
 
 if ! command -v "$QEMU" >/dev/null 2>&1; then
-    echo "error: $QEMU not found (install qemu-system-x86)" >&2
+    echo "error: $QEMU not found (install qemu-system-x86 / qemu)" >&2
     exit 127
 fi
 
-timeout --foreground "$TIMEOUT" "$QEMU" \
-    -kernel "$KERNEL" \
-    -m 128 \
-    -display none \
-    -no-reboot \
-    -debugcon stdio \
-    -serial null \
+QEMU_ARGS=(
+    -kernel "$KERNEL"
+    -m 128
+    -display none
+    -no-reboot
+    -debugcon stdio
+    -serial null
     -device isa-debug-exit,iobase=0xf4,iosize=0x04
+)
+
+# `timeout` is GNU coreutils; on macOS it's `gtimeout` (brew install coreutils).
+# Fall back to running without a watchdog if neither is present.
+if command -v timeout >/dev/null 2>&1; then
+    timeout --foreground "$TIMEOUT" "$QEMU" "${QEMU_ARGS[@]}"
+elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout --foreground "$TIMEOUT" "$QEMU" "${QEMU_ARGS[@]}"
+else
+    echo "warning: no timeout/gtimeout found; running without a watchdog" >&2
+    "$QEMU" "${QEMU_ARGS[@]}"
+fi
 status=$?
 
 if [ "$status" -eq "$PASS_CODE" ]; then

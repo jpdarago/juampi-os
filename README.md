@@ -53,6 +53,22 @@ Useful targets (see `make help` for the full list):
 
 For anything else, look at the Makefile.
 
+Cross-compiling (and macOS)
+---------------------------
+
+By default the build uses the host GCC in 32-bit mode (`-m32`), which needs
+`gcc-multilib` and a Linux/ELF `ld` — so it does not work on macOS. Set `CROSS`
+to a freestanding i686 cross-compiler prefix to build anywhere:
+
+    make CROSS=i686-elf- kernel.bin
+    make CROSS=i686-elf- test
+
+Install the toolchain with `brew install i686-elf-gcc i686-elf-binutils` on
+macOS (also `nasm qemu coreutils`), or add one to `devenv.nix` on Nix. CI builds
+and tests the cross path on macOS; the host path on Linux. Note the Minix
+disk-image step (`make image`/`make run`) still needs Linux + `sudo` (loop
+mount), so on macOS you get `make CROSS=... kernel.bin` and `make CROSS=... test`.
+
 Testing
 -------
 

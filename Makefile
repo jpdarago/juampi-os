@@ -5,21 +5,28 @@
 #   make            build the kernel, userland and bootable floppy image
 #   make kernel.bin build just the kernel binary (no disk image, no sudo)
 #   make image      build the Minix hard-disk image (needs sudo, see below)
-#   make run        build everything and boot it in Bochs
+#   make run        build everything and boot it in QEMU
 #   make format     reformat all C sources/headers in place with clang-format
 #   make lint       check formatting without modifying files (used by CI)
 #   make clean      remove all build artifacts
 #   make help       list the available targets
 # ---------------------------------------------------------------------------
 
-# Toolchain. Uses `=` rather than `?=` on purpose: CC/LD are built-in Make
-# variables (defaulting to `cc`/`ld`), and `?=` would NOT override a built-in
-# default. A plain `=` is still overridable on the command line, e.g.
-# `make CC=clang`, since command-line assignments win over the makefile.
-CC           = gcc
-ASM          = nasm
-LD           = ld
-CLANG_FORMAT = clang-format
+# Toolchain. By default this builds with the host GCC in 32-bit mode (-m32),
+# which works on Linux with gcc-multilib. Set CROSS to a cross-compiler prefix
+# to build with a freestanding i686 cross toolchain instead — required on macOS
+# (no gcc-multilib / ELF ld) and recommended everywhere for reproducibility:
+#
+#   make CROSS=i686-elf- run
+#
+# The devenv shell provides i686-elf-gcc / i686-elf-ld. CC/LD use `=` (not `?=`)
+# so they override Make's built-in `cc`/`ld` defaults; command-line assignments
+# still win.
+CROSS        ?=
+CC            = $(CROSS)gcc
+ASM           = nasm
+LD            = $(CROSS)ld
+CLANG_FORMAT  = clang-format
 
 # Directories.
 SRC_DIR     := src
@@ -28,7 +35,7 @@ OBJ_DIR     := obj
 BUILD_DIR   := build
 
 # Compiler / assembler / linker flags.
-CFLAGS := -m32 -O2 -std=c99 -Werror -Wall -Wextra \
+CFLAGS := -O2 -std=c99 -Werror -Wall -Wextra \
 	-Wno-unused-parameter -Wno-override-init \
 	-Wno-address-of-packed-member \
 	-Wunreachable-code -Wshadow -Wcast-qual \
@@ -41,6 +48,12 @@ CFLAGS := -m32 -O2 -std=c99 -Werror -Wall -Wextra \
 # The kernel never enables SSE (CR4.OSFXSR) nor saves XMM state on a context
 # switch, so GCC must not auto-vectorize with SIMD — those instructions would
 # #UD (or corrupt state). This is the standard freestanding-kernel flag set.
+
+# A host compiler needs -m32 to emit 32-bit code; a cross i686 compiler is
+# already 32-bit (and may reject -m32), so only add it for the host build.
+ifeq ($(strip $(CROSS)),)
+CFLAGS += -m32
+endif
 
 # Generate per-object .d dependency files so header edits trigger rebuilds.
 CPPFLAGS  := -MMD -MP
@@ -96,7 +109,7 @@ $(KERNEL): $(OBJS)
 
 # The bootstrap "init" process, loaded as a GRUB module.
 init:
-	$(MAKE) -C $(BUILD_DIR)/bootstrap
+	$(MAKE) -C $(BUILD_DIR)/bootstrap CROSS=$(CROSS)
 
 # --- Disk / boot images -----------------------------------------------------
 
@@ -105,7 +118,7 @@ init:
 # before running this target. It attaches the image to the first free loop
 # device and mounts it on a temporary directory, cleaning up on exit.
 image:
-	$(MAKE) -C $(BUILD_DIR)/tasks
+	$(MAKE) -C $(BUILD_DIR)/tasks CROSS=$(CROSS)
 	cd $(BUILD_DIR) && ./build_image.sh
 
 # Assemble the bootable GRUB floppy from the raw template image.
@@ -178,7 +191,7 @@ help:
 	@echo "  make            build kernel, userland and floppy.img"
 	@echo "  make kernel.bin build just the kernel (no sudo)"
 	@echo "  make image      build the Minix disk image (needs sudo)"
-	@echo "  make run        build everything and boot in Bochs"
+	@echo "  make run        build everything and boot in QEMU"
 	@echo "  make test       run the in-kernel test suite under QEMU"
 	@echo "  make format     reformat sources with clang-format"
 	@echo "  make lint       check formatting (CI); does not modify files"
