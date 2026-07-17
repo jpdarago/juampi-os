@@ -18,12 +18,15 @@ static uchar ata_read_stable(void)
 static void ata_reset(void)
 {
     uchar status;
-    outb(ATA_PRIMARY_DEVCONTROL,ATA_CTRL_SRST);
+    // Keep nIEN set the whole time: this driver polls, so the drive must not
+    // raise IRQ14. Leaving interrupts enabled here makes QEMU assert IRQ14,
+    // which has no handler ("Unknown interrupt 0x2E").
+    outb(ATA_PRIMARY_DEVCONTROL,ATA_CTRL_SRST | ATA_CTRL_NIEN);
     status = ata_read_stable();
     if(status & ATA_STATUS_BSY) {
         kernel_panic("ERROR: ATA RESET FAILED\n");
     }
-    outb(ATA_PRIMARY_DEVCONTROL,0x0);
+    outb(ATA_PRIMARY_DEVCONTROL,ATA_CTRL_NIEN);
     status = ata_read_stable();
     if(status & ATA_STATUS_BSY) {
         kernel_panic("ERROR: ATA RESET FAILED\n");
@@ -32,17 +35,22 @@ static void ata_reset(void)
 
 static void hdd_setup_lba(uint lba_address, uint sectors, uchar command)
 {
-    inb(ATA_PRIMARY_ERR);
+    // Select the master drive (LBA mode) with LBA[27:24] FIRST, then let it
+    // settle before polling status. The status register reflects the selected
+    // drive, so polling RDY before selecting reads 0x00 on QEMU and spins
+    // forever. Keep the drive interrupt masked (nIEN) since we poll.
+    outb(ATA_PRIMARY_DRIVE,0xE0 | ((lba_address >> 24) & 0x0F));
+    outb(ATA_PRIMARY_DEVCONTROL,ATA_CTRL_NIEN);
+    ata_read_stable(); // ~400ns settle after the drive select
+
     while((inb(ATA_PRIMARY_COMSTAT) & ATA_STATUS_BSY) == ATA_STATUS_BSY) ;
     while((inb(ATA_PRIMARY_COMSTAT) & ATA_STATUS_RDY) != ATA_STATUS_RDY) ;
 
-    outb(ATA_PRIMARY_DEVCONTROL,0x0A);
     outb(ATA_PRIMARY_ERR,0x00);
     outb(ATA_PRIMARY_SECTORCOUNT,sectors);
     outb(ATA_PRIMARY_LBALOW,(uchar)lba_address);
     outb(ATA_PRIMARY_LBAMID,(uchar)(lba_address >> 8));
     outb(ATA_PRIMARY_LBAHIGH,(uchar)(lba_address >> 16));
-    outb(ATA_PRIMARY_DRIVE,0xE0 | ((lba_address >> 24) & 0x0F));
     outb(ATA_PRIMARY_COMSTAT,command);
 }
 

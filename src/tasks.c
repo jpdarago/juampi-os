@@ -225,7 +225,10 @@ create_new_stack(page_directory* new_dir, tss* new_tss, bool user)
         sp += PAGE_SZ;
     }
     if(user) {
-        new_tss->esp = USTACK_BASE;
+        // Leave one aligned frame below the top: the program is entered at
+        // main(), whose prologue reads the return-address slot at [esp]. Using
+        // USTACK_BASE itself points esp at the first unmapped byte and faults.
+        new_tss->esp = USTACK_BASE - 16;
     } else {
         new_tss->esp0 = KSTACK_BASE;
     }
