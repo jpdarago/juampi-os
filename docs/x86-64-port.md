@@ -129,24 +129,26 @@ fires and returns cleanly. Validated by `make test` (marker `interrupts OK`):
 The full `proc.h` register-struct rework and the rich VGA fault screen wait for
 the task/scrn subsystems (milestone 3); `interrupt_frame` stands in for now.
 
-## Milestone 3 — Software context switch
+## Milestone 3 — Software context switch  ✅ DONE
 
-**Checkpoint:** multitasking works again.
+**Checkpoint:** multitasking works via software context switching (long mode has
+no hardware task switching). Validated by `make test` (marker
+`context switch OK`): three cooperative kernel threads round-robin and each
+advances its own counter (`a=5 b=5 c=5`), proving the switch preserves and
+restores each thread's stack and registers independently.
 
-- `include/tss.h`: replace the 32-bit TSS with the 64-bit TSS (`rsp0/1/2`, 7 IST
-  entries, iomap). One TSS **per CPU**, not per task.
-- `src/task_switch.asm`: new software switch — save callee-saved registers, save
-  the old `rsp` into the old task, load the new task's `rsp`, switch `cr3`,
-  restore, `ret`.
-- `src/tasks.c`: replace `init_tss`/`set_tss_gregs`/`get_contiguous_tss`/
-  `new_tss_space` with "build an initial kernel-stack frame" for a new task;
-  store a saved `rsp` per process; set the CPU TSS's `rsp0` to the task's kernel
-  stack on switch.
-- `src/proc.c`, `include/proc.h`: `process_info` holds a saved kernel `rsp`
-  instead of a `tss_selector`; drop per-process `gdt_add_tss`/`gdt_remove_tss`.
-- `src/fork.asm`: rewrite around the new frame layout and 64-bit ABI.
+- `src/context.asm` (new): `context_switch(old_rsp, new_rsp)` — push the
+  callee-saved registers, stash the outgoing `rsp`, load the incoming `rsp`,
+  restore and `ret` into the incoming thread. This is the long-mode replacement
+  for the 32-bit hardware-TSS `jmp far`.
+- `src/sched.c`, `include/sched.h` (new): a minimal cooperative kernel-thread
+  scheduler. `thread_create` builds an initial stack (six zeroed callee-saved
+  slots + the entry address) so the first switch `ret`s straight into the thread;
+  `yield` round-robins.
 
-**Risk:** biggest conceptual rewrite; touches fork and the scheduler.
+This delivers the core mechanism. Full user-mode processes — the per-CPU 64-bit
+TSS (`rsp0`), per-process address spaces (`clone_directory`), fork and the ELF
+loader — build on top of it in milestones 4-5.
 
 ## Milestone 4 — Syscall ABI widening
 

@@ -7,7 +7,7 @@ set -uo pipefail
 # further into boot as subsystems are ported (eventually "entering userland").
 
 QEMU="${QEMU:-qemu-system-x86_64}"
-MARKER="${MARKER:-interrupts OK}"
+MARKER="${MARKER:-context switch OK}"
 IMG="${IMG:-boot.img}"
 out="$(mktemp)"
 

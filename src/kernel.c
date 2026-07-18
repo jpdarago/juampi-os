@@ -22,6 +22,7 @@
 #include <cmos.h>
 #include <serial.h>
 #include <limine.h>
+#include <sched.h>
 
 // Linker symbol for the end of the kernel. The address it contains is
 // a location right after the kernel ends. It is defined in the linker script
@@ -68,6 +69,31 @@ static void breakpoint_handler(interrupt_frame* f)
 {
     (void)f;
     bp_hits++;
+}
+
+// Milestone-3 worker threads: each bumps its own counter and yields, so a full
+// round-robin proves the context switch preserves every thread independently.
+static volatile uint64 wcounters[3];
+static void worker_a(void)
+{
+    for (;;) {
+        wcounters[0]++;
+        yield();
+    }
+}
+static void worker_b(void)
+{
+    for (;;) {
+        wcounters[1]++;
+        yield();
+    }
+}
+static void worker_c(void)
+{
+    for (;;) {
+        wcounters[2]++;
+        yield();
+    }
 }
 
 #ifdef KTEST
@@ -171,6 +197,26 @@ void kmain(void)
     if (bp_hits == 1 && timer_ticks() >= 3) {
         serial_print("juampiOS: interrupts OK\n");
     }
+
+    // --- Milestone 3: software context switch (kernel threads) --------------
+    sched_init();
+    thread_create(worker_a);
+    thread_create(worker_b);
+    thread_create(worker_c);
+    // Cooperatively round-robin: each yield hands off to the next thread and
+    // eventually returns here, proving the switch preserves and restores each
+    // thread's stack and registers independently.
+    while (wcounters[0] < 5 || wcounters[1] < 5 || wcounters[2] < 5) {
+        yield();
+    }
+
+    serial_print("juampiOS: thread ticks a=");
+    serial_dec(wcounters[0]);
+    serial_print(" b=");
+    serial_dec(wcounters[1]);
+    serial_print(" c=");
+    serial_dec(wcounters[2]);
+    serial_print("\njuampiOS: context switch OK\n");
 
     while (1) {
         __asm__ __volatile__("hlt");
