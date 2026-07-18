@@ -64,11 +64,19 @@ ASMSOURCES := $(wildcard $(SRC_DIR)/*.asm)
 VENDOR_CSOURCES := $(SRC_DIR)/flanterm/flanterm.c \
 	$(SRC_DIR)/flanterm/flanterm_backends/fb.c \
 	$(SRC_DIR)/printf/printf.c
+# Embedded Lua (src/lua/): the vendored Lua 5.4 core+libs, the freestanding libc
+# shim it runs on, and the kernel glue — all built with the Lua include path
+# (klibc stubs first, then the Lua headers) and warnings off.
+LUA_CSOURCES := $(wildcard $(SRC_DIR)/lua/*.c)
+LUA_OBJS     := $(patsubst $(SRC_DIR)/lua/%.c,$(OBJ_DIR)/lua/%.o,$(LUA_CSOURCES))
+LUA_ASM_OBJ  := $(OBJ_DIR)/lua/klibc_setjmp.o
+LUA_INC      := -I$(SRC_DIR)/lua/klibc -Iinclude/lua
+
 COBJS      := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CSOURCES))
 ASMOBJS    := $(patsubst $(SRC_DIR)/%.asm,$(OBJ_DIR)/%.o,$(ASMSOURCES))
 VENDOR_OBJS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(VENDOR_CSOURCES))
-OBJS       := $(COBJS) $(ASMOBJS) $(VENDOR_OBJS)
-DEPS       := $(COBJS:.o=.d) $(VENDOR_OBJS:.o=.d)
+OBJS       := $(COBJS) $(ASMOBJS) $(VENDOR_OBJS) $(LUA_OBJS) $(LUA_ASM_OBJ)
+DEPS       := $(COBJS:.o=.d) $(VENDOR_OBJS:.o=.d) $(LUA_OBJS:.o=.d)
 
 KERNEL := kernel.bin
 
@@ -108,6 +116,15 @@ $(OBJ_DIR)/flanterm/%.o: $(SRC_DIR)/flanterm/%.c | $(OBJ_DIR)
 $(OBJ_DIR)/printf/%.o: $(SRC_DIR)/printf/%.c | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w $(CPPFLAGS) -c -o $@ $<
+
+# Embedded Lua: Lua include path (klibc stubs win for <string.h> etc.), no warns.
+$(OBJ_DIR)/lua/%.o: $(SRC_DIR)/lua/%.c | $(OBJ_DIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -w $(LUA_INC) $(CPPFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/lua/%.o: $(SRC_DIR)/lua/%.asm | $(OBJ_DIR)
+	@mkdir -p $(dir $@)
+	$(ASM) $(NASMFLAGS) -o $@ $<
 
 $(KERNEL): $(OBJS)
 	$(LD) $(LDFLAGS) -o $@ $^

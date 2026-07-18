@@ -27,4 +27,9 @@ licenses, each kept verbatim alongside the code:
 
   - src/flanterm/    flanterm terminal emulator  BSD-2-Clause (src/flanterm/LICENSE)
   - src/printf/      eyalroz/printf              MIT          (src/printf/LICENSE)
+  - src/lua/         Lua 5.4 (PUC-Rio)           MIT          (src/lua/LICENSE)
   - include/limine.h Limine boot protocol header 0BSD         (header comment)
+
+(The libc shim under src/lua/klibc/ and the glue in src/lua/lua_glue.c,
+src/lua/klibc*.c are original code under this project's MIT license; the
+vendored Lua core/libraries under src/lua/ are Lua's own MIT license above.)

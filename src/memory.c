@@ -191,3 +191,22 @@ void heap_free(heap_allocator* h, void* p)
         free_small(h, s, p);
     }
 }
+
+size_t heap_usable_size(heap_allocator* h, void* p)
+{
+    slab* s = slab_of(h, p);
+    if (s->class_idx == LARGE_CLASS) {
+        return (size_t)s->nslabs * SLAB_SIZE;
+    }
+    return class_size[s->class_idx];
+}
+
+static heap_allocator* g_default_heap;
+void heap_set_default(heap_allocator* h)
+{
+    g_default_heap = h;
+}
+heap_allocator* heap_default(void)
+{
+    return g_default_heap;
+}

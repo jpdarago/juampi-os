@@ -8,7 +8,7 @@ repos:
         # Format C sources and headers only (NASM is not supported).
         # limine.h, flanterm and printf are vendored verbatim.
         files: \.(c|h)$
-        exclude: ^(include/limine\.h|src/flanterm/|src/printf/|include/printf/)
+        exclude: ^(include/limine\.h|src/flanterm/|src/printf/|include/printf/|src/lua/|include/lua/)
         types_or: [c]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks

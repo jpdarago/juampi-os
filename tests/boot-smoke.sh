@@ -8,7 +8,7 @@ set -uo pipefail
 
 QEMU="${QEMU:-qemu-system-x86_64}"
 # Input fed to the shell over serial, and the marker its evaluation must print.
-INPUT="${INPUT:-echo SHELL_ALIVE_9271}"
+INPUT="${INPUT:-print[[SHELL_ALIVE_9271]]}"
 MARKER="${MARKER:-SHELL_ALIVE_9271}"
 IMG="${IMG:-boot.img}"
 out="$(mktemp)"

@@ -13,6 +13,8 @@ Features
 * Software context switching with cooperative kernel threads.
 * Ring 3 user mode with an `int 0x80` syscall ABI and validated user pointers.
 * ELF64 loader: runs a real user program shipped as a Limine module.
+* Framebuffer console (flanterm) + PS/2 keyboard; SSE/x87 floating point.
+* Boots to an interactive **Lua 5.4** shell running in ring 0.
 
 The port is documented milestone by milestone in `docs/x86-64-port.md`. The
 original 32-bit kernel — multitasking scheduler, ATA PIO disk, read/write ext2
@@ -73,8 +75,9 @@ License
 
 The kernel is licensed under the MIT License (see `LICENSE`). Bundled
 third-party components keep their own permissive licenses: flanterm
-(BSD-2-Clause, `src/flanterm/`), eyalroz/printf (MIT, `src/printf/`), and the
-Limine boot protocol header (0BSD, `include/limine.h`).
+(BSD-2-Clause, `src/flanterm/`), eyalroz/printf (MIT, `src/printf/`), Lua 5.4
+(MIT, `src/lua/`), and the Limine boot protocol header (0BSD,
+`include/limine.h`).
 
 Acknowledgements
 ---------------

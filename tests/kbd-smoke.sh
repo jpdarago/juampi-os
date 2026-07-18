@@ -50,8 +50,11 @@ send_keys() {
     } | socat - UNIX-CONNECT:"$sock" >/dev/null 2>&1
 }
 
-# Type: echo kbdalive4417<enter>
-send_keys e c h o spc k b d a l i v e 4 4 1 7 ret
+# Type a Lua expression using only unshifted keys (long-bracket string, no
+# parens/quotes): print[[kbdalive4417]]<enter>
+send_keys p r i n t bracket_left bracket_left \
+    k b d a l i v e 4 4 1 7 \
+    bracket_right bracket_right ret
 sleep 2
 
 kill "$qpid" 2>/dev/null

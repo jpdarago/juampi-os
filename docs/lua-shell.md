@@ -32,11 +32,16 @@ end
 
 - **M6 — Serial shell.** COM1 receive path + a line editor + a kernel command
   loop (builtins). The interactive endpoint the rest builds on.
-- **M7 — Lua port.** Vendor PUC-Lua 5.4, build it freestanding (a tiny libc
-  shim over the kernel allocator + string/math helpers; `io`/`os`/`package`
-  stripped). Enable SSE/x87 for Lua's `double` arithmetic and save FP state on
-  context switch. Wire the shell to evaluate Lua. **This is "boot to a Lua
-  shell."**
+- **M7 — Lua port.** ✅ DONE. Vendored PUC-Lua 5.4.8 (`src/lua/`), built
+  freestanding over a small libc shim (`src/lua/klibc/` stub headers +
+  `klibc.c` string/stdlib/stdio, `klibc_math.c` x87/SSE math,
+  `klibc_setjmp.asm`), backed by the kernel heap (`malloc`/`realloc`/`free`) and
+  console (`fwrite`/`printf`). `io`/`os`/`package`/`loadlib` are stripped; the
+  glue (`lua_glue.c`) opens base/string/table/math/coroutine and runs a line at
+  a time like the standard REPL. `shell.c` is now the Lua shell. Number
+  formatting uses the vendored float printf; FP relies on the SSE/x87 work.
+  Validated: `print(math.sqrt(2))`, loops, closures, tables, string library,
+  and Lua error messages all work over serial and the PS/2 keyboard.
 - **M8 — SMP.** Limine MP request to start the application processors; per-CPU
   GDT/TSS/IDT, per-CPU data, LAPIC, and spinlocks (the kernel's `cli`-as-lock
   assumption no longer holds once APs run).

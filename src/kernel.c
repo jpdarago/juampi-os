@@ -207,6 +207,7 @@ void kmain(void)
             paging_init(hhdm_request.response->offset, best_base, best_len),
             KHEAP_SIZE);
     allocator* mem = &heap.base;
+    heap_set_default(&heap); // back the libc shim's malloc/free (Lua)
 
     // Self-test: distinct frames, writable zeroed heap and arena blocks (the
     // arena carved out of the heap), heap_free round-trip, and a fresh 4-level
