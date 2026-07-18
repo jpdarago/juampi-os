@@ -13,7 +13,7 @@ kmem_map_header* kmem_init(void* memory_start, int memory_units)
     mem->freep->next = mem->freep;
     mem->freep->size =
             memory_units - sizeof(kmem_map_header) - sizeof(kmem_header);
-    mem->heap_end = (intptr)memory_start + memory_units;
+    mem->heap_end = (uintptr_t)memory_start + memory_units;
     return mem;
 }
 
@@ -34,9 +34,9 @@ static kmem_header* best_fit_prev(kmem_map_header* mh, int units)
 }
 
 // Requests more memory
-static void* kmem_append_core(kmem_map_header* mh, uint units)
+static void* kmem_append_core(kmem_map_header* mh, uint32_t units)
 {
-    uint pages = (units + 0xFFF) / 0x1000;
+    uint32_t pages = (units + 0xFFF) / 0x1000;
     if (!pages) {
         pages = 1;
     }
@@ -78,7 +78,7 @@ void* kmem_alloc(kmem_map_header* mh, int size)
         }
     } else {
         best->size -= units;
-        best = (kmem_header*)((intptr)best + best->size);
+        best = (kmem_header*)((uintptr_t)best + best->size);
         best->size = units;
         mh->freep = best_prev;
     }
@@ -106,14 +106,14 @@ void kmem_free(kmem_map_header* mh, void* p)
             break;
         }
     // Clean up the end blocks that are free
-    intptr bptr_addr = (intptr)bptr, ptr_addr = (intptr)ptr;
-    if (bptr_addr + bptr->size == (intptr)ptr->next) {
+    uintptr_t bptr_addr = (uintptr_t)bptr, ptr_addr = (uintptr_t)ptr;
+    if (bptr_addr + bptr->size == (uintptr_t)ptr->next) {
         bptr->size += ptr->next->size;
         bptr->next = ptr->next->next;
     } else {
         bptr->next = ptr->next;
     }
-    if (ptr_addr + ptr->size == (intptr)bptr) {
+    if (ptr_addr + ptr->size == (uintptr_t)bptr) {
         ptr->size += bptr->size;
         ptr->next = bptr->next;
     } else {
@@ -132,7 +132,7 @@ void* kmem_alloc_aligned(kmem_map_header* mh, int size)
     // I also need to request the space for the header.
     // I request an additional PAGE_SIZE - 1 so that I ensure that in the
     // obtained memory space there will be an aligned chunk.
-    uint units = size + PAGE_SZ - 1 + sizeof(kmem_header);
+    uint32_t units = size + PAGE_SZ - 1 + sizeof(kmem_header);
     // Find a free block of the necessary size.
     // Implementation: Best Fit
     kmem_header *best_prev = best_fit_prev(mh, units), *best;
@@ -146,10 +146,10 @@ void* kmem_alloc_aligned(kmem_map_header* mh, int size)
     }
     best = best_prev->next;
     // Get the address of the chunk of memory
-    intptr best_addr = (intptr)best, header_sz = sizeof(kmem_header);
-    intptr block_addr = ALIGN(PAGE_SZ - 1 + header_sz + best_addr);
-    intptr header_addr = block_addr - header_sz;
-    intptr prev_size = best->size;
+    uintptr_t best_addr = (uintptr_t)best, header_sz = sizeof(kmem_header);
+    uintptr_t block_addr = ALIGN(PAGE_SZ - 1 + header_sz + best_addr);
+    uintptr_t header_addr = block_addr - header_sz;
+    uintptr_t prev_size = best->size;
     kmem_header* header = (kmem_header*)header_addr;
     header->size = size + header_sz;
     if (best_addr != header_addr) {
@@ -176,13 +176,13 @@ void* kmem_alloc_aligned(kmem_map_header* mh, int size)
     return (void*)block_addr;
 }
 
-uint kmem_available(kmem_map_header* mh)
+uint32_t kmem_available(kmem_map_header* mh)
 {
     kmem_header* ptr = mh->freep;
     if (!ptr) {
         return 0;
     }
-    uint total = 0;
+    uint32_t total = 0;
     do {
         total += ptr->size;
         ptr = ptr->next;
@@ -190,7 +190,7 @@ uint kmem_available(kmem_map_header* mh)
     return total;
 }
 
-void* kmalloc(uint size)
+void* kmalloc(uint32_t size)
 {
     kmem_map_header* kernel_heap = get_kernel_heap();
     void* res = kmem_alloc(kernel_heap, size);

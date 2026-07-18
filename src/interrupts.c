@@ -23,16 +23,16 @@
 #define PIT_FREQUENCY 1193182
 
 static interrupt_handler handlers[256];
-static volatile uint64 ticks;
+static volatile uint64_t ticks;
 
-void register_interrupt_handler(uint vector, interrupt_handler h)
+void register_interrupt_handler(uint32_t vector, interrupt_handler h)
 {
     if (vector < 256) {
         handlers[vector] = h;
     }
 }
 
-uint64 timer_ticks(void)
+uint64_t timer_ticks(void)
 {
     return ticks;
 }
@@ -67,7 +67,7 @@ static void pic_remap(void)
     outb(PIC2_DATA, 0xFF);
 }
 
-static void pic_eoi(uint irq)
+static void pic_eoi(uint32_t irq)
 {
     if (irq >= 8) {
         outb(PIC2_CMD, PIC_EOI);
@@ -75,9 +75,9 @@ static void pic_eoi(uint irq)
     outb(PIC1_CMD, PIC_EOI);
 }
 
-static void pit_init(uint hz)
+static void pit_init(uint32_t hz)
 {
-    uint divisor = PIT_FREQUENCY / hz;
+    uint32_t divisor = PIT_FREQUENCY / hz;
     outb(PIT_CMD, 0x36); // channel 0, lobyte/hibyte, mode 3 (square wave)
     outb(PIT_CH0, divisor & 0xFF);
     outb(PIT_CH0, (divisor >> 8) & 0xFF);
@@ -92,7 +92,7 @@ static void timer_handler(interrupt_frame* f)
 // Unhandled CPU exception: dump the frame to serial and halt.
 static void exception_panic(interrupt_frame* f)
 {
-    uint64 cr2;
+    uint64_t cr2;
     __asm__ __volatile__("mov %%cr2, %0" : "=r"(cr2));
     serial_print("\n*** CPU EXCEPTION ***\n  vector=");
     serial_dec(f->vector);

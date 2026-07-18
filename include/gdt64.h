@@ -1,7 +1,9 @@
 #ifndef __GDT64_H
 #define __GDT64_H
 
-#include <types.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <stdbool.h>
 
 // Segment selectors in the port's 64-bit GDT (RPL added where used).
 #define GDT_KCODE 0x08
@@ -14,13 +16,13 @@
 // switching; it only supplies the stack pointers used on a privilege change
 // (rsp0) and the IST stacks.
 typedef struct {
-    uint32 reserved0;
-    uint64 rsp0, rsp1, rsp2;
-    uint64 reserved1;
-    uint64 ist[7];
-    uint64 reserved2;
-    uint16 reserved3;
-    uint16 iomap_base;
+    uint32_t reserved0;
+    uint64_t rsp0, rsp1, rsp2;
+    uint64_t reserved1;
+    uint64_t ist[7];
+    uint64_t reserved2;
+    uint16_t reserved3;
+    uint16_t iomap_base;
 } __attribute__((__packed__)) tss64;
 
 // Install and load the GDT (kernel + user code/data) and the TSS, and reload
@@ -30,12 +32,12 @@ void gdt_init(void);
 
 // Set the kernel stack the CPU switches to when an interrupt enters ring 0 from
 // ring 3.
-void tss_set_rsp0(uint64 rsp0);
+void tss_set_rsp0(uint64_t rsp0);
 
 // Assembly helpers (gdt64.asm).
-void gdt_flush(void* gdtr);      // lgdt + reload CS/DS/SS to kernel selectors
-void tss_flush(uint16 selector); // ltr
-void enter_user_mode(uint64 rip,
-                     uint64 rsp); // iretq into ring 3 (never returns)
+void gdt_flush(void* gdtr);        // lgdt + reload CS/DS/SS to kernel selectors
+void tss_flush(uint16_t selector); // ltr
+void enter_user_mode(uint64_t rip,
+                     uint64_t rsp); // iretq into ring 3 (never returns)
 
 #endif

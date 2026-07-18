@@ -1,7 +1,9 @@
 #ifndef __SERIAL_H
 #define __SERIAL_H
 
-#include <types.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <stdbool.h>
 
 // COM1 16550 UART. serial_init() sets it to 115200 8N1; the output helpers are
 // polled (no interrupts). Useful for headless boot logging under QEMU
@@ -11,8 +13,8 @@ void serial_putc(char c);
 void serial_print(const char* s);
 // Unformatted number helpers (the formatted printf lives in the not-yet-ported
 // scrn/vargs code); used for boot logging and fault dumps.
-void serial_dec(uint64 v);
-void serial_hex(uint64 v);
+void serial_dec(uint64_t v);
+void serial_hex(uint64_t v);
 
 // Base port and register offsets.
 #define SERIAL_COM1 0x3F8

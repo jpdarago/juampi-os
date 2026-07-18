@@ -6,7 +6,7 @@
 #define STACK_SZ 0x4000 // 16 KiB kernel stack per thread
 
 typedef struct {
-    uint64 rsp; // saved stack pointer when the thread is not running
+    uint64_t rsp; // saved stack pointer when the thread is not running
     bool used;
 } thread_t;
 
@@ -15,7 +15,7 @@ static int nthreads;
 static int current;
 
 // Defined in context.asm.
-extern void context_switch(uint64* old_rsp, uint64 new_rsp);
+extern void context_switch(uint64_t* old_rsp, uint64_t new_rsp);
 
 void sched_init(void)
 {
@@ -37,17 +37,17 @@ int thread_create(void (*entry)(void))
     // Build an initial stack whose top the context switch will "return" into:
     // six zeroed callee-saved slots then the entry address, so the switch's pop
     // sequence + ret lands at `entry`.
-    uint64 top = ((uint64)kmalloc(STACK_SZ) + STACK_SZ) & ~0xFull;
-    uint64* sp = (uint64*)top;
-    *--sp = (uint64)entry; // ret target
-    *--sp = 0;             // rbx
-    *--sp = 0;             // rbp
-    *--sp = 0;             // r12
-    *--sp = 0;             // r13
-    *--sp = 0;             // r14
-    *--sp = 0;             // r15
+    uint64_t top = ((uint64_t)kmalloc(STACK_SZ) + STACK_SZ) & ~0xFull;
+    uint64_t* sp = (uint64_t*)top;
+    *--sp = (uint64_t)entry; // ret target
+    *--sp = 0;               // rbx
+    *--sp = 0;               // rbp
+    *--sp = 0;               // r12
+    *--sp = 0;               // r13
+    *--sp = 0;               // r14
+    *--sp = 0;               // r15
 
-    threads[id].rsp = (uint64)sp;
+    threads[id].rsp = (uint64_t)sp;
     threads[id].used = true;
     return id;
 }

@@ -3,8 +3,8 @@
 static idt_entry idt[256];
 static idt_ptr idtr;
 
-static void idt_set(uint vector, uintptr handler, uint16 selector,
-                    uint8 type_attr)
+static void idt_set(uint32_t vector, uintptr_t handler, uint16_t selector,
+                    uint8_t type_attr)
 {
     idt[vector].offset_low = handler & 0xFFFF;
     idt[vector].selector = selector;
@@ -19,16 +19,16 @@ void idt_init(void)
 {
     // Gates use whatever 64-bit code selector we are currently running under
     // (Limine set up the GDT and loaded CS); read it rather than hard-coding.
-    uint16 cs;
+    uint16_t cs;
     __asm__ __volatile__("mov %%cs, %0" : "=r"(cs));
 
-    for (uint v = 0; v < 256; v++) {
+    for (uint32_t v = 0; v < 256; v++) {
         idt_set(v, isr_stub_table[v], cs, IDT_GATE_KERNEL);
     }
     // The int 0x80 syscall gate must be reachable from ring 3.
     idt_set(0x80, isr_stub_table[0x80], cs, IDT_GATE_USER);
 
     idtr.limit = sizeof(idt) - 1;
-    idtr.base = (uintptr)&idt;
+    idtr.base = (uintptr_t)&idt;
     __asm__ __volatile__("lidt %0" ::"m"(idtr));
 }

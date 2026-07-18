@@ -61,7 +61,7 @@ static void breakpoint_handler(interrupt_frame* f)
 
 // Milestone-3 worker threads: each bumps its own counter and yields, so a full
 // round-robin proves the context switch preserves every thread independently.
-static volatile uint64 wcounters[3];
+static volatile uint64_t wcounters[3];
 static void worker_a(void)
 {
     for (;;) {
@@ -92,12 +92,12 @@ static void syscall_handler(interrupt_frame* f)
     switch (f->rax) {
     case 1: { // write(buf = rdi, len = rsi)
         const char* buf = (const char*)f->rdi;
-        uint64 len = f->rsi;
-        if (!user_access_ok((uintptr)buf, len, false)) {
-            f->rax = (uint64)-1;
+        uint64_t len = f->rsi;
+        if (!user_access_ok((uintptr_t)buf, len, false)) {
+            f->rax = (uint64_t)-1;
             break;
         }
-        for (uint64 i = 0; i < len; i++) {
+        for (uint64_t i = 0; i < len; i++) {
             serial_putc(buf[i]);
         }
         f->rax = len;
@@ -109,7 +109,7 @@ static void syscall_handler(interrupt_frame* f)
             __asm__ __volatile__("cli; hlt");
         }
     default:
-        f->rax = (uint64)-1;
+        f->rax = (uint64_t)-1;
     }
 }
 
@@ -149,7 +149,7 @@ void kmain(void)
 
     // --- Milestone 1: frame allocator + 4-level paging + kernel heap --------
     // Use the largest usable region Limine reported as the physical frame pool.
-    uintptr best_base = 0, best_len = 0;
+    uintptr_t best_base = 0, best_len = 0;
     for (uint64_t i = 0; i < memmap_request.response->entry_count; i++) {
         struct limine_memmap_entry* e = memmap_request.response->entries[i];
         if (e->type == LIMINE_MEMMAP_USABLE && e->length > best_len) {
@@ -161,15 +161,15 @@ void kmain(void)
 
     // Self-test: distinct frames, a writable kernel-heap block, and a fresh
     // 4-level mapping that round-trips a value and resolves back to its frame.
-    uintptr free_before = frames_available();
-    uintptr f1 = frame_alloc();
-    uintptr f2 = frame_alloc();
+    uintptr_t free_before = frames_available();
+    uintptr_t f1 = frame_alloc();
+    uintptr_t f2 = frame_alloc();
     int* h = kmalloc(64);
     h[0] = 0x1234;
     h[15] = 0x5678;
 
-    uintptr scratch_va = 0xffffd00000000000ull;
-    uintptr scratch_pa = frame_alloc();
+    uintptr_t scratch_va = 0xffffd00000000000ull;
+    uintptr_t scratch_pa = frame_alloc();
     map_page(kernel_dir, scratch_va, scratch_pa, PAGEF_P | PAGEF_RW);
     volatile uint64_t* p = (volatile uint64_t*)scratch_va;
     *p = 0xCAFEBABEDEADBEEFull;
@@ -240,13 +240,13 @@ void kmain(void)
         early_halt("juampiOS: PANIC - no user module provided\n");
     }
     struct limine_file* mod = module_request.response->modules[0];
-    uint64 entry = elf64_load(mod->address);
+    uint64_t entry = elf64_load(mod->address);
     if (entry == 0) {
         early_halt("juampiOS: PANIC - user module is not a valid ELF64\n");
     }
 
     // Give the program a user stack, then drop to ring 3 at its entry point.
-    uintptr ustack_va = 0x7000000;
+    uintptr_t ustack_va = 0x7000000;
     map_page(kernel_dir, ustack_va, frame_alloc(),
              PAGEF_P | PAGEF_RW | PAGEF_U);
 

@@ -38,7 +38,7 @@ void serial_print(const char* s)
     }
 }
 
-void serial_dec(uint64 v)
+void serial_dec(uint64_t v)
 {
     char buf[21];
     int i = 20;
@@ -53,7 +53,7 @@ void serial_dec(uint64 v)
     serial_print(&buf[i + 1]);
 }
 
-void serial_hex(uint64 v)
+void serial_hex(uint64_t v)
 {
     serial_print("0x");
     for (int shift = 60; shift >= 0; shift -= 4) {

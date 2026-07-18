@@ -1,21 +1,23 @@
 #include <utils.h>
 
-// memset/memcpy were hand-written in the 32-bit optutils.asm; the x86-64 port
-// uses these portable C versions instead (the build passes -fno-builtin, so GCC
-// will not rewrite the loops back into memset/memcpy calls).
-void memset(void* dest, uchar val, uint count)
+// Portable C replacements for the old 32-bit optutils.asm routines, with the
+// standard C signatures (GCC may emit implicit calls to them for aggregate
+// copies even under -fno-builtin, and it assumes the standard ABI).
+void* memset(void* dest, int val, size_t count)
 {
-    uchar* d = dest;
-    for (uint i = 0; i < count; i++) {
-        d[i] = val;
+    uint8_t* d = dest;
+    for (size_t i = 0; i < count; i++) {
+        d[i] = (uint8_t)val;
     }
+    return dest;
 }
 
-void memcpy(void* dest, const void* src, uint count)
+void* memcpy(void* dest, const void* src, size_t count)
 {
-    uchar* d = dest;
-    const uchar* s = src;
-    for (uint i = 0; i < count; i++) {
+    uint8_t* d = dest;
+    const uint8_t* s = src;
+    for (size_t i = 0; i < count; i++) {
         d[i] = s[i];
     }
+    return dest;
 }

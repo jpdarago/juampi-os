@@ -1,7 +1,9 @@
 #ifndef __SCHED_H
 #define __SCHED_H
 
-#include <types.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <stdbool.h>
 
 // Minimal cooperative kernel-thread scheduler built on the software context
 // switch (context.asm). This is the long-mode replacement for the 32-bit

@@ -1,23 +1,25 @@
 #ifndef __ISR_H
 #define __ISR_H
 
-#include <types.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <stdbool.h>
 
 // x86-64 IDT gate descriptor: 16 bytes, with the 64-bit handler offset split
 // across three fields and an IST selector.
 typedef struct {
-    uint16 offset_low;
-    uint16 selector;
-    uint8 ist;       // bits 0-2: interrupt-stack-table index (0 = none)
-    uint8 type_attr; // present | DPL | gate type
-    uint16 offset_mid;
-    uint32 offset_high;
-    uint32 zero;
+    uint16_t offset_low;
+    uint16_t selector;
+    uint8_t ist;       // bits 0-2: interrupt-stack-table index (0 = none)
+    uint8_t type_attr; // present | DPL | gate type
+    uint16_t offset_mid;
+    uint32_t offset_high;
+    uint32_t zero;
 } __attribute__((__packed__)) idt_entry;
 
 typedef struct {
-    uint16 limit;
-    uint64 base;
+    uint16_t limit;
+    uint64_t base;
 } __attribute__((__packed__)) idt_ptr;
 
 // Gate type_attr values: present (0x80) | DPL | 0xE (64-bit interrupt gate).
@@ -28,10 +30,10 @@ typedef struct {
 // interrupt_dispatch. The general-purpose registers are in push order; vector
 // and error_code are pushed by the stubs; the rest is the CPU interrupt frame.
 typedef struct {
-    uint64 r15, r14, r13, r12, r11, r10, r9, r8;
-    uint64 rbp, rdi, rsi, rdx, rcx, rbx, rax;
-    uint64 vector, error_code;
-    uint64 rip, cs, rflags, rsp, ss;
+    uint64_t r15, r14, r13, r12, r11, r10, r9, r8;
+    uint64_t rbp, rdi, rsi, rdx, rcx, rbx, rax;
+    uint64_t vector, error_code;
+    uint64_t rip, cs, rflags, rsp, ss;
 } interrupt_frame;
 
 typedef void (*interrupt_handler)(interrupt_frame*);
@@ -39,14 +41,14 @@ typedef void (*interrupt_handler)(interrupt_frame*);
 // Build and load the IDT, wiring vectors 0-47 to the assembly stubs.
 void idt_init(void);
 // Register a C handler for an interrupt vector (0-255).
-void register_interrupt_handler(uint vector, interrupt_handler h);
+void register_interrupt_handler(uint32_t vector, interrupt_handler h);
 // Bring up the IDT, the 8259 PICs and the PIT timer (IRQ0 @ ~100 Hz).
 void interrupts_init(void);
 // Timer ticks since boot.
-uint64 timer_ticks(void);
+uint64_t timer_ticks(void);
 
 // The 48 assembly entry stubs (exceptions 0-31, IRQs 32-47), as an address
 // table indexed by vector.
-extern uintptr isr_stub_table[];
+extern uintptr_t isr_stub_table[];
 
 #endif
