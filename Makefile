@@ -53,13 +53,17 @@ LINKSCRIPT := $(BUILD_DIR)/linker.ld
 # objects; an executable-stack note is meaningless for a freestanding kernel.
 LDFLAGS   := -melf_x86_64 -z noexecstack -z max-page-size=0x1000 -T $(LINKSCRIPT)
 
-# Sources and (out-of-tree) objects. The sources live in a flat src/ dir.
+# Sources and (out-of-tree) objects. Kernel sources live in a flat src/ dir;
+# src/flanterm/ is the vendored flanterm terminal emulator (kept verbatim).
 CSOURCES   := $(wildcard $(SRC_DIR)/*.c)
 ASMSOURCES := $(wildcard $(SRC_DIR)/*.asm)
+FLANTERM_CSOURCES := $(SRC_DIR)/flanterm/flanterm.c \
+	$(SRC_DIR)/flanterm/flanterm_backends/fb.c
 COBJS      := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CSOURCES))
 ASMOBJS    := $(patsubst $(SRC_DIR)/%.asm,$(OBJ_DIR)/%.o,$(ASMSOURCES))
-OBJS       := $(COBJS) $(ASMOBJS)
-DEPS       := $(COBJS:.o=.d)
+FLANTERM_OBJS := $(patsubst $(SRC_DIR)/flanterm/%.c,$(OBJ_DIR)/flanterm/%.o,$(FLANTERM_CSOURCES))
+OBJS       := $(COBJS) $(ASMOBJS) $(FLANTERM_OBJS)
+DEPS       := $(COBJS:.o=.d) $(FLANTERM_OBJS:.o=.d)
 
 KERNEL := kernel.bin
 
@@ -89,6 +93,12 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.asm | $(OBJ_DIR)
 	$(ASM) $(NASMFLAGS) -o $@ $<
+
+# Vendored flanterm: compiled with our kernel flags but without our warning
+# gauntlet (it is third-party code kept verbatim).
+$(OBJ_DIR)/flanterm/%.o: $(SRC_DIR)/flanterm/%.c | $(OBJ_DIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -w $(CPPFLAGS) -c -o $@ $<
 
 $(KERNEL): $(OBJS)
 	$(LD) $(LDFLAGS) -o $@ $^

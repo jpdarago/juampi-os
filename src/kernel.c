@@ -13,6 +13,7 @@
 #include <sched.h>
 #include <gdt64.h>
 #include <shell.h>
+#include <console.h>
 
 // --- Limine boot protocol ---------------------------------------------------
 // The kernel is booted by Limine (see docs/x86-64-port.md), which hands us a
@@ -32,6 +33,10 @@ __attribute__((
         section(".limine_requests"))) static volatile struct limine_hhdm_request
         hhdm_request = {.id = LIMINE_HHDM_REQUEST, .revision = 0};
 
+__attribute__((used, section(".limine_requests"))) static volatile struct
+        limine_framebuffer_request fb_request = {
+                .id = LIMINE_FRAMEBUFFER_REQUEST, .revision = 0};
+
 // Section markers that delimit the request list for the bootloader's scan.
 __attribute__((used,
                section(".limine_requests_"
@@ -43,7 +48,7 @@ __attribute__((used,
 // Minimal panic for the early boot path: print to serial and halt.
 static void early_halt(const char* msg)
 {
-    serial_print(msg);
+    console_print(msg);
     while (1) {
         __asm__ __volatile__("hlt");
     }
@@ -88,8 +93,6 @@ static void worker_c(void)
 void kmain(void)
 {
     serial_init();
-    serial_print("\n=== juampiOS booting (COM1 serial console) ===\n");
-    serial_print("juampiOS: running in 64-bit long mode (booted by Limine)\n");
 
     if (!LIMINE_BASE_REVISION_SUPPORTED) {
         early_halt("juampiOS: PANIC - Limine base revision unsupported\n");
@@ -98,9 +101,18 @@ void kmain(void)
         early_halt("juampiOS: PANIC - Limine did not answer boot requests\n");
     }
 
+    // Bring up the framebuffer terminal as early as possible so the whole boot
+    // log is visible on screen; output is mirrored to serial throughout.
+    if (fb_request.response != NULL &&
+        fb_request.response->framebuffer_count > 0) {
+        console_init(fb_request.response->framebuffers[0]);
+    }
+    console_print("\n=== juampiOS booting (framebuffer + COM1 console) ===\n");
+    console_print("juampiOS: running in 64-bit long mode (booted by Limine)\n");
+
     // Prove the protocol works end to end: report the higher-half offset and
     // the usable-RAM total the bootloader gave us.
-    serial_print("juampiOS: Limine boot protocol OK\n");
+    console_print("juampiOS: Limine boot protocol OK\n");
     uint64_t usable = 0;
     for (uint64_t i = 0; i < memmap_request.response->entry_count; i++) {
         struct limine_memmap_entry* e = memmap_request.response->entries[i];
@@ -108,13 +120,13 @@ void kmain(void)
             usable += e->length;
         }
     }
-    serial_print("juampiOS: HHDM offset=");
-    serial_hex(hhdm_request.response->offset);
-    serial_print(", memmap entries=");
-    serial_dec(memmap_request.response->entry_count);
-    serial_print(", usable RAM=");
-    serial_dec(usable / (1024 * 1024));
-    serial_print(" MiB\n");
+    console_print("juampiOS: HHDM offset=");
+    console_hex(hhdm_request.response->offset);
+    console_print(", memmap entries=");
+    console_dec(memmap_request.response->entry_count);
+    console_print(", usable RAM=");
+    console_dec(usable / (1024 * 1024));
+    console_print(" MiB\n");
 
     // --- Milestone 1: frame allocator + 4-level paging + kernel heap --------
     // Use the largest usable region Limine reported as the physical frame pool.
@@ -162,12 +174,12 @@ void kmain(void)
               av[3] == 0xA5A5A5A5u && *p == 0xCAFEBABEDEADBEEFull &&
               physical_address(kernel_dir, scratch_va) == scratch_pa;
 
-    serial_print("juampiOS: free frames=");
-    serial_dec(free_before);
-    serial_print(", heap+paging self-test ");
-    serial_print(ok ? "OK\n" : "FAILED\n");
+    console_print("juampiOS: free frames=");
+    console_dec(free_before);
+    console_print(", heap+paging self-test ");
+    console_print(ok ? "OK\n" : "FAILED\n");
     if (ok) {
-        serial_print("juampiOS: memory subsystem OK\n");
+        console_print("juampiOS: memory subsystem OK\n");
     }
 
     // --- Milestone 2: interrupts (IDT, exceptions, PIC, PIT timer) -----------
@@ -186,13 +198,13 @@ void kmain(void)
         __asm__ __volatile__("hlt");
     }
 
-    serial_print("juampiOS: int3 handled=");
-    serial_dec(bp_hits);
-    serial_print(", timer ticks=");
-    serial_dec(timer_ticks());
-    serial_print("\n");
+    console_print("juampiOS: int3 handled=");
+    console_dec(bp_hits);
+    console_print(", timer ticks=");
+    console_dec(timer_ticks());
+    console_print("\n");
     if (bp_hits == 1 && timer_ticks() >= 3) {
-        serial_print("juampiOS: interrupts OK\n");
+        console_print("juampiOS: interrupts OK\n");
     }
 
     // --- Milestone 3: software context switch (kernel threads) --------------
@@ -207,18 +219,18 @@ void kmain(void)
         yield();
     }
 
-    serial_print("juampiOS: thread ticks a=");
-    serial_dec(wcounters[0]);
-    serial_print(" b=");
-    serial_dec(wcounters[1]);
-    serial_print(" c=");
-    serial_dec(wcounters[2]);
-    serial_print("\njuampiOS: context switch OK\n");
+    console_print("juampiOS: thread ticks a=");
+    console_dec(wcounters[0]);
+    console_print(" b=");
+    console_dec(wcounters[1]);
+    console_print(" c=");
+    console_dec(wcounters[2]);
+    console_print("\njuampiOS: context switch OK\n");
 
     // Boot self-tests done; hand control to the interactive shell. (The ring-3
     // ELF64 path from the port stays available in elf64.c / gdt64.c for when
     // isolation is wanted, but the kernel shell runs in ring 0 for full
     // access.)
-    serial_print("juampiOS: boot complete\n");
+    console_print("juampiOS: boot complete\n");
     shell_run();
 }

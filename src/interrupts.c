@@ -6,7 +6,7 @@
 
 #include <idt.h>
 #include <ports.h>
-#include <serial.h>
+#include <console.h>
 
 // 8259 PIC ports and commands.
 #define PIC1_CMD 0x20
@@ -94,21 +94,21 @@ static void exception_panic(interrupt_frame* f)
 {
     uint64_t cr2;
     __asm__ __volatile__("mov %%cr2, %0" : "=r"(cr2));
-    serial_print("\n*** CPU EXCEPTION ***\n  vector=");
-    serial_dec(f->vector);
-    serial_print(" error=");
-    serial_hex(f->error_code);
-    serial_print("\n  rip=");
-    serial_hex(f->rip);
-    serial_print(" cs=");
-    serial_hex(f->cs);
-    serial_print(" rflags=");
-    serial_hex(f->rflags);
-    serial_print("\n  rsp=");
-    serial_hex(f->rsp);
-    serial_print(" cr2=");
-    serial_hex(cr2);
-    serial_print("\n");
+    console_print("\n*** CPU EXCEPTION ***\n  vector=");
+    console_dec(f->vector);
+    console_print(" error=");
+    console_hex(f->error_code);
+    console_print("\n  rip=");
+    console_hex(f->rip);
+    console_print(" cs=");
+    console_hex(f->cs);
+    console_print(" rflags=");
+    console_hex(f->rflags);
+    console_print("\n  rsp=");
+    console_hex(f->rsp);
+    console_print(" cr2=");
+    console_hex(cr2);
+    console_print("\n");
     for (;;) {
         __asm__ __volatile__("cli; hlt");
     }
