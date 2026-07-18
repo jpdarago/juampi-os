@@ -16,6 +16,8 @@
 #include <console.h>
 #include <keyboard.h>
 
+#include <printf/printf.h>
+
 // --- Limine boot protocol ---------------------------------------------------
 // The kernel is booted by Limine (see docs/x86-64-port.md), which hands us a
 // 64-bit long-mode environment with a higher-half direct map already set up.
@@ -307,6 +309,14 @@ void kmain(void)
     console_dec((uint64_t)(worker_fp * 10.0)); // 25
     console_print(fp_ok ? "\njuampiOS: floating point OK\n"
                         : "\njuampiOS: floating point FAILED\n");
+
+    // Vendored float-capable printf (the number formatting Lua will need).
+    char pbuf[64];
+    snprintf(pbuf, sizeof(pbuf), "%.4f pi, %d, %#x, %g", 3.14159265, -42,
+             0xBEEF, 1.5e-3);
+    console_print("juampiOS: printf test: ");
+    console_print(pbuf);
+    console_print("\n");
 
     // Boot self-tests done; hand control to the interactive shell. (The ring-3
     // ELF64 path from the port stays available in elf64.c / gdt64.c for when

@@ -2,8 +2,17 @@
 #include <serial.h>
 #include <keyboard.h>
 
+#include <printf/printf.h>
+
 #include "flanterm/flanterm.h"
 #include "flanterm/flanterm_backends/fb.h"
+
+// Output sink for the vendored printf (printf/sprintf write here). Routes a
+// single character to the console.
+void putchar_(char c)
+{
+    console_putc(c);
+}
 
 // The single flanterm instance, backed by its internal static bump pool (NULL
 // malloc/free below), so the console needs no kernel heap and can come up

@@ -38,7 +38,10 @@ CFLAGS := -O2 -std=c11 -Werror -Wall -Wextra \
 	-nostdlib -fno-builtin -nostartfiles \
 	-nodefaultlibs -fno-stack-protector -I$(INCLUDE_DIR) \
 	-mno-mmx -mno-3dnow \
-	-mno-red-zone -mcmodel=kernel -fno-pic -fno-pie
+	-mno-red-zone -mcmodel=kernel -fno-pic -fno-pie \
+	-DPRINTF_ALIAS_STANDARD_FUNCTION_NAMES_HARD=1
+# The last flag makes the vendored printf provide the standard names
+# (printf/snprintf/vsnprintf/...) as real symbols; the kernel supplies putchar_.
 # SSE/SSE2 are enabled (for double arithmetic, e.g. Lua): the entry stub turns
 # on CR4.OSFXSR before any C runs, and the context switch saves FP/SSE state
 # with fxsave/fxrstor. MMX/3DNow stay off (legacy, unused). -mno-red-zone is
@@ -57,13 +60,15 @@ LDFLAGS   := -melf_x86_64 -z noexecstack -z max-page-size=0x1000 -T $(LINKSCRIPT
 # src/flanterm/ is the vendored flanterm terminal emulator (kept verbatim).
 CSOURCES   := $(wildcard $(SRC_DIR)/*.c)
 ASMSOURCES := $(wildcard $(SRC_DIR)/*.asm)
-FLANTERM_CSOURCES := $(SRC_DIR)/flanterm/flanterm.c \
-	$(SRC_DIR)/flanterm/flanterm_backends/fb.c
+# Vendored third-party C (flanterm terminal, printf), compiled verbatim.
+VENDOR_CSOURCES := $(SRC_DIR)/flanterm/flanterm.c \
+	$(SRC_DIR)/flanterm/flanterm_backends/fb.c \
+	$(SRC_DIR)/printf/printf.c
 COBJS      := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CSOURCES))
 ASMOBJS    := $(patsubst $(SRC_DIR)/%.asm,$(OBJ_DIR)/%.o,$(ASMSOURCES))
-FLANTERM_OBJS := $(patsubst $(SRC_DIR)/flanterm/%.c,$(OBJ_DIR)/flanterm/%.o,$(FLANTERM_CSOURCES))
-OBJS       := $(COBJS) $(ASMOBJS) $(FLANTERM_OBJS)
-DEPS       := $(COBJS:.o=.d) $(FLANTERM_OBJS:.o=.d)
+VENDOR_OBJS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(VENDOR_CSOURCES))
+OBJS       := $(COBJS) $(ASMOBJS) $(VENDOR_OBJS)
+DEPS       := $(COBJS:.o=.d) $(VENDOR_OBJS:.o=.d)
 
 KERNEL := kernel.bin
 
@@ -94,9 +99,13 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.asm | $(OBJ_DIR)
 	$(ASM) $(NASMFLAGS) -o $@ $<
 
-# Vendored flanterm: compiled with our kernel flags but without our warning
-# gauntlet (it is third-party code kept verbatim).
+# Vendored third-party C (flanterm, printf): compiled with our kernel flags but
+# without our warning gauntlet (kept verbatim). The %-stem includes the subdir.
 $(OBJ_DIR)/flanterm/%.o: $(SRC_DIR)/flanterm/%.c | $(OBJ_DIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -w $(CPPFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/printf/%.o: $(SRC_DIR)/printf/%.c | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w $(CPPFLAGS) -c -o $@ $<
 

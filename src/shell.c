@@ -3,6 +3,8 @@
 #include <frames.h>
 #include <idt.h>
 
+#include <printf/printf.h>
+
 #include <stddef.h>
 #include <stdbool.h>
 
@@ -23,7 +25,8 @@ static void cmd_help(void)
                   "  help          this message\n"
                   "  echo <text>   print text\n"
                   "  mem           free physical frames\n"
-                  "  ticks         timer ticks since boot\n");
+                  "  ticks         timer ticks since boot\n"
+                  "  pi            print pi (floating-point printf demo)\n");
 }
 
 // Evaluate one line. This is the hook the Lua interpreter replaces.
@@ -41,6 +44,12 @@ static void shell_eval(char* line)
     } else if (str_eq(line, "ticks")) {
         console_dec(timer_ticks());
         console_print("\n");
+    } else if (str_eq(line, "pi")) {
+        char buf[64];
+        // 355/113 is a classic rational approximation of pi.
+        snprintf(buf, sizeof(buf), "pi ~= %.10f (355/113 = %.10f)\n",
+                 3.14159265358979, 355.0 / 113.0);
+        console_print(buf);
     } else if (line[0] == 'e' && line[1] == 'c' && line[2] == 'h' &&
                line[3] == 'o' && (line[4] == ' ' || line[4] == '\0')) {
         console_print(line[4] == ' ' ? line + 5 : "");

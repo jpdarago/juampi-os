@@ -6,9 +6,9 @@ repos:
     hooks:
       - id: clang-format
         # Format C sources and headers only (NASM is not supported).
-        # include/limine.h and src/flanterm/ are vendored verbatim.
+        # limine.h, flanterm and printf are vendored verbatim.
         files: \.(c|h)$
-        exclude: ^(include/limine\.h|src/flanterm/)
+        exclude: ^(include/limine\.h|src/flanterm/|src/printf/|include/printf/)
         types_or: [c]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
