@@ -12,7 +12,6 @@
 #define PAGEF_P 1  // present
 #define PAGEF_RW 2 // writable
 #define PAGEF_U 4  // user-accessible
-#define PAGEF_FULL (PAGEF_P | PAGEF_RW | PAGEF_U)
 
 // x86-64 uses 4-level paging: PML4 -> PDPT -> PD -> PT, each a 512-entry table
 // of 8-byte entries. One entry type covers every level.
@@ -38,7 +37,6 @@ typedef struct page_directory {
 #define PAGE_OFFSET(x) ((x) & 0xFFF)
 
 #define ALIGN(x) ((x) & ~0xFFFull)
-#define NEXT_ALIGN(x) ALIGN((x) + 0x1000)
 
 extern page_directory *current_directory, *kernel_dir;
 

@@ -3,23 +3,15 @@
 
 #define DWORD_SZ 32
 
-// This function initializes only the offset
-// parameters of a bitset. It is because it is used for minix
-// where we do not want to clear the final chunk of the bitmap
-// because minix already gives it to us correctly
-uint32* bitset_load(bitset* b, void* start, uint size)
+// Initializes the bitset so that it uses the bitmap loaded in the chunk of
+// memory that starts at start. The size is the number of things to manage; the
+// bits past `size` in the final word are marked used so a search never returns
+// them. Returns the address just past the bitmap.
+uint32* bitset_init(bitset* b, void* start, uint size)
 {
     b->start = start;
     b->size = CEIL(size, DWORD_SZ);
-    return (uint32*)(b->start + b->size);
-}
-
-// Initializes the bitset so that it uses the bitmap
-// loaded in the chunk of memory that starts at start.
-// The size is the number of things to manage
-uint32* bitset_init(bitset* b, void* start, uint size)
-{
-    uint32* res = bitset_load(b, start, size);
+    uint32* res = (uint32*)(b->start + b->size);
     memset(start, 0, size / 8);
     if (size % DWORD_SZ)
         b->start[size / DWORD_SZ] = ~((1 << (size % DWORD_SZ)) - 1);

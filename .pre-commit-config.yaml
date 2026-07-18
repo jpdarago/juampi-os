@@ -6,7 +6,9 @@ repos:
     hooks:
       - id: clang-format
         # Format C sources and headers only (NASM is not supported).
+        # include/limine.h is vendored verbatim from the Limine project.
         files: \.(c|h)$
+        exclude: ^include/limine\.h$
         types_or: [c]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks

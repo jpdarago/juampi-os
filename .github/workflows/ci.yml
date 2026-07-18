@@ -27,42 +27,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-multilib nasm
+        run: sudo apt-get update && sudo apt-get install -y gcc nasm
       - name: Build kernel
         run: make kernel.bin
-      - name: Build userland (bootstrap init)
-        run: make -C build/bootstrap
-      - name: Build userland tasks
-        run: make -C build/tasks
+      - name: Build userland module
+        run: make build/user/hello.elf
 
   test:
-    name: qemu integration tests
+    name: qemu boot test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install toolchain + QEMU
+      - name: Install toolchain + QEMU + OVMF + mtools
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-multilib nasm qemu-system-x86
-      - name: Run in-kernel tests under QEMU
-        run: make test
-      - name: Build the Minix disk image (userspace, no sudo)
-        run: make image
-      - name: Boot smoke test (full OS to userland)
-        run: ./tests/boot-smoke.sh
-
-  cross-macos:
-    name: cross build + tests (macOS)
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install i686-elf cross toolchain + QEMU
+          sudo apt-get install -y gcc nasm qemu-system-x86 ovmf mtools
+      - name: Fetch Limine (binary release branch)
+        run: git clone --branch=v9.x-binary --depth=1 https://github.com/limine-bootloader/limine.git /tmp/limine
+      - name: Boot smoke test (kernel through to userland)
         run: |
-          brew update
-          brew install i686-elf-gcc i686-elf-binutils nasm qemu coreutils
-      - name: Build kernel (cross)
-        run: make CROSS=i686-elf- kernel.bin
-      - name: Run in-kernel tests under QEMU (cross)
-        run: make CROSS=i686-elf- test
+          export LIMINE_DIR=/tmp/limine
+          make test OVMF_FD=/usr/share/ovmf/OVMF.fd

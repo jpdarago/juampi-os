@@ -1,5 +1,0 @@
-title JuampiOS
-root (fd0)
-kernel /kernel.bin
-module (fd0)/init
-boot

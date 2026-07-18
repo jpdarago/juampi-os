@@ -10,6 +10,5 @@ void frames_init(uintptr phys_base, uintptr len);
 uintptr frame_alloc(void);
 void frame_free(uintptr frame);
 uintptr frames_available(void);
-void frame_add_alias(uintptr frame);
 
 #endif
