@@ -1,5 +1,6 @@
 #include <console.h>
 #include <serial.h>
+#include <keyboard.h>
 
 #include "flanterm/flanterm.h"
 #include "flanterm/flanterm_backends/fb.h"
@@ -68,11 +69,29 @@ void console_hex(uint64_t v)
     }
 }
 
+// Blocking read from whichever input source has a byte first: the PS/2
+// keyboard ring buffer (fed by IRQ 1) or the serial FIFO. hlt naps until the
+// next interrupt (timer, keyboard) rather than spinning hot.
+static char console_getc(void)
+{
+    for (;;) {
+        int c = keyboard_poll();
+        if (c >= 0) {
+            return (char)c;
+        }
+        c = serial_poll();
+        if (c >= 0) {
+            return (char)c;
+        }
+        __asm__ __volatile__("hlt");
+    }
+}
+
 size_t console_read_line(char* buf, size_t max)
 {
     size_t n = 0;
     for (;;) {
-        char c = serial_getc();
+        char c = console_getc();
         if (c == '\r' || c == '\n') {
             console_print("\n");
             buf[n] = '\0';

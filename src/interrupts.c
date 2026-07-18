@@ -75,6 +75,13 @@ static void pic_eoi(uint32_t irq)
     outb(PIC1_CMD, PIC_EOI);
 }
 
+void irq_unmask(uint32_t irq)
+{
+    uint16_t port = irq < 8 ? PIC1_DATA : PIC2_DATA;
+    uint8_t bit = 1 << (irq & 7);
+    outb(port, inb(port) & ~bit);
+}
+
 static void pit_init(uint32_t hz)
 {
     uint32_t divisor = PIT_FREQUENCY / hz;

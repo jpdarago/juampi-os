@@ -130,10 +130,11 @@ run: boot.img
 	$(QEMU) -bios .ovmf.fd -drive file=boot.img,format=raw -m 512 \
 		-display $(QEMU_DISPLAY) -serial stdio -no-reboot
 
-# Boot the Limine image headless and assert the kernel completed its boot
-# self-tests through to userland (greps the serial log for the marker).
+# Boot the Limine image headless and drive the shell over both input paths:
+# serial (boot-smoke) and the PS/2 keyboard via QMP send-key (kbd-smoke).
 test: boot.img
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/boot-smoke.sh
+	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/kbd-smoke.sh
 
 # --- Formatting / linting ---------------------------------------------------
 

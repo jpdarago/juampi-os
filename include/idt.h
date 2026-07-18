@@ -44,6 +44,8 @@ void idt_init(void);
 void register_interrupt_handler(uint32_t vector, interrupt_handler h);
 // Bring up the IDT, the 8259 PICs and the PIT timer (IRQ0 @ ~100 Hz).
 void interrupts_init(void);
+// Clear the PIC mask bit for the given IRQ line (0-15).
+void irq_unmask(uint32_t irq);
 // Timer ticks since boot.
 uint64_t timer_ticks(void);
 

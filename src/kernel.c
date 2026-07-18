@@ -14,6 +14,7 @@
 #include <gdt64.h>
 #include <shell.h>
 #include <console.h>
+#include <keyboard.h>
 
 // --- Limine boot protocol ---------------------------------------------------
 // The kernel is booted by Limine (see docs/x86-64-port.md), which hands us a
@@ -188,6 +189,7 @@ void kmain(void)
     // stack used on the ring-3 -> ring-0 transition in milestone 4.
     gdt_init(mem);
     interrupts_init();
+    keyboard_init(); // PS/2 keyboard on IRQ 1 feeds the console input path
     register_interrupt_handler(3, breakpoint_handler); // int3 -> non-fatal
     __asm__ __volatile__("sti");
 

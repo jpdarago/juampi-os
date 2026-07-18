@@ -17,9 +17,9 @@ void console_print(const char* s);
 void console_dec(uint64_t v);
 void console_hex(uint64_t v);
 
-// Blocking line input with echo and basic editing (backspace). Input currently
-// comes from serial; the PS/2 keyboard is multiplexed in next. Returns the
-// line length.
+// Blocking line input with echo and basic editing (backspace), reading from
+// whichever input source has a byte first (PS/2 keyboard or serial). Returns
+// the line length.
 size_t console_read_line(char* buf, size_t max);
 
 #endif
