@@ -37,3 +37,26 @@ void serial_print(const char* s)
         s++;
     }
 }
+
+void serial_dec(uint64 v)
+{
+    char buf[21];
+    int i = 20;
+    buf[i--] = '\0';
+    if (v == 0) {
+        buf[i--] = '0';
+    }
+    while (v > 0) {
+        buf[i--] = '0' + (v % 10);
+        v /= 10;
+    }
+    serial_print(&buf[i + 1]);
+}
+
+void serial_hex(uint64 v)
+{
+    serial_print("0x");
+    for (int shift = 60; shift >= 0; shift -= 4) {
+        serial_putc("0123456789abcdef"[(v >> shift) & 0xF]);
+    }
+}

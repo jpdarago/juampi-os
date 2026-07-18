@@ -77,8 +77,11 @@ PORT64_CSOURCES := \
 	$(SRC_DIR)/bitset.c \
 	$(SRC_DIR)/frames.c \
 	$(SRC_DIR)/paging.c \
-	$(SRC_DIR)/memory.c
-PORT64_ASMSOURCES :=
+	$(SRC_DIR)/memory.c \
+	$(SRC_DIR)/idt.c \
+	$(SRC_DIR)/interrupts.c
+PORT64_ASMSOURCES := \
+	$(SRC_DIR)/isr.asm
 
 CSOURCES   := $(PORT64_CSOURCES)
 ASMSOURCES := $(PORT64_ASMSOURCES)

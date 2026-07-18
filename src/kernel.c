@@ -62,29 +62,12 @@ static void early_halt(const char* msg)
     }
 }
 
-// Tiny serial number printers for the milestone-0 boot proof (the real printf
-// lives in the not-yet-ported scrn/vargs code).
-static void serial_u64(uint64_t v)
+// Non-fatal breakpoint (int3) handler used by the milestone-2 self-test.
+static volatile int bp_hits;
+static void breakpoint_handler(interrupt_frame* f)
 {
-    char buf[21];
-    int i = 20;
-    buf[i--] = '\0';
-    if (v == 0) {
-        buf[i--] = '0';
-    }
-    while (v > 0) {
-        buf[i--] = '0' + (v % 10);
-        v /= 10;
-    }
-    serial_print(&buf[i + 1]);
-}
-
-static void serial_hex64(uint64_t v)
-{
-    serial_print("0x");
-    for (int shift = 60; shift >= 0; shift -= 4) {
-        serial_putc("0123456789abcdef"[(v >> shift) & 0xF]);
-    }
+    (void)f;
+    bp_hits++;
 }
 
 #ifdef KTEST
@@ -122,11 +105,11 @@ void kmain(void)
         }
     }
     serial_print("juampiOS: HHDM offset=");
-    serial_hex64(hhdm_request.response->offset);
+    serial_hex(hhdm_request.response->offset);
     serial_print(", memmap entries=");
-    serial_u64(memmap_request.response->entry_count);
+    serial_dec(memmap_request.response->entry_count);
     serial_print(", usable RAM=");
-    serial_u64(usable / (1024 * 1024));
+    serial_dec(usable / (1024 * 1024));
     serial_print(" MiB\n");
 
     // --- Milestone 1: frame allocator + 4-level paging + kernel heap --------
@@ -161,11 +144,32 @@ void kmain(void)
               physical_address(kernel_dir, scratch_va) == scratch_pa;
 
     serial_print("juampiOS: free frames=");
-    serial_u64(free_before);
+    serial_dec(free_before);
     serial_print(", heap+paging self-test ");
     serial_print(ok ? "OK\n" : "FAILED\n");
     if (ok) {
         serial_print("juampiOS: memory subsystem OK\n");
+    }
+
+    // --- Milestone 2: interrupts (IDT, exceptions, PIC, PIT timer) -----------
+    interrupts_init();
+    register_interrupt_handler(3, breakpoint_handler); // int3 -> non-fatal
+    __asm__ __volatile__("sti");
+
+    // A breakpoint trap must be caught and returned from cleanly...
+    __asm__ __volatile__("int3");
+    // ...and the timer IRQ must fire and return, advancing the tick count.
+    while (timer_ticks() < 3) {
+        __asm__ __volatile__("hlt");
+    }
+
+    serial_print("juampiOS: int3 handled=");
+    serial_dec(bp_hits);
+    serial_print(", timer ticks=");
+    serial_dec(timer_ticks());
+    serial_print("\n");
+    if (bp_hits == 1 && timer_ticks() >= 3) {
+        serial_print("juampiOS: interrupts OK\n");
     }
 
     while (1) {

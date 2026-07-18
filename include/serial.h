@@ -9,6 +9,10 @@
 void serial_init(void);
 void serial_putc(char c);
 void serial_print(const char* s);
+// Unformatted number helpers (the formatted printf lives in the not-yet-ported
+// scrn/vargs code); used for boot logging and fault dumps.
+void serial_dec(uint64 v);
+void serial_hex(uint64 v);
 
 // Base port and register offsets, exposed for the loopback self-test.
 #define SERIAL_COM1 0x3F8

@@ -2,93 +2,51 @@
 #define __ISR_H
 
 #include <types.h>
-#include <proc.h>
 
-struct idt_entry {
-    uint16 offset_l;
+// x86-64 IDT gate descriptor: 16 bytes, with the 64-bit handler offset split
+// across three fields and an IST selector.
+typedef struct {
+    uint16 offset_low;
     uint16 selector;
-    uint8 __padding__;
-    uint8 type : 5;
-    uint8 dpl : 2;
-    uint8 p : 1;
-    uint16 offset_h;
-} __attribute__((__packed__));
-typedef struct idt_entry idt_entry;
+    uint8 ist;       // bits 0-2: interrupt-stack-table index (0 = none)
+    uint8 type_attr; // present | DPL | gate type
+    uint16 offset_mid;
+    uint32 offset_high;
+    uint32 zero;
+} __attribute__((__packed__)) idt_entry;
 
-struct idt_entry_flags {
-    uint8 d : 1;
-    uint8 dpl : 2;
-    uint8 type : 5;
-} __attribute__((__packed__));
-typedef struct idt_entry_flags idt_entry_flags;
+typedef struct {
+    uint16 limit;
+    uint64 base;
+} __attribute__((__packed__)) idt_ptr;
 
-struct idt_desc {
-    uint16 idt_limit;
-    uint32 idt_base;
-} __attribute__((__packed__));
-typedef struct idt_desc idt_desc;
+// Gate type_attr values: present (0x80) | DPL | 0xE (64-bit interrupt gate).
+#define IDT_GATE_KERNEL 0x8E // present, DPL 0, interrupt gate
+#define IDT_GATE_USER 0xEE   // present, DPL 3 (allows int from user, e.g. 0x80)
 
-enum idt_descriptor_type {
-    IDT_TASK_GATE = 5,
-    IDT_INT_GATE = 6,
-    IDT_TRAP_GATE = 7
-};
-typedef enum idt_descriptor_type idt_descriptor_type;
+// The register frame the assembly stubs build on the stack and hand to
+// interrupt_dispatch. The general-purpose registers are in push order; vector
+// and error_code are pushed by the stubs; the rest is the CPU interrupt frame.
+typedef struct {
+    uint64 r15, r14, r13, r12, r11, r10, r9, r8;
+    uint64 rbp, rdi, rsi, rdx, rcx, rbx, rax;
+    uint64 vector, error_code;
+    uint64 rip, cs, rflags, rsp, ss;
+} interrupt_frame;
 
-extern idt_entry idt[];
-extern idt_desc IDT_DESC;
+typedef void (*interrupt_handler)(interrupt_frame*);
 
-// Loads a descriptor of the idt.
-extern void idt_load_desc(uint, uint, uint16, idt_entry_flags);
-// Brings up the exception idt so that the system can use it.
-extern void idt_init_exceptions(void);
-extern void idt_init_interrupts(void);
-extern void idt_init_syscalls(void);
-// Loads the idt. It is in assembler, because that is how it has to be. It is
-// found in loader.asm
-extern void idt_flush(void);
+// Build and load the IDT, wiring vectors 0-47 to the assembly stubs.
+void idt_init(void);
+// Register a C handler for an interrupt vector (0-255).
+void register_interrupt_handler(uint vector, interrupt_handler h);
+// Bring up the IDT, the 8259 PICs and the PIT timer (IRQ0 @ ~100 Hz).
+void interrupts_init(void);
+// Timer ticks since boot.
+uint64 timer_ticks(void);
 
-// Exception handlers
-extern void _isr0(void);
-extern void _isr1(void);
-extern void _isr2(void);
-extern void _isr3(void);
-extern void _isr4(void);
-extern void _isr5(void);
-extern void _isr6(void);
-extern void _isr7(void);
-extern void _isr8(void);
-extern void _isr9(void);
-extern void _isr10(void);
-extern void _isr11(void);
-extern void _isr12(void);
-extern void _isr13(void);
-extern void _isr14(void);
-extern void _isr15(void);
-extern void _isr16(void);
-extern void _isr17(void);
-extern void _isr18(void);
-extern void _isr19(void);
-
-// Interrupts
-extern void _irq0(void); // Clock tick
-extern void _irq1(void);
-extern void _irq2(void);
-extern void _irq3(void);
-extern void _irq4(void);
-extern void _irq5(void);
-extern void _irq6(void);
-extern void _irq7(void);
-extern void _irq8(void);
-extern void _irq9(void);
-extern void _irq10(void);
-extern void _irq11(void);
-extern void _irq12(void);
-extern void _irq13(void);
-extern void _irq14(void);
-extern void _irq15(void);
-
-// Syscall handler
-extern void _isr0x80(void);
+// The 48 assembly entry stubs (exceptions 0-31, IRQs 32-47), as an address
+// table indexed by vector.
+extern uintptr isr_stub_table[];
 
 #endif

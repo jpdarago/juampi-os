@@ -105,22 +105,29 @@ memory, and `frame_alloc` yields distinct frames.
 **Risk (realised):** largest code volume; the HHDM model actually *simplified*
 page-table editing versus the 32-bit temporary-mapping dance.
 
-## Milestone 2 — 64-bit IDT and interrupt/exception entry
+## Milestone 2 — 64-bit IDT and interrupt/exception entry  ✅ DONE
 
-**Checkpoint:** exceptions and the timer IRQ fire and return cleanly.
+**Checkpoint:** a breakpoint trap is caught and returned from, and the timer IRQ
+fires and returns cleanly. Validated by `make test` (marker `interrupts OK`):
+`int3 handled=1`, `timer ticks=3`.
 
-- `include/idt.h`, `src/idt.c`: `idt_entry` becomes 16 bytes — offset split into
-  low/mid/high (bits 0-15 / 16-31 / 32-63) plus the `ist` field. Descriptor base
-  widens.
-- `src/interrupts_entry.asm`, `src/exception_entry.asm`,
-  `src/syscalls_entry.asm`, `include/mode_switch.inc`: `pushad`/`popad` do not
-  exist in 64-bit — push/pop all 15 GP registers manually. `iretd → iretq`. The
-  long-mode interrupt frame always pushes SS:RSP. Most of the ds/es/fs/gs
-  juggling disappears (long mode ignores those segment bases); it collapses to a
-  `swapgs` at kernel entry/exit for the per-CPU GS base.
-- `include/proc.h`: `gen_regs` → `rax…r15`; `int_trace` → `rip, cs, rflags,
-  rsp, ss`; control-register trace widens. Ripples into every handler that reads
-  registers (page-fault handler, syscall dispatch).
+- `include/idt.h`: 16-byte 64-bit gate descriptor (offset split low/mid/high +
+  `ist`), an `interrupt_frame` matching the stub push order, and the handler API.
+- `src/isr.asm` (new): 48 entry stubs (exceptions 0-31, IRQs 32-47). Error-code
+  vectors (8, 10-14, 17) leave the CPU error code in place; the rest push a dummy
+  0, so the frame is uniform. A common trampoline saves all 15 GP registers,
+  16-byte-aligns the stack, calls the C dispatcher, restores and `iretq`s. An
+  `isr_stub_table` exports the stub addresses for the IDT.
+- `src/idt.c` (new): builds the IDT, installs every stub with the running kernel
+  code selector (read from CS rather than hard-coded), and `lidt`s.
+- `src/interrupts.c` (new): the C dispatcher, 8259 PIC remap to 0x20-0x2F, PIT at
+  ~100 Hz, a tick-counting timer handler, and a serial fault dump for unhandled
+  exceptions. No `swapgs` yet — that arrives with user mode in milestone 3.
+- `src/serial.c`: `serial_dec`/`serial_hex` promoted from kmain locals so the
+  fault dump can share them.
+
+The full `proc.h` register-struct rework and the rich VGA fault screen wait for
+the task/scrn subsystems (milestone 3); `interrupt_frame` stands in for now.
 
 ## Milestone 3 — Software context switch
 
