@@ -22,6 +22,10 @@ kentry:
 
     fninit              ; x87 to a known state
 
+    ; Guarantee a 16-byte-aligned stack before the first C call. The SysV ABI
+    ; requires rsp % 16 == 0 immediately before a `call`; with SSE codegen on,
+    ; GCC emits movaps to aligned stack slots and a misaligned stack faults.
+    and rsp, -16
     call kmain
 .hang:
     cli

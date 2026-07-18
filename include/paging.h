@@ -48,7 +48,7 @@ static inline void* phys_to_virt(uintptr_t pa)
 }
 
 // Size of the kernel-heap window paging_init maps.
-#define KHEAP_SIZE 0x400000ull // 4 MiB
+#define KHEAP_SIZE 0x1000000ull // 16 MiB
 
 // Bring up the memory subsystem on top of what Limine set up: adopt its page
 // tables, record the HHDM offset, initialise the frame allocator over the

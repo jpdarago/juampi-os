@@ -55,8 +55,11 @@ int thread_create(allocator* mem, void (*entry)(void))
 
     // Build an initial stack whose top the context switch will "return" into:
     // six zeroed callee-saved slots then the entry address, so the switch's pop
-    // sequence + ret lands at `entry`.
-    uint64_t top = ((uint64_t)new (mem, char, STACK_SZ) + STACK_SZ) & ~0xFull;
+    // sequence + ret lands at `entry`. The entry-address slot sits on a 16-byte
+    // boundary so that after that `ret` the thread starts with rsp % 16 == 8,
+    // exactly as a normal SysV call leaves it (required now that SSE is on).
+    uint64_t top =
+            (((uint64_t)new (mem, char, STACK_SZ) + STACK_SZ) & ~0xFull) - 8;
     uint64_t* sp = (uint64_t*)top;
     *--sp = (uint64_t)entry; // ret target
     *--sp = 0;               // rbx

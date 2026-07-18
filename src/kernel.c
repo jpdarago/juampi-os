@@ -92,6 +92,62 @@ static void worker_c(void)
     }
 }
 
+// Stress the segregated heap: many allocations across small size classes and
+// large runs, each stamped with a per-block sentinel; free half, allocate more,
+// then verify every survivor is intact (catching overlaps/corruption) and that
+// freed blocks are reused. Returns true on success.
+#define STRESS_N 300
+static bool heap_stress(allocator* mem, heap_allocator* h)
+{
+    static void* ptrs[STRESS_N];
+    static ptrdiff_t sizes[STRESS_N];
+    uint64_t rng = 0x9e3779b97f4a7c15ull;
+
+    for (int i = 0; i < STRESS_N; i++) {
+        rng = rng * 6364136223846793005ull + 1442695040888963407ull;
+        // Mostly small, occasionally a large multi-slab run.
+        ptrdiff_t sz = ((rng >> 33) % 16 == 0)
+                               ? 8192 + (ptrdiff_t)((rng >> 20) % 90000)
+                               : 1 + (ptrdiff_t)((rng >> 20) % 4096);
+        char* p = alloc(mem, 1, 1, sz);
+        for (ptrdiff_t k = 0; k < sz; k++) {
+            p[k] = (char)(i + k); // sentinel that depends on block and offset
+        }
+        ptrs[i] = p;
+        sizes[i] = sz;
+    }
+    // Free every other block.
+    for (int i = 0; i < STRESS_N; i += 2) {
+        heap_free(h, ptrs[i]);
+        ptrs[i] = NULL;
+    }
+    // Reallocate into the freed space; the survivors must be untouched.
+    for (int i = 0; i < STRESS_N; i += 2) {
+        rng = rng * 6364136223846793005ull + 1442695040888963407ull;
+        ptrdiff_t sz = 1 + (ptrdiff_t)((rng >> 20) % 2048);
+        ptrs[i] = alloc(mem, 1, 1, sz);
+        sizes[i] = sz;
+        char* p = ptrs[i];
+        for (ptrdiff_t k = 0; k < sz; k++) {
+            if (p[k] != 0) {
+                return false; // allocations must come back zeroed
+            }
+            p[k] = (char)(i + k);
+        }
+    }
+    // Verify all live blocks still hold their sentinels (no
+    // overlap/corruption).
+    for (int i = 0; i < STRESS_N; i++) {
+        char* p = ptrs[i];
+        for (ptrdiff_t k = 0; k < sizes[i]; k++) {
+            if (p[k] != (char)(i + k)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 // kmain is the ELF entry point; Limine jumps here in 64-bit long mode. Each
 // subsystem is brought up in dependency order and proves itself with a serial
 // self-test; the boot-smoke test greps for the final marker.
@@ -175,13 +231,18 @@ void kmain(void)
     volatile uint64_t* p = (volatile uint64_t*)scratch_va;
     *p = 0xCAFEBABEDEADBEEFull;
 
+    bool stress_ok = heap_stress(mem, &heap);
+
     bool ok = f1 != f2 && f1 != 0 && heap_zeroed && freelist_reuses &&
               av[3] == 0xA5A5A5A5u && *p == 0xCAFEBABEDEADBEEFull &&
-              physical_address(kernel_dir, scratch_va) == scratch_pa;
+              physical_address(kernel_dir, scratch_va) == scratch_pa &&
+              stress_ok;
 
     console_print("juampiOS: free frames=");
     console_dec(free_before);
-    console_print(", heap+paging self-test ");
+    console_print(", heap stress ");
+    console_print(stress_ok ? "OK" : "FAILED");
+    console_print(", memory self-test ");
     console_print(ok ? "OK\n" : "FAILED\n");
     if (ok) {
         console_print("juampiOS: memory subsystem OK\n");

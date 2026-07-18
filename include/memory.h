@@ -4,24 +4,32 @@
 #include <alloc.h>
 
 #include <stdint.h>
+#include <stddef.h>
 
-// The kernel heap: a K&R-style best-fit free-list allocator exposed through
-// the generic alloc.h interface. Unlike the arena it supports returning
-// individual blocks with heap_free(), so it backs long-lived allocations whose
-// lifetimes do not nest.
+// A segregated, mimalloc-inspired kernel heap exposed through the alloc.h
+// interface. Small allocations are served from per-size-class free lists carved
+// out of 64 KiB slabs: O(1) alloc and free, and no per-object header — the
+// owning slab (and thus the size class) is recovered from a pointer by masking
+// it down to its slab and indexing a descriptor array. Large allocations take a
+// run of whole slabs, tracked on a free-run list (the "free list of big
+// blocks"). The heap is a value type so it can later become per-CPU (the
+// mimalloc "thread-local heap"); today there is one, single-threaded.
 
-typedef struct kmem_header {
-    struct kmem_header* next;
-    ptrdiff_t size;
-} kmem_header;
+#define HEAP_NCLASSES 18
+
+typedef struct slab slab; // per-slab descriptor, defined in memory.c
 
 typedef struct {
-    allocator base; // must be first: a heap_allocator* is an allocator*
-    kmem_header* freep;
-    char* heap_end;
+    allocator base;  // must be first: a heap_allocator* is an allocator*
+    char* base_addr; // first slab (64 KiB-aligned)
+    char* bump;      // next un-carved slab
+    char* end;       // end of the slab region
+    slab* descs;     // per-slab descriptor array
+    slab* partial[HEAP_NCLASSES]; // slabs with a free block, per size class
+    slab* free_runs;              // free list of large (multi-slab) runs
 } heap_allocator;
 
-// Create a heap over [beg, beg + size).
+// Build a heap over [beg, beg + size); beg should be 64 KiB-aligned.
 heap_allocator heap_init(void* beg, ptrdiff_t size);
 // Return a block previously handed out by this heap's alloc().
 void heap_free(heap_allocator* h, void* p);
