@@ -81,12 +81,12 @@ PORT64_CSOURCES := \
 	$(SRC_DIR)/idt.c \
 	$(SRC_DIR)/interrupts.c \
 	$(SRC_DIR)/sched.c \
-	$(SRC_DIR)/gdt64.c
+	$(SRC_DIR)/gdt64.c \
+	$(SRC_DIR)/elf64.c
 PORT64_ASMSOURCES := \
 	$(SRC_DIR)/isr.asm \
 	$(SRC_DIR)/context.asm \
-	$(SRC_DIR)/gdt64_load.asm \
-	$(SRC_DIR)/user_stub.asm
+	$(SRC_DIR)/gdt64_load.asm
 
 CSOURCES   := $(PORT64_CSOURCES)
 ASMSOURCES := $(PORT64_ASMSOURCES)
@@ -163,9 +163,18 @@ floppy.img: $(KERNEL) init
 # at a local firmware file if you are not using Nix.
 OVMF_FD ?= $$(nix build --no-link --print-out-paths nixpkgs\#OVMF.fd)/FV/OVMF.fd
 
-# Pack the kernel into a bootable UEFI image with Limine (sudo-free, mtools).
-boot.img: $(KERNEL) $(BUILD_DIR)/limine.conf $(BUILD_DIR)/mkboot.sh
-	bash $(BUILD_DIR)/mkboot.sh $(KERNEL) $@
+# A minimal freestanding 64-bit userland program, loaded as a Limine module and
+# run by the kernel (milestone 5). Statically linked, non-PIE, at a low user VA.
+USER_ELF := $(BUILD_DIR)/user/hello.elf
+$(USER_ELF): $(BUILD_DIR)/user/hello.c
+	$(CC) -ffreestanding -nostdlib -static -fno-pic -no-pie -mno-red-zone \
+		-fno-stack-protector -mno-sse -mno-mmx \
+		-Wl,-Ttext=0x400000 -Wl,-e_start -o $@ $<
+
+# Pack the kernel and the userland module into a bootable UEFI image with Limine
+# (sudo-free, mtools).
+boot.img: $(KERNEL) $(USER_ELF) $(BUILD_DIR)/limine.conf $(BUILD_DIR)/mkboot.sh
+	bash $(BUILD_DIR)/mkboot.sh $(KERNEL) $@ $(USER_ELF)
 
 # Boot the OS in QEMU under OVMF. Limine loads the kernel straight into 64-bit
 # long mode. OVMF vars must be writable, so we boot from a private copy.

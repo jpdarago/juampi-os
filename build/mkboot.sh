@@ -6,6 +6,7 @@ set -euo pipefail
 
 KERNEL="${1:-kernel.bin}"
 OUT="${2:-boot.img}"
+MODULE="${3:-}" # optional userland ELF loaded as a Limine module
 
 if ! command -v limine >/dev/null 2>&1; then
     echo "error: limine not found (is the devenv shell active?)" >&2
@@ -25,5 +26,8 @@ mmd -i "$OUT" ::/EFI ::/EFI/BOOT ::/boot ::/boot/limine
 mcopy -i "$OUT" "$EFI" ::/EFI/BOOT/BOOTX64.EFI
 mcopy -i "$OUT" "$KERNEL" ::/boot/kernel.bin
 mcopy -i "$OUT" build/limine.conf ::/boot/limine/limine.conf
+if [ -n "$MODULE" ]; then
+    mcopy -i "$OUT" "$MODULE" ::/boot/hello.elf
+fi
 
-echo "wrote $OUT (kernel: $KERNEL)"
+echo "wrote $OUT (kernel: $KERNEL${MODULE:+, module: $MODULE})"

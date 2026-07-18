@@ -49,3 +49,6 @@ boot.img
 *.i*86
 *.x86_64
 *.hex
+
+# Userland module built for the x86-64 port
+build/user/*.elf

@@ -23,13 +23,11 @@
 #include <limine.h>
 #include <sched.h>
 #include <gdt64.h>
+#include <elf64.h>
 
 // Linker symbol for the end of the kernel. The address it contains is
 // a location right after the kernel ends. It is defined in the linker script
 extern uint kernel_end;
-
-// The ring-3 test stub (user_stub.asm), copied into a user page in milestone 4.
-extern char user_stub[], user_stub_end[];
 
 // --- Limine boot protocol ---------------------------------------------------
 // The kernel is booted by Limine (see docs/x86-64-port.md), which hands us a
@@ -48,6 +46,10 @@ __attribute__((
         used,
         section(".limine_requests"))) static volatile struct limine_hhdm_request
         hhdm_request = {.id = LIMINE_HHDM_REQUEST, .revision = 0};
+
+__attribute__((used, section(".limine_requests"))) static volatile struct
+        limine_module_request module_request = {.id = LIMINE_MODULE_REQUEST,
+                                                .revision = 0};
 
 // Section markers that delimit the request list for the bootloader's scan.
 __attribute__((used,
@@ -99,19 +101,27 @@ static void worker_c(void)
     }
 }
 
-// Milestone-4 int 0x80 syscall handler. Port ABI: number in rax, arg1 in rdi,
-// return value in rax.
+// int 0x80 syscall handler. Port ABI: number in rax, args in rdi/rsi, return in
+// rax. The user pointer in write() is validated with the boundary guard before
+// the kernel touches it.
 static void syscall_handler(interrupt_frame* f)
 {
     switch (f->rax) {
-    case 1: // "write": echo the argument
-        serial_print("[user] write syscall, arg=");
-        serial_dec(f->rdi);
-        serial_print("\n");
-        f->rax = 0;
+    case 1: { // write(buf = rdi, len = rsi)
+        const char* buf = (const char*)f->rdi;
+        uint64 len = f->rsi;
+        if (!user_access_ok((uintptr)buf, len, false)) {
+            f->rax = (uint64)-1;
+            break;
+        }
+        for (uint64 i = 0; i < len; i++) {
+            serial_putc(buf[i]);
+        }
+        f->rax = len;
         break;
-    case 2: // "exit": the ring-3 program is done
-        serial_print("juampiOS: user mode + syscall OK\n");
+    }
+    case 2: // exit(code = rdi): the user program is done
+        serial_print("juampiOS: userland OK\n");
         for (;;) {
             __asm__ __volatile__("cli; hlt");
         }
@@ -246,20 +256,27 @@ void kmain(void)
     serial_dec(wcounters[2]);
     serial_print("\njuampiOS: context switch OK\n");
 
-    // --- Milestone 4: user mode (ring 3) + int 0x80 syscall -----------------
+    // --- Milestone 5: load a real ELF64 user program (Limine module) and run
+    // it in ring 3, servicing its int 0x80 syscalls. This exercises the whole
+    // stack built across milestones 0-4.
     register_interrupt_handler(0x80, syscall_handler);
+    if (module_request.response == NULL ||
+        module_request.response->module_count < 1) {
+        early_halt("juampiOS: PANIC - no user module provided\n");
+    }
+    struct limine_file* mod = module_request.response->modules[0];
+    uint64 entry = elf64_load(mod->address);
+    if (entry == 0) {
+        early_halt("juampiOS: PANIC - user module is not a valid ELF64\n");
+    }
 
-    // Map a user-accessible code page and stack, copy the ring-3 stub in, and
-    // drop to ring 3. The stub makes a "write" syscall then an "exit" syscall.
-    uint code_len = (uint)(user_stub_end - user_stub);
-    uintptr ucode_va = 0x400000, ustack_va = 0x500000;
-    map_page(kernel_dir, ucode_va, frame_alloc(), PAGEF_P | PAGEF_RW | PAGEF_U);
+    // Give the program a user stack, then drop to ring 3 at its entry point.
+    uintptr ustack_va = 0x7000000;
     map_page(kernel_dir, ustack_va, frame_alloc(),
              PAGEF_P | PAGEF_RW | PAGEF_U);
-    memcpy((void*)ucode_va, user_stub, code_len);
 
-    serial_print("juampiOS: entering ring 3...\n");
-    enter_user_mode(ucode_va, ustack_va + PAGE_SZ);
+    serial_print("juampiOS: entering ELF64 userland...\n");
+    enter_user_mode(entry, ustack_va + PAGE_SZ);
 
     while (1) {
         __asm__ __volatile__("hlt");

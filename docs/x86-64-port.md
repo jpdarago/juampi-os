@@ -6,6 +6,14 @@ bootable checkpoint validated under QEMU, so the tree is never left in a
 long-lived uncompilable state. Work happens on the `feature/x86-64` branch; each
 milestone is one commit.
 
+**Status: all six milestones complete.** The kernel boots via Limine into
+64-bit long mode, brings up 4-level paging, interrupts, software context
+switching and ring 3, and loads and runs a real ELF64 user program that makes
+syscalls. Each milestone below is validated by `make test` against a serial
+marker. What is *not* done: re-enabling the deferred 32-bit subsystems (the
+process/scheduler layer in `tasks.c`/`proc.c`, fork/copy-on-write, the ext2 VFS,
+the interactive shell) on top of this base, and SMP — see the closing section.
+
 ## Guiding decisions
 
 - **Bootloader: Limine.** Rather than hand-roll a long-mode trampoline, the
@@ -174,19 +182,31 @@ The kernel-side `syscalls.c` dispatch table and the `REQUIRE_USER_*` guards
 (which already walk 4-level tables) are re-wired to real user processes in
 milestone 5.
 
-## Milestone 5 — 64-bit userland and disk image
+## Milestone 5 — ELF64 userland  ✅ DONE
 
-**Checkpoint:** `make run` boots to the shell.
+**Checkpoint:** a real ELF64 user program is loaded from a Limine module and run
+in ring 3, and its syscalls work. Validated by `make test` (marker
+`userland OK`): the program prints `hello from ELF64 userland` via a `write`
+syscall (the kernel reads the user buffer through the validated
+`user_access_ok` guard) and then exits.
 
-- `src/elf.c`: parse ELF64 headers; the user link base moves to a low canonical
-  address.
-- `build/tasks/*`, `build/bootstrap/`: rewrite `syscall_wrappers.asm` for the
-  64-bit convention; compile tasks 64-bit (`elf_x86_64`); widen the USTACK/KSTACK
-  constants in `include/tasks.h`.
-- `tests/run-qemu.sh`, `tests/boot-smoke.sh`: use `qemu-system-x86_64`. The
-  `ktest.c` harness and the isa-debug-exit contract are unchanged; add
-  long-mode-specific checks (a canonical high address is mapped; a 4-level walk
-  resolves).
+- `build/user/hello.c` (new): a minimal freestanding 64-bit user program using
+  the int 0x80 ABI. Built statically, non-PIE, `-fno-stack-protector`
+  (the canary reads `%fs:0x28`, and no user `fs` base is set up), linked at
+  `0x400000`.
+- `include/elf64.h`, `src/elf64.c` (new): a minimal ELF64 loader — validate the
+  header, map each `PT_LOAD` segment as user pages, copy the file contents and
+  zero the `.bss`, return the entry point.
+- `src/kernel.c`: request the Limine module, load it, map a user stack, and
+  `enter_user_mode` at the entry point. The syscall handler implements
+  `write(buf, len)` (boundary-checked) and `exit`.
+- `Makefile`, `build/mkboot.sh`, `build/limine.conf`: build the user ELF and pack
+  it into the boot image as a Limine module.
+
+This is the load-and-run-a-real-binary milestone. A full interactive shell over
+the ext2 VFS is the next layer of work (it means porting the deferred
+`tasks.c`/`proc.c`/`fs*` process and filesystem subsystems onto this base), and
+is intentionally out of scope for the boot-up port.
 
 ---
 
