@@ -28,7 +28,7 @@ OBJ_DIR     := obj
 BUILD_DIR   := build
 
 # Compiler / assembler / linker flags.
-CFLAGS := -O2 -std=c99 -Werror -Wall -Wextra \
+CFLAGS := -O2 -std=c11 -Werror -Wall -Wextra \
 	-Wno-unused-parameter -Wno-override-init \
 	-Wno-address-of-packed-member \
 	-Wunreachable-code -Wshadow -Wcast-qual \

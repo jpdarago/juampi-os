@@ -1,5 +1,4 @@
 #include <gdt64.h>
-#include <memory.h>
 
 // GDT: null, kernel code/data, user code/data, and a 16-byte (two-slot) TSS
 // descriptor. In long mode the code/data segment bases and limits are ignored;
@@ -19,7 +18,7 @@ void tss_set_rsp0(uint64_t rsp0)
     tss.rsp0 = rsp0;
 }
 
-void gdt_init(void)
+void gdt_init(allocator* mem)
 {
     gdt[0] = 0;
     gdt[1] = 0x00AF9A000000FFFFull; // kernel code: present, exec, ring 0, L=1
@@ -40,7 +39,7 @@ void gdt_init(void)
     gdt[6] = (base >> 32) & 0xFFFFFFFF;
 
     // Kernel stack used on a ring-3 -> ring-0 privilege transition.
-    tss.rsp0 = (uint64_t)kmalloc(KERNEL_STACK_SZ) + KERNEL_STACK_SZ;
+    tss.rsp0 = (uint64_t)new (mem, char, KERNEL_STACK_SZ) + KERNEL_STACK_SZ;
     tss.iomap_base = sizeof(tss);
 
     gdtr.limit = sizeof(gdt) - 1;

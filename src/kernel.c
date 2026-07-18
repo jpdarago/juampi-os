@@ -3,6 +3,8 @@
 
 #include <utils.h>
 #include <idt.h>
+#include <alloc.h>
+#include <arena.h>
 #include <memory.h>
 #include <frames.h>
 #include <paging.h>
@@ -157,16 +159,31 @@ void kmain(void)
             best_len = e->length;
         }
     }
-    paging_init(hhdm_request.response->offset, best_base, best_len);
+    // The kernel heap (alloc.h interface) lives in the window paging_init
+    // mapped; long-lived subsystem allocations draw from it via `allocator*`.
+    heap_allocator heap = heap_init(
+            paging_init(hhdm_request.response->offset, best_base, best_len),
+            KHEAP_SIZE);
+    allocator* mem = &heap.base;
 
-    // Self-test: distinct frames, a writable kernel-heap block, and a fresh
-    // 4-level mapping that round-trips a value and resolves back to its frame.
+    // Self-test: distinct frames, writable zeroed heap and arena blocks (the
+    // arena carved out of the heap), heap_free round-trip, and a fresh 4-level
+    // mapping that round-trips a value and resolves back to its frame.
     uintptr_t free_before = frames_available();
     uintptr_t f1 = frame_alloc();
     uintptr_t f2 = frame_alloc();
-    int* h = kmalloc(64);
+    int* h = new (mem, int, 16);
+    bool heap_zeroed = h[0] == 0 && h[15] == 0;
     h[0] = 0x1234;
     h[15] = 0x5678;
+
+    arena scratch = arena_init(new (mem, char, 1024), 1024);
+    uint64_t* av = new (&scratch.base, uint64_t, 4);
+    av[3] = 0xA5A5A5A5u;
+    void* before_free = h;
+    heap_free(&heap, h);
+    int* h2 = new (mem, int, 16); // should reuse the freed block
+    bool freelist_reuses = h2 == before_free && h2[0] == 0;
 
     uintptr_t scratch_va = 0xffffd00000000000ull;
     uintptr_t scratch_pa = frame_alloc();
@@ -174,8 +191,8 @@ void kmain(void)
     volatile uint64_t* p = (volatile uint64_t*)scratch_va;
     *p = 0xCAFEBABEDEADBEEFull;
 
-    bool ok = f1 != f2 && f1 != 0 && h[0] == 0x1234 && h[15] == 0x5678 &&
-              *p == 0xCAFEBABEDEADBEEFull &&
+    bool ok = f1 != f2 && f1 != 0 && heap_zeroed && freelist_reuses &&
+              av[3] == 0xA5A5A5A5u && *p == 0xCAFEBABEDEADBEEFull &&
               physical_address(kernel_dir, scratch_va) == scratch_pa;
 
     serial_print("juampiOS: free frames=");
@@ -190,7 +207,7 @@ void kmain(void)
     // Install our own GDT + TSS first (kernel + user segments); the IDT gates
     // then reference its kernel code selector, and the TSS supplies the ring-0
     // stack used on the ring-3 -> ring-0 transition in milestone 4.
-    gdt_init();
+    gdt_init(mem);
     interrupts_init();
     register_interrupt_handler(3, breakpoint_handler); // int3 -> non-fatal
     __asm__ __volatile__("sti");
@@ -213,9 +230,9 @@ void kmain(void)
 
     // --- Milestone 3: software context switch (kernel threads) --------------
     sched_init();
-    thread_create(worker_a);
-    thread_create(worker_b);
-    thread_create(worker_c);
+    thread_create(mem, worker_a);
+    thread_create(mem, worker_b);
+    thread_create(mem, worker_c);
     // Cooperatively round-robin: each yield hands off to the next thread and
     // eventually returns here, proving the switch preserves and restores each
     // thread's stack and registers independently.

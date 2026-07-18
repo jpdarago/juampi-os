@@ -1,6 +1,7 @@
 #include <sched.h>
-#include <memory.h>
 #include <panic.h>
+
+#include <stdbool.h>
 
 #define MAX_THREADS 8
 #define STACK_SZ 0x4000 // 16 KiB kernel stack per thread
@@ -27,7 +28,7 @@ void sched_init(void)
     current = 0;
 }
 
-int thread_create(void (*entry)(void))
+int thread_create(allocator* mem, void (*entry)(void))
 {
     if (nthreads >= MAX_THREADS) {
         kernel_panic("Too many threads");
@@ -37,7 +38,7 @@ int thread_create(void (*entry)(void))
     // Build an initial stack whose top the context switch will "return" into:
     // six zeroed callee-saved slots then the entry address, so the switch's pop
     // sequence + ret lands at `entry`.
-    uint64_t top = ((uint64_t)kmalloc(STACK_SZ) + STACK_SZ) & ~0xFull;
+    uint64_t top = ((uint64_t)new (mem, char, STACK_SZ) + STACK_SZ) & ~0xFull;
     uint64_t* sp = (uint64_t*)top;
     *--sp = (uint64_t)entry; // ret target
     *--sp = 0;               // rbx

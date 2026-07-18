@@ -1,28 +1,29 @@
 #ifndef __MEMORY_H
 #define __MEMORY_H
 
+#include <alloc.h>
+
 #include <stdint.h>
-#include <stddef.h>
-#include <stdbool.h>
+
+// The kernel heap: a K&R-style best-fit free-list allocator exposed through
+// the generic alloc.h interface. Unlike the arena it supports returning
+// individual blocks with heap_free(), so it backs long-lived allocations whose
+// lifetimes do not nest.
 
 typedef struct kmem_header {
     struct kmem_header* next;
-    int size;
+    ptrdiff_t size;
 } kmem_header;
 
 typedef struct {
+    allocator base; // must be first: a heap_allocator* is an allocator*
     kmem_header* freep;
-    uintptr_t heap_end;
-} kmem_map_header;
+    char* heap_end;
+} heap_allocator;
 
-kmem_map_header* kmem_init(void*, int);
-void* kmem_alloc(kmem_map_header*, int);
-void kmem_free(kmem_map_header*, void*);
-void* kmem_alloc_aligned(kmem_map_header*, int);
-
-// Gets kernel memory
-void* kmalloc(uint32_t size);
-// Returns memory to the kernel heap
-void kfree(void* mem);
+// Create a heap over [beg, beg + size).
+heap_allocator heap_init(void* beg, ptrdiff_t size);
+// Return a block previously handed out by this heap's alloc().
+void heap_free(heap_allocator* h, void* p);
 
 #endif

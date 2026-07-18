@@ -7,7 +7,6 @@
 
 #include <paging.h>
 #include <frames.h>
-#include <memory.h>
 #include <panic.h>
 #include <utils.h>
 
@@ -18,22 +17,14 @@
 #define PTE_PS (1ull << 7)
 #define PTE_ADDR 0x000ffffffffff000ull
 
-// Kernel heap: a private higher-half window (PML4 slot 384, clear of Limine's
-// HHDM at slot 256 and the kernel image at slot 511), grown a page at a time by
-// mapping fresh frames into it.
+// Kernel heap window: a private higher-half range (PML4 slot 384, clear of
+// Limine's HHDM at slot 256 and the kernel image at slot 511), backed with
+// fresh frames at init and handed to the caller to build allocators over.
 #define KHEAP_START 0xffffc00000000000ull
-#define KHEAP_INISIZE 0x400000ull           // 4 MiB
-#define KHEAP_MAXIMUM 0xffffc00040000000ull // 1 GiB window
 
 uintptr_t hhdm_offset;
 page_directory *current_directory, *kernel_dir;
 static page_directory kernel_directory;
-static kmem_map_header* kernel_heap;
-
-kmem_map_header* get_kernel_heap(void)
-{
-    return kernel_heap;
-}
 
 // Return the table one level down from t->entries[idx], allocating and linking
 // a fresh zeroed table (present, writable, user) if the entry is empty.
@@ -135,10 +126,10 @@ bool user_access_ok(uintptr_t addr, uintptr_t len, bool write)
 
 // Checks that a NUL-terminated user string is entirely readable in user space,
 // scanning at most `max` bytes (including the terminator).
-bool user_string_ok(const char* s, uint32_t max)
+bool user_string_ok(const char* s, size_t max)
 {
     uintptr_t addr = (uintptr_t)s;
-    for (uint32_t i = 0; i < max; i++) {
+    for (size_t i = 0; i < max; i++) {
         if (i == 0 || ((addr + i) & 0xFFF) == 0) {
             if (!user_access_ok(addr + i, 1, false))
                 return false;
@@ -149,21 +140,8 @@ bool user_string_ok(const char* s, uint32_t max)
     return false;
 }
 
-void* paging_append_core(kmem_map_header* mh, uint32_t pages)
-{
-    void* prev = (void*)mh->heap_end;
-    while (pages-- > 0) {
-        if ((uintptr_t)mh->heap_end >= KHEAP_MAXIMUM)
-            kernel_panic("Heap size exceeded");
-        uintptr_t frame = frame_alloc();
-        map_page(kernel_dir, mh->heap_end, frame, PAGEF_P | PAGEF_RW);
-        mh->heap_end += PAGE_SZ;
-    }
-    return prev;
-}
-
-void paging_init(uintptr_t hhdm, uintptr_t usable_phys_base,
-                 uintptr_t usable_len)
+void* paging_init(uintptr_t hhdm, uintptr_t usable_phys_base,
+                  uintptr_t usable_len)
 {
     hhdm_offset = hhdm;
 
@@ -177,11 +155,11 @@ void paging_init(uintptr_t hhdm, uintptr_t usable_phys_base,
     // Frame allocator over the usable physical region Limine reported.
     frames_init(usable_phys_base, usable_len);
 
-    // Back the initial kernel heap with fresh frames, then hand the region to
-    // the K&R allocator.
-    for (uintptr_t p = KHEAP_START; p < KHEAP_START + KHEAP_INISIZE;
+    // Back the kernel-heap window with fresh frames; the caller builds its
+    // allocators over the returned region.
+    for (uintptr_t p = KHEAP_START; p < KHEAP_START + KHEAP_SIZE;
          p += PAGE_SZ) {
         map_page(kernel_dir, p, frame_alloc(), PAGEF_P | PAGEF_RW);
     }
-    kernel_heap = kmem_init((void*)KHEAP_START, KHEAP_INISIZE);
+    return (void*)KHEAP_START;
 }

@@ -1,27 +1,27 @@
 #include <memory.h>
-#include <frames.h>
-#include <paging.h>
 #include <panic.h>
+#include <utils.h>
 
-// The memory manager is a minimal adaptation of the one proposed in the K & R.
-// Initializes the Kernel memory manager to work over
-// the given space and size.
-kmem_map_header* kmem_init(void* memory_start, int memory_units)
-{
-    kmem_map_header* mem = memory_start;
-    mem->freep = (kmem_header*)((char*)memory_start + sizeof(kmem_map_header));
-    mem->freep->next = mem->freep;
-    mem->freep->size =
-            memory_units - sizeof(kmem_map_header) - sizeof(kmem_header);
-    mem->heap_end = (uintptr_t)memory_start + memory_units;
-    return mem;
-}
+// The kernel heap is a minimal adaptation of the K&R free-list allocator,
+// exposed through the alloc.h interface (size/align/count, zeroed memory,
+// panic on OOM). Every block — header included — is a multiple of 16 bytes and
+// starts 16-aligned, so payloads satisfy any fundamental alignment; requests
+// with a larger alignment are a bug (page-aligned memory comes from the frame
+// allocator, not the heap).
 
-static kmem_header* best_fit_prev(kmem_map_header* mh, int units)
+#define HEAP_ALIGN 16
+#define ROUND_UP(x) (((x) + HEAP_ALIGN - 1) & ~(ptrdiff_t)(HEAP_ALIGN - 1))
+
+// Best-fit search: returns the node whose *next* block is the smallest free
+// block that fits `units` bytes, or NULL if none fits.
+static kmem_header* best_fit_prev(heap_allocator* h, ptrdiff_t units)
 {
-    kmem_header *ptr = mh->freep->next, *best = NULL;
-    kmem_header *ptr_prev = mh->freep, *best_prev = NULL;
-    kmem_header* stop = mh->freep;
+    if (h->freep == NULL) {
+        return NULL;
+    }
+    kmem_header *ptr = h->freep->next, *best = NULL;
+    kmem_header *ptr_prev = h->freep, *best_prev = NULL;
+    kmem_header* stop = h->freep;
     do {
         if (ptr->size >= units && (!best || ptr->size < best->size)) {
             best = ptr;
@@ -33,178 +33,84 @@ static kmem_header* best_fit_prev(kmem_map_header* mh, int units)
     return best_prev;
 }
 
-// Requests more memory
-static void* kmem_append_core(kmem_map_header* mh, uint32_t units)
+static void* heap_alloc(allocator* a, ptrdiff_t size, ptrdiff_t align,
+                        ptrdiff_t count)
 {
-    uint32_t pages = (units + 0xFFF) / 0x1000;
-    if (!pages) {
-        pages = 1;
+    heap_allocator* h = (heap_allocator*)a;
+    if (align > HEAP_ALIGN) {
+        kernel_panic("Heap allocation with alignment larger than 16");
     }
-    kmem_header* mem = paging_append_core(mh, pages);
-    mem->size = pages * 0x1000;
-    mem->next = NULL;
-    kmem_free(mh, (void*)mem);
-    return mh->freep;
-}
+    if (size <= 0 || count < 0 ||
+        (size > 0 && count > (PTRDIFF_MAX - HEAP_ALIGN) / size)) {
+        kernel_panic("Invalid heap allocation size");
+    }
+    ptrdiff_t units = ROUND_UP(size * count + (ptrdiff_t)sizeof(kmem_header));
 
-// Allocates free Kernel RAM memory. Returns NULL if there is no memory
-void* kmem_alloc(kmem_map_header* mh, int size)
-{
-    if (size <= 0) {
-        return NULL;
-    }
-    // I also need to request the space for the header.
-    int units = size + sizeof(kmem_header);
-    // Find a free block of the necessary size.
-    // Implementation: Best Fit
-    kmem_header *best_prev = best_fit_prev(mh, units), *best;
+    kmem_header *best_prev = best_fit_prev(h, units), *best;
     if (best_prev == NULL) {
-        kmem_append_core(mh, units);
-        best_prev = best_fit_prev(mh, units);
-        if (best_prev == NULL) {
-            kernel_panic("No more kernel heap");
-            return NULL;
-        }
+        kernel_panic("Kernel heap out of memory");
     }
     best = best_prev->next;
-    // Update the circular list of free blocks
-    if (best->size == units) {
+    if (best->size - units < (ptrdiff_t)sizeof(kmem_header) + HEAP_ALIGN) {
+        // Too small to split: hand out the whole block.
         if (best == best->next) {
-            // The block is the only one in the free list.
-            mh->freep = NULL;
+            h->freep = NULL; // it was the only free block
         } else {
-            mh->freep = best_prev;
+            h->freep = best_prev;
             best_prev->next = best->next;
         }
     } else {
+        // Split: shrink the free block and carve the tail off for the caller.
         best->size -= units;
-        best = (kmem_header*)((uintptr_t)best + best->size);
+        best = (kmem_header*)((char*)best + best->size);
         best->size = units;
-        mh->freep = best_prev;
+        h->freep = best_prev;
     }
-    return (void*)(best + 1);
+    return memset(best + 1, 0, units - sizeof(kmem_header));
 }
 
-// Frees Kernel RAM memory. It is invalid to try to return memory
-// not allocated with malloc.
-void kmem_free(kmem_map_header* mh, void* p)
+heap_allocator heap_init(void* beg, ptrdiff_t size)
+{
+    heap_allocator h;
+    h.base.alloc = heap_alloc;
+    h.heap_end = (char*)beg + size;
+    h.freep = beg;
+    h.freep->next = h.freep;
+    h.freep->size = size;
+    return h;
+}
+
+void heap_free(heap_allocator* h, void* p)
 {
     if (p == NULL) {
         return;
     }
     kmem_header* bptr = (kmem_header*)p - 1;
-    // Search for which block it should be linked to.
-    if (!mh->freep) {
-        // No one is free. The only block is p's. Free it
-        mh->freep = bptr;
+    if (!h->freep) {
+        // Nothing else is free; p's block becomes the whole free list.
+        h->freep = bptr;
         bptr->next = bptr;
         return;
     }
-    kmem_header* ptr = mh->freep;
+    // Find the free block after which this one belongs (list is address-
+    // ordered and circular).
+    kmem_header* ptr = h->freep;
     for (; bptr <= ptr || bptr >= ptr->next; ptr = ptr->next)
         if (ptr >= ptr->next && (bptr > ptr || bptr < ptr->next)) {
             break;
         }
-    // Clean up the end blocks that are free
-    uintptr_t bptr_addr = (uintptr_t)bptr, ptr_addr = (uintptr_t)ptr;
-    if (bptr_addr + bptr->size == (uintptr_t)ptr->next) {
+    // Coalesce with the following and preceding blocks when adjacent.
+    if ((char*)bptr + bptr->size == (char*)ptr->next) {
         bptr->size += ptr->next->size;
         bptr->next = ptr->next->next;
     } else {
         bptr->next = ptr->next;
     }
-    if (ptr_addr + ptr->size == (uintptr_t)bptr) {
+    if ((char*)ptr + ptr->size == (char*)bptr) {
         ptr->size += bptr->size;
         ptr->next = bptr->next;
     } else {
         ptr->next = bptr;
     }
-    // Mark as the new free entry, to speed things up.
-    mh->freep = ptr;
-}
-
-// Allocates free Kernel RAM memory, page-aligned.
-void* kmem_alloc_aligned(kmem_map_header* mh, int size)
-{
-    if (size == 0) {
-        return NULL;
-    }
-    // I also need to request the space for the header.
-    // I request an additional PAGE_SIZE - 1 so that I ensure that in the
-    // obtained memory space there will be an aligned chunk.
-    uint32_t units = size + PAGE_SZ - 1 + sizeof(kmem_header);
-    // Find a free block of the necessary size.
-    // Implementation: Best Fit
-    kmem_header *best_prev = best_fit_prev(mh, units), *best;
-    if (best_prev == NULL) {
-        kmem_append_core(mh, units);
-        best_prev = best_fit_prev(mh, units);
-        if (best_prev == NULL) {
-            kernel_panic("No more memory to allocate aligned");
-            return NULL;
-        }
-    }
-    best = best_prev->next;
-    // Get the address of the chunk of memory
-    uintptr_t best_addr = (uintptr_t)best, header_sz = sizeof(kmem_header);
-    uintptr_t block_addr = ALIGN(PAGE_SZ - 1 + header_sz + best_addr);
-    uintptr_t header_addr = block_addr - header_sz;
-    uintptr_t prev_size = best->size;
-    kmem_header* header = (kmem_header*)header_addr;
-    header->size = size + header_sz;
-    if (best_addr != header_addr) {
-        // Adjust the original chunk so that it holds the memory between
-        // the original block and the aligned block.
-        best->size = header_addr - best_addr - header_sz;
-    } else {
-        // Since the original is aligned, we only need to adjust for
-        // the space we want and move best_prev (since we requested more space
-        // than necessary there is surely leftover).
-        best_prev->next = (kmem_header*)(block_addr + size);
-    }
-    if (block_addr + size < best_addr + header_sz + prev_size) {
-        // There is leftover space following the block. We need to create a new
-        // block that contains this space, and add it to the list of free
-        // blocks.
-        kmem_header* new_header = (kmem_header*)(block_addr + size);
-        new_header->size =
-                best_addr + prev_size - (block_addr + size + header_sz);
-        new_header->next = best->next;
-        best->next = new_header;
-    }
-    mh->freep = best_prev;
-    return (void*)block_addr;
-}
-
-uint32_t kmem_available(kmem_map_header* mh)
-{
-    kmem_header* ptr = mh->freep;
-    if (!ptr) {
-        return 0;
-    }
-    uint32_t total = 0;
-    do {
-        total += ptr->size;
-        ptr = ptr->next;
-    } while (ptr != mh->freep);
-    return total;
-}
-
-void* kmalloc(uint32_t size)
-{
-    kmem_map_header* kernel_heap = get_kernel_heap();
-    void* res = kmem_alloc(kernel_heap, size);
-    if (res == NULL)
-        kernel_panic("No more memory to "
-                     "alloc %d bytes\n",
-                     size);
-    return res;
-}
-
-void kfree(void* mem)
-{
-    if (mem == NULL)
-        return;
-    kmem_map_header* kernel_heap = get_kernel_heap();
-    kmem_free(kernel_heap, mem);
+    h->freep = ptr;
 }
