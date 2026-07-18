@@ -68,6 +68,14 @@ TODOs
 * Port a libc (musl).
 * Preemptible kernel, DMA disk I/O, framebuffer console.
 
+License
+-------
+
+The kernel is licensed under the MIT License (see `LICENSE`). Bundled
+third-party components keep their own permissive licenses: flanterm
+(BSD-2-Clause, `src/flanterm/`), eyalroz/printf (MIT, `src/printf/`), and the
+Limine boot protocol header (0BSD, `include/limine.h`).
+
 Acknowledgements
 ---------------
 
