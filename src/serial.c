@@ -17,6 +17,23 @@ static int transmit_empty(void)
     return inb(SERIAL_COM1 + SERIAL_LSR) & SERIAL_LSR_THR_EMPTY;
 }
 
+int serial_poll(void)
+{
+    if (!(inb(SERIAL_COM1 + SERIAL_LSR) & SERIAL_LSR_DATA_READY)) {
+        return -1;
+    }
+    return inb(SERIAL_COM1 + SERIAL_RBR);
+}
+
+char serial_getc(void)
+{
+    int c;
+    while ((c = serial_poll()) < 0) {
+        __asm__ __volatile__("pause");
+    }
+    return (char)c;
+}
+
 void serial_putc(char c)
 {
     // Bounded wait: a missing or misbehaving UART must never hang the kernel

@@ -12,7 +12,7 @@
 #include <limine.h>
 #include <sched.h>
 #include <gdt64.h>
-#include <elf64.h>
+#include <shell.h>
 
 // --- Limine boot protocol ---------------------------------------------------
 // The kernel is booted by Limine (see docs/x86-64-port.md), which hands us a
@@ -31,10 +31,6 @@ __attribute__((
         used,
         section(".limine_requests"))) static volatile struct limine_hhdm_request
         hhdm_request = {.id = LIMINE_HHDM_REQUEST, .revision = 0};
-
-__attribute__((used, section(".limine_requests"))) static volatile struct
-        limine_module_request module_request = {.id = LIMINE_MODULE_REQUEST,
-                                                .revision = 0};
 
 // Section markers that delimit the request list for the bootloader's scan.
 __attribute__((used,
@@ -83,35 +79,6 @@ static void worker_c(void)
     for (;;) {
         wcounters[2]++;
         yield();
-    }
-}
-
-// int 0x80 syscall handler. Port ABI: number in rax, args in rdi/rsi, return in
-// rax. The user pointer in write() is validated with the boundary guard before
-// the kernel touches it.
-static void syscall_handler(interrupt_frame* f)
-{
-    switch (f->rax) {
-    case 1: { // write(buf = rdi, len = rsi)
-        const char* buf = (const char*)f->rdi;
-        uint64_t len = f->rsi;
-        if (!user_access_ok((uintptr_t)buf, len, false)) {
-            f->rax = (uint64_t)-1;
-            break;
-        }
-        for (uint64_t i = 0; i < len; i++) {
-            serial_putc(buf[i]);
-        }
-        f->rax = len;
-        break;
-    }
-    case 2: // exit(code = rdi): the user program is done
-        serial_print("juampiOS: userland OK\n");
-        for (;;) {
-            __asm__ __volatile__("cli; hlt");
-        }
-    default:
-        f->rax = (uint64_t)-1;
     }
 }
 
@@ -248,29 +215,10 @@ void kmain(void)
     serial_dec(wcounters[2]);
     serial_print("\njuampiOS: context switch OK\n");
 
-    // --- Milestone 5: load a real ELF64 user program (Limine module) and run
-    // it in ring 3, servicing its int 0x80 syscalls. This exercises the whole
-    // stack built across milestones 0-4.
-    register_interrupt_handler(0x80, syscall_handler);
-    if (module_request.response == NULL ||
-        module_request.response->module_count < 1) {
-        early_halt("juampiOS: PANIC - no user module provided\n");
-    }
-    struct limine_file* mod = module_request.response->modules[0];
-    uint64_t entry = elf64_load(mod->address);
-    if (entry == 0) {
-        early_halt("juampiOS: PANIC - user module is not a valid ELF64\n");
-    }
-
-    // Give the program a user stack, then drop to ring 3 at its entry point.
-    uintptr_t ustack_va = 0x7000000;
-    map_page(kernel_dir, ustack_va, frame_alloc(),
-             PAGEF_P | PAGEF_RW | PAGEF_U);
-
-    serial_print("juampiOS: entering ELF64 userland...\n");
-    enter_user_mode(entry, ustack_va + PAGE_SZ);
-
-    while (1) {
-        __asm__ __volatile__("hlt");
-    }
+    // Boot self-tests done; hand control to the interactive shell. (The ring-3
+    // ELF64 path from the port stays available in elf64.c / gdt64.c for when
+    // isolation is wanted, but the kernel shell runs in ring 0 for full
+    // access.)
+    serial_print("juampiOS: boot complete\n");
+    shell_run();
 }

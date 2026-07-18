@@ -11,20 +11,26 @@
 void serial_init(void);
 void serial_putc(char c);
 void serial_print(const char* s);
-// Unformatted number helpers (the formatted printf lives in the not-yet-ported
-// scrn/vargs code); used for boot logging and fault dumps.
+// Non-blocking read: returns the next byte, or -1 if the receive FIFO is empty.
+int serial_poll(void);
+// Blocking read: spins until a byte arrives.
+char serial_getc(void);
+// Unformatted number helpers (the formatted printf lives elsewhere); used for
+// boot logging and fault dumps.
 void serial_dec(uint64_t v);
 void serial_hex(uint64_t v);
 
 // Base port and register offsets.
 #define SERIAL_COM1 0x3F8
 #define SERIAL_THR 0 // transmit holding register (write)
+#define SERIAL_RBR 0 // receive buffer register (read)
 #define SERIAL_IER 1 // interrupt enable
 #define SERIAL_FCR 2 // FIFO control (write)
 #define SERIAL_LCR 3 // line control
 #define SERIAL_MCR 4 // modem control
 #define SERIAL_LSR 5 // line status
 
+#define SERIAL_LSR_DATA_READY 0x01
 #define SERIAL_LSR_THR_EMPTY 0x20
 
 #endif

@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-# Boot the Limine UEFI image (boot.img) in QEMU under OVMF and assert the kernel
-# reached 64-bit long mode and answered the Limine boot protocol. During the
-# x86-64 port this is the per-milestone boot gate; the success marker moves
-# further into boot as subsystems are ported (eventually "entering userland").
+# Boot the Limine UEFI image (boot.img) in QEMU under OVMF, drive the serial
+# shell with a scripted line of input, and assert the expected response comes
+# back. This proves the kernel booted all the way through its self-tests into an
+# interactive shell that reads input and evaluates it.
 
 QEMU="${QEMU:-qemu-system-x86_64}"
-MARKER="${MARKER:-userland OK}"
+# Input fed to the shell over serial, and the marker its evaluation must print.
+INPUT="${INPUT:-echo SHELL_ALIVE_9271}"
+MARKER="${MARKER:-SHELL_ALIVE_9271}"
 IMG="${IMG:-boot.img}"
 out="$(mktemp)"
 
@@ -27,26 +29,25 @@ ovmf_copy="$(mktemp)"
 cp "$OVMF_FD" "$ovmf_copy"
 chmod +w "$ovmf_copy"
 
-timeout 30 "$QEMU" -bios "$ovmf_copy" \
+# Feed the shell input on stdin (a leading delay lets the kernel finish booting
+# before the line is delivered), then let timeout stop the forever-looping shell.
+{
+    sleep 6
+    printf '%s\r' "$INPUT"
+    sleep 4
+} | timeout 30 "$QEMU" -bios "$ovmf_copy" \
     -drive file="$IMG",format=raw -m 512 \
-    -display none -serial stdio -no-reboot >"$out" 2>&1 &
-qpid=$!
-
-# The kernel halts after the boot proof, so QEMU won't exit on its own; give it
-# time to boot, then stop it.
-sleep 10
-kill "$qpid" 2>/dev/null
-wait "$qpid" 2>/dev/null
+    -display none -serial stdio -no-reboot >"$out" 2>&1
 
 echo "--- serial output ---"
 cat "$out"
 echo "---------------------"
 rc=1
 if grep -q "$MARKER" "$out"; then
-    echo "PASS: kernel booted into long mode ('$MARKER')"
+    echo "PASS: shell booted and evaluated input ('$MARKER')"
     rc=0
 else
-    echo "FAIL: marker '$MARKER' not found (boot failed)" >&2
+    echo "FAIL: marker '$MARKER' not found (boot or shell failed)" >&2
 fi
 rm -f "$out" "$ovmf_copy"
 exit $rc
