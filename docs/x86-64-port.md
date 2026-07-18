@@ -150,13 +150,29 @@ This delivers the core mechanism. Full user-mode processes — the per-CPU 64-bi
 TSS (`rsp0`), per-process address spaces (`clone_directory`), fork and the ELF
 loader — build on top of it in milestones 4-5.
 
-## Milestone 4 — Syscall ABI widening
+## Milestone 4 — User mode (ring 3) + syscall ABI  ✅ DONE
 
-**Checkpoint:** kernel-side syscalls take 64-bit arguments.
+**Checkpoint:** a full ring-0 → ring-3 → ring-0 round trip works. Validated by
+`make test` (marker `user mode + syscall OK`): the kernel drops to ring 3, the
+user program makes an `int 0x80` "write" syscall (kernel echoes `arg=42`), then
+an "exit" syscall.
 
-- `src/syscalls.c`: keep `int 0x80`; change register reads
-  `ebx/ecx/edx → rdi/rsi/rdx` (or same registers, widened). The `REQUIRE_USER_*`
-  boundary guards work unchanged against the new `user_access_ok`.
+- `include/gdt64.h`, `src/gdt64.c`, `src/gdt64_load.asm` (new): a 64-bit GDT with
+  kernel + user code/data segments and a 64-bit TSS (only `rsp0` matters — it is
+  the stack the CPU switches to on a ring-3 → ring-0 transition). `gdt_flush`
+  reloads the segment registers and CS (via a far return); `tss_flush` runs
+  `ltr`; `enter_user_mode` builds an `iretq` frame and drops to ring 3.
+- `src/isr.asm`, `src/idt.c`: extended to all 256 vectors; the `int 0x80` gate is
+  installed with DPL 3 so ring 3 can invoke it.
+- `src/user_stub.asm` (new): a tiny position-independent ring-3 program, copied
+  into a user-accessible page and entered via `iretq`.
+- `src/kernel.c`: the syscall handler (port ABI: number in `rax`, arg in `rdi`,
+  return in `rax`) plus the user-mode bring-up. `gdt_init` runs before
+  `interrupts_init` so the IDT gates use the new kernel code selector.
+
+The kernel-side `syscalls.c` dispatch table and the `REQUIRE_USER_*` guards
+(which already walk 4-level tables) are re-wired to real user processes in
+milestone 5.
 
 ## Milestone 5 — 64-bit userland and disk image
 

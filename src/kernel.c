@@ -2,7 +2,6 @@
 // It is called from loader.asm
 
 #include <utils.h>
-#include <gdt.h>
 #include <scrn.h>
 #include <idt.h>
 #include <multiboot.h>
@@ -23,10 +22,14 @@
 #include <serial.h>
 #include <limine.h>
 #include <sched.h>
+#include <gdt64.h>
 
 // Linker symbol for the end of the kernel. The address it contains is
 // a location right after the kernel ends. It is defined in the linker script
 extern uint kernel_end;
+
+// The ring-3 test stub (user_stub.asm), copied into a user page in milestone 4.
+extern char user_stub[], user_stub_end[];
 
 // --- Limine boot protocol ---------------------------------------------------
 // The kernel is booted by Limine (see docs/x86-64-port.md), which hands us a
@@ -93,6 +96,27 @@ static void worker_c(void)
     for (;;) {
         wcounters[2]++;
         yield();
+    }
+}
+
+// Milestone-4 int 0x80 syscall handler. Port ABI: number in rax, arg1 in rdi,
+// return value in rax.
+static void syscall_handler(interrupt_frame* f)
+{
+    switch (f->rax) {
+    case 1: // "write": echo the argument
+        serial_print("[user] write syscall, arg=");
+        serial_dec(f->rdi);
+        serial_print("\n");
+        f->rax = 0;
+        break;
+    case 2: // "exit": the ring-3 program is done
+        serial_print("juampiOS: user mode + syscall OK\n");
+        for (;;) {
+            __asm__ __volatile__("cli; hlt");
+        }
+    default:
+        f->rax = (uint64)-1;
     }
 }
 
@@ -178,6 +202,10 @@ void kmain(void)
     }
 
     // --- Milestone 2: interrupts (IDT, exceptions, PIC, PIT timer) -----------
+    // Install our own GDT + TSS first (kernel + user segments); the IDT gates
+    // then reference its kernel code selector, and the TSS supplies the ring-0
+    // stack used on the ring-3 -> ring-0 transition in milestone 4.
+    gdt_init();
     interrupts_init();
     register_interrupt_handler(3, breakpoint_handler); // int3 -> non-fatal
     __asm__ __volatile__("sti");
@@ -217,6 +245,21 @@ void kmain(void)
     serial_print(" c=");
     serial_dec(wcounters[2]);
     serial_print("\njuampiOS: context switch OK\n");
+
+    // --- Milestone 4: user mode (ring 3) + int 0x80 syscall -----------------
+    register_interrupt_handler(0x80, syscall_handler);
+
+    // Map a user-accessible code page and stack, copy the ring-3 stub in, and
+    // drop to ring 3. The stub makes a "write" syscall then an "exit" syscall.
+    uint code_len = (uint)(user_stub_end - user_stub);
+    uintptr ucode_va = 0x400000, ustack_va = 0x500000;
+    map_page(kernel_dir, ucode_va, frame_alloc(), PAGEF_P | PAGEF_RW | PAGEF_U);
+    map_page(kernel_dir, ustack_va, frame_alloc(),
+             PAGEF_P | PAGEF_RW | PAGEF_U);
+    memcpy((void*)ucode_va, user_stub, code_len);
+
+    serial_print("juampiOS: entering ring 3...\n");
+    enter_user_mode(ucode_va, ustack_va + PAGE_SZ);
 
     while (1) {
         __asm__ __volatile__("hlt");

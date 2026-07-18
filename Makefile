@@ -80,10 +80,13 @@ PORT64_CSOURCES := \
 	$(SRC_DIR)/memory.c \
 	$(SRC_DIR)/idt.c \
 	$(SRC_DIR)/interrupts.c \
-	$(SRC_DIR)/sched.c
+	$(SRC_DIR)/sched.c \
+	$(SRC_DIR)/gdt64.c
 PORT64_ASMSOURCES := \
 	$(SRC_DIR)/isr.asm \
-	$(SRC_DIR)/context.asm
+	$(SRC_DIR)/context.asm \
+	$(SRC_DIR)/gdt64_load.asm \
+	$(SRC_DIR)/user_stub.asm
 
 CSOURCES   := $(PORT64_CSOURCES)
 ASMSOURCES := $(PORT64_ASMSOURCES)

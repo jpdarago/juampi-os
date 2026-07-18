@@ -22,9 +22,11 @@ void idt_init(void)
     uint16 cs;
     __asm__ __volatile__("mov %%cs, %0" : "=r"(cs));
 
-    for (uint v = 0; v < 48; v++) {
+    for (uint v = 0; v < 256; v++) {
         idt_set(v, isr_stub_table[v], cs, IDT_GATE_KERNEL);
     }
+    // The int 0x80 syscall gate must be reachable from ring 3.
+    idt_set(0x80, isr_stub_table[0x80], cs, IDT_GATE_USER);
 
     idtr.limit = sizeof(idt) - 1;
     idtr.base = (uintptr)&idt;

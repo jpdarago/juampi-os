@@ -24,8 +24,10 @@ isr%1:
     jmp isr_common
 %endmacro
 
+; Stubs for all 256 vectors: exceptions 0-31, PIC IRQs 32-47, the int 0x80
+; syscall gate at 128, and the rest as a catch-all that dumps and halts.
 %assign v 0
-%rep 48
+%rep 256
     %if v == 8 || v == 10 || v == 11 || v == 12 || v == 13 || v == 14 || v == 17
         ISR_ERR v
     %else
@@ -82,7 +84,7 @@ section .rodata
 global isr_stub_table
 isr_stub_table:
 %assign v 0
-%rep 48
+%rep 256
     dq isr %+ v
     %assign v v+1
 %endrep
