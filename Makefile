@@ -37,13 +37,13 @@ CFLAGS := -O2 -std=c11 -Werror -Wall -Wextra \
 	-Wjump-misses-init -Wlogical-op \
 	-nostdlib -fno-builtin -nostartfiles \
 	-nodefaultlibs -fno-stack-protector -I$(INCLUDE_DIR) \
-	-mno-mmx -mno-sse -mno-sse2 -mno-3dnow \
+	-mno-mmx -mno-3dnow \
 	-mno-red-zone -mcmodel=kernel -fno-pic -fno-pie
-# The kernel never enables SSE (CR4.OSFXSR) nor saves XMM state on a context
-# switch, so GCC must not auto-vectorize with SIMD — those instructions would
-# #UD (or corrupt state). -mno-red-zone is mandatory for kernel code: the SysV
-# red zone is unsafe once interrupts reuse the stack. This is the standard
-# freestanding 64-bit kernel flag set.
+# SSE/SSE2 are enabled (for double arithmetic, e.g. Lua): the entry stub turns
+# on CR4.OSFXSR before any C runs, and the context switch saves FP/SSE state
+# with fxsave/fxrstor. MMX/3DNow stay off (legacy, unused). -mno-red-zone is
+# mandatory for kernel code: the SysV red zone is unsafe once interrupts reuse
+# the stack.
 
 # Generate per-object .d dependency files so header edits trigger rebuilds.
 CPPFLAGS  := -MMD -MP

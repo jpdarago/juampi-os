@@ -4,7 +4,7 @@
  * and loaded there by the bootloader. */
 
 OUTPUT_FORMAT(elf64-x86-64)
-ENTRY(kmain)
+ENTRY(kentry)
 
 PHDRS
 {

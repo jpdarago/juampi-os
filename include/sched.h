@@ -10,8 +10,9 @@
 // hardware-TSS task switch; full user-mode processes (ELF, user GDT/TSS,
 // syscalls) are layered on top in later milestones.
 
-// Register the currently-running boot context as thread 0.
-void sched_init(void);
+// Register the currently-running boot context as thread 0; `mem` backs the
+// per-thread FPU save areas.
+void sched_init(allocator* mem);
 // Create a kernel thread that begins executing `entry`, with its stack taken
 // from `mem`. Returns its id.
 int thread_create(allocator* mem, void (*entry)(void));

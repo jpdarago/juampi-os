@@ -65,11 +65,15 @@ static void breakpoint_handler(interrupt_frame* f)
 
 // Milestone-3 worker threads: each bumps its own counter and yields, so a full
 // round-robin proves the context switch preserves every thread independently.
+// worker_a also accumulates a double across yields, exercising fxsave/fxrstor:
+// its FPU state must survive being switched away and back.
 static volatile uint64_t wcounters[3];
+static volatile double worker_fp;
 static void worker_a(void)
 {
     for (;;) {
         wcounters[0]++;
+        worker_fp += 0.5;
         yield();
     }
 }
@@ -210,7 +214,7 @@ void kmain(void)
     }
 
     // --- Milestone 3: software context switch (kernel threads) --------------
-    sched_init();
+    sched_init(mem);
     thread_create(mem, worker_a);
     thread_create(mem, worker_b);
     thread_create(mem, worker_c);
@@ -228,6 +232,20 @@ void kmain(void)
     console_print(" c=");
     console_dec(wcounters[2]);
     console_print("\njuampiOS: context switch OK\n");
+
+    // --- Floating point: SSE enabled at entry, FP state saved across switches.
+    // Kernel double arithmetic (SSE) and FP preserved through worker_a's yields
+    // (worker_fp += 0.5 five times ~= 2.5).
+    volatile double one = 1.0, three = 3.0;
+    double back = (one / three) * three; // ~1.0 via divsd/mulsd
+    bool fp_ok = back > 0.999 && back < 1.001 && worker_fp > 2.49 &&
+                 worker_fp < 2.51;
+    console_print("juampiOS: fp roundtrip (1/3*3=");
+    console_dec((uint64_t)(back * 1000.0)); // 1000
+    console_print("/1000), worker_fp*10=");
+    console_dec((uint64_t)(worker_fp * 10.0)); // 25
+    console_print(fp_ok ? "\njuampiOS: floating point OK\n"
+                        : "\njuampiOS: floating point FAILED\n");
 
     // Boot self-tests done; hand control to the interactive shell. (The ring-3
     // ELF64 path from the port stays available in elf64.c / gdt64.c for when
