@@ -20,6 +20,11 @@ int luaopen_k(lua_State* L);
 
 static lua_State* L;
 
+// Accumulator for multi-line input (pasted or continued scripts).
+#define PENDING_MAX 4096
+static char pending[PENDING_MAX];
+static size_t pending_len;
+
 // run("name.lua"): load a script shipped as a Limine module and execute it.
 static int l_run(lua_State* Ls)
 {
@@ -77,6 +82,10 @@ void luashell_init(void)
     lua_pushcfunction(L, l_run);
     lua_setglobal(L, "run");
 
+    // Clear any half-entered input (e.g. when re-initializing after a recovered
+    // fault longjmp'd out mid-evaluation).
+    pending_len = 0;
+
     run_init();
 }
 
@@ -106,11 +115,6 @@ static bool is_incomplete(int status)
     size_t ml = 5;
     return len >= ml && memcmp(msg + len - ml, mark, ml) == 0;
 }
-
-// Accumulator for multi-line input (pasted or continued scripts).
-#define PENDING_MAX 4096
-static char pending[PENDING_MAX];
-static size_t pending_len;
 
 int luashell_eval(const char* line)
 {

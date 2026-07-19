@@ -8,6 +8,7 @@
 #include <ports.h>
 #include <console.h>
 #include <ksym.h>
+#include <fault.h>
 
 // 8259 PIC ports and commands.
 #define PIC1_CMD 0x20
@@ -97,9 +98,14 @@ static void timer_handler(interrupt_frame* f)
     ticks++;
 }
 
-// Unhandled CPU exception: dump the frame to serial and halt.
+// Unhandled CPU exception. If the shell has armed fault recovery (it is
+// evaluating a script), unwind back to the prompt; otherwise this is a kernel
+// bug — dump the frame with a backtrace and halt.
 static void exception_panic(interrupt_frame* f)
 {
+    if (fault_recover(f)) {
+        return; // (unreachable — fault_recover longjmps when armed)
+    }
     uint64_t cr2;
     __asm__ __volatile__("mov %%cr2, %0" : "=r"(cr2));
     console_print("\n*** CPU EXCEPTION ***\n  vector=");
