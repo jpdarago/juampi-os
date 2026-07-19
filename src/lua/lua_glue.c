@@ -12,6 +12,9 @@
 #include "lauxlib.h"
 #include "lualib.h"
 
+// The kernel introspection library (src/lua/lua_k.c).
+int luaopen_k(lua_State* L);
+
 static lua_State* L;
 
 void luashell_init(void)
@@ -27,6 +30,7 @@ void luashell_init(void)
             {LUA_GNAME, luaopen_base},        {LUA_TABLIBNAME, luaopen_table},
             {LUA_STRLIBNAME, luaopen_string}, {LUA_MATHLIBNAME, luaopen_math},
             {LUA_COLIBNAME, luaopen_coroutine},
+            {"k", luaopen_k}, // kernel introspection
     };
     for (unsigned i = 0; i < sizeof(libs) / sizeof(libs[0]); i++) {
         luaL_requiref(L, libs[i].name, libs[i].func, 1);

@@ -12,5 +12,6 @@ void frames_init(uintptr_t phys_base, uintptr_t len);
 uintptr_t frame_alloc(void);
 void frame_free(uintptr_t frame);
 uintptr_t frames_available(void);
+uintptr_t frames_total(void);
 
 #endif

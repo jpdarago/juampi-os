@@ -11,8 +11,9 @@
 // region itself. (The 32-bit kernel also kept per-frame refcounts for
 // copy-on-write aliasing; that returns with fork/COW.)
 static bitset b;
-static uintptr_t mem_start;  // physical base of the managed region
-static uint32_t total_count; // free frames
+static uintptr_t mem_start;    // physical base of the managed region
+static uint32_t total_count;   // free frames
+static uint32_t managed_count; // total usable frames (never changes)
 
 void frames_init(uintptr_t phys_base, uintptr_t len)
 {
@@ -31,6 +32,12 @@ void frames_init(uintptr_t phys_base, uintptr_t len)
         bitset_set(&b, i);
     }
     total_count = frames - needed;
+    managed_count = total_count;
+}
+
+uintptr_t frames_total(void)
+{
+    return managed_count;
 }
 
 uintptr_t frame_alloc(void)

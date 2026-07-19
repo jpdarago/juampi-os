@@ -49,6 +49,23 @@ end
   dispatch, `mem.shared` shared buffers, and `mem.phys`/`ncores()` primitives —
   the custom multithreading library.
 
+## The `k` library — kernel introspection from Lua
+
+Because the shell runs in ring 0, Lua has full access to the machine, exposed
+through a `k` library:
+
+- **Time / profiling:** `k.rdtsc()`, `k.ns/us/ms()`, `k.uptime()`, `k.tsc_hz()`,
+  `k.bench(fn [,n])` → total & per-call cycles.
+- **Memory / CPU:** `k.freemem()`, `k.totalmem()`, `k.freeframes()`,
+  `k.cpuid(leaf [,sub])`, `k.cpubrand()`, `k.rdmsr/wrmsr(msr [,val])`.
+- **Raw access:** `k.peek8/16/32/64(addr)`, `k.poke8/16/32/64(addr,val)`,
+  `k.inb/outb(port [,val])`, `k.hexdump(addr [,len])`.
+- **Symbolication:** `k.sym(addr)` → name, offset; `k.backtrace()`.
+
+Poking a bad address or MSR faults into the (symbolized) exception handler — the
+price of "full access". This turns the shell into a live kernel explorer,
+profiler, and prototyping surface.
+
 ## What this deliberately gives up
 
 Protection: Lua scripts run in ring 0 and can crash or corrupt the machine.
