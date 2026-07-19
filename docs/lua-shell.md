@@ -62,9 +62,19 @@ through a `k` library:
   `k.inb/outb(port [,val])`, `k.hexdump(addr [,len])`.
 - **Symbolication:** `k.sym(addr)` → name, offset; `k.backtrace()`.
 
-Poking a bad address or MSR faults into the (symbolized) exception handler — the
-price of "full access". This turns the shell into a live kernel explorer,
-profiler, and prototyping surface.
+Poking a bad address or MSR faults into the (symbolized) exception handler, but
+that no longer halts the machine: while the shell is evaluating a script it arms
+fault recovery, so a bad `k.poke`/`k.rdmsr` unwinds back to the prompt (resetting
+the interpreter) instead of panicking. This turns the shell into a live kernel
+explorer, profiler, and prototyping surface you can poke at freely.
+
+## The `fb` library — framebuffer graphics from Lua
+
+`fb.width/height()`, `fb.pixel(x,y,rgb)`, `fb.rect(x,y,w,h,rgb)`,
+`fb.line(x0,y0,x1,y1,rgb)`, `fb.clear(rgb)` draw directly to the Limine
+framebuffer (colours are `0xRRGGBB`). It shares the surface with the text
+console, so graphics and text overwrite each other — good for *visualizing* what
+the `k` library measures. `run("demo.lua")` draws a sampler.
 
 ## Running scripts
 

@@ -17,6 +17,7 @@
 #include <keyboard.h>
 #include <ktime.h>
 #include <ksym.h>
+#include <gfx.h>
 
 #include <printf/printf.h>
 
@@ -175,6 +176,7 @@ void kmain(void)
     if (fb_request.response != NULL &&
         fb_request.response->framebuffer_count > 0) {
         console_init(fb_request.response->framebuffers[0]);
+        gfx_init(fb_request.response->framebuffers[0]);
     }
     console_print("\n=== juampiOS booting (framebuffer + COM1 console) ===\n");
     console_print("juampiOS: running in 64-bit long mode (booted by Limine)\n");
