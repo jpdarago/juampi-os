@@ -79,10 +79,12 @@ the `k` library measures. `run("demo.lua")` draws a sampler.
 `fb.image(name [,x,y])` decodes a **QOI** image (`src/qoi.c` — a ~90-line
 decoder for the "Quite OK Image" format) shipped as a Limine module and blits
 it, skipping fully transparent pixels; `x`/`y` default to centring it. The boot
-logo (`logo.qoi`, drawn top-right by `init.lua`, or centred by
-`run("logo.lua")`) is generated at build time by a host tool
-(`build/tools/mklogo.c`) that encodes it with the reference QOI codec — so the
-kernel decoder is validated against real, independently-encoded files.
+logo (`build/scripts/logo.qoi`, drawn top-right by `init.lua`, or centred by
+`run("logo.lua")`) is a checked-in asset, so the normal build needs no image
+tooling. Regenerate it from the source art (`build/assets/logo.png`) with
+`make logo`: ImageMagick resizes it to raw RGBA and the `png2qoi` host tool
+encodes it with the reference QOI codec — so the kernel decoder is validated
+against a real, independently-encoded file (confirmed pixel-identical).
 
 ## The `pci` library — PCI configuration space
 

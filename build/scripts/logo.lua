@@ -1,4 +1,4 @@
--- logo.lua: display the juampiOS boot logo centred on the framebuffer.
+-- logo.lua: display the JP-OS boot logo centred on the framebuffer.
 -- Run with run("logo.lua"). The image is a QOI file (logo.qoi) shipped as a
 -- Limine module and decoded by the kernel's fb.image().
 

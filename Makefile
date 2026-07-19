@@ -145,18 +145,25 @@ OVMF_FD ?= $$(nix build --no-link --print-out-paths nixpkgs\#OVMF.fd)/FV/OVMF.fd
 # available via run("name.lua") in the shell).
 SCRIPTS := $(wildcard $(BUILD_DIR)/scripts/*.lua)
 
-# Boot logo: a QOI image generated at build time by a host tool and shipped as a
-# Limine module. mklogo (build/tools/mklogo.c) draws the emblem and encodes it
-# with the reference QOI codec; the kernel decodes it with src/qoi.c and
-# fb.image() blits it (see init.lua / logo.lua).
-MKLOGO := $(BUILD_DIR)/tools/mklogo
-LOGO   := $(BUILD_DIR)/scripts/logo.qoi
+# Boot logo: build/scripts/logo.qoi is a checked-in QOI image (decoded by the
+# kernel's src/qoi.c and blitted by fb.image(); see init.lua / logo.lua). It is
+# a static asset, so the normal build needs no image tooling. Regenerate it from
+# the source PNG with `make logo` (needs ImageMagick): that resizes the art to
+# raw RGBA and encodes it with the reference QOI codec via the png2qoi host tool.
+LOGO       := $(BUILD_DIR)/scripts/logo.qoi
+LOGO_SRC   := $(BUILD_DIR)/assets/logo.png
+LOGO_SIZE  ?= 256
+PNG2QOI    := $(BUILD_DIR)/tools/png2qoi
+MAGICK     ?= magick
 
-$(MKLOGO): $(BUILD_DIR)/tools/mklogo.c $(BUILD_DIR)/tools/qoi.h
+$(PNG2QOI): $(BUILD_DIR)/tools/png2qoi.c $(BUILD_DIR)/tools/qoi.h
 	$(HOSTCC) -O2 -I$(BUILD_DIR)/tools -o $@ $<
 
-$(LOGO): $(MKLOGO)
-	$(MKLOGO) $@
+.PHONY: logo
+logo: $(PNG2QOI) $(LOGO_SRC) | $(OBJ_DIR)
+	$(MAGICK) $(LOGO_SRC) -resize $(LOGO_SIZE)x$(LOGO_SIZE)\! -alpha on \
+		-depth 8 RGBA:$(OBJ_DIR)/logo.rgba
+	$(PNG2QOI) $(LOGO_SIZE) $(LOGO_SIZE) $(OBJ_DIR)/logo.rgba $(LOGO)
 
 # Everything shipped to the image as a Limine module.
 MODULES := $(SCRIPTS) $(LOGO)
@@ -189,8 +196,10 @@ lint:
 
 # --- Housekeeping -----------------------------------------------------------
 
+# Note: build/scripts/logo.qoi is a checked-in asset, not a build artifact, so
+# clean leaves it in place (regenerate it with `make logo`).
 clean:
-	rm -rf $(OBJ_DIR) $(KERNEL) boot.img .ovmf.fd $(MKLOGO) $(LOGO)
+	rm -rf $(OBJ_DIR) $(KERNEL) boot.img .ovmf.fd $(PNG2QOI)
 
 help:
 	@echo "Targets: all kernel.bin run test format lint clean"
