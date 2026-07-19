@@ -6,12 +6,9 @@ print(string.format("init.lua: %d MiB free of %d, TSC %d MHz",
     k.freemem() // (1024 * 1024), k.totalmem() // (1024 * 1024),
     k.tsc_hz() // 1000000))
 
--- Splash: decode logo.qoi (a Limine module) and blit it, top-right of the
--- framebuffer so it stays clear of the boot text on the left.
-if fb.width() > 0 then
-    local w, h = fb.image("logo.qoi", fb.width() - 272, 16)
-    print(string.format("init.lua: displayed logo.qoi (%dx%d)", w, h))
-end
+-- The boot logo is drawn (and kept redrawn) by the kernel shell itself, after
+-- the banner, so a console scroll doesn't wipe it. Display it yourself any time
+-- with fb.image("logo.qoi") or run("logo.lua").
 
 -- A couple of convenience helpers, available in the shell after boot:
 function bench(fn, n)

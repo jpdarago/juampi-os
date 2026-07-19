@@ -3,21 +3,59 @@
 #include <luashell.h>
 #include <fault.h>
 #include <ksym.h>
+#include <gfx.h>
+#include <qoi.h>
+#include <kmodule.h>
+#include <memory.h>
 
 #include <stddef.h>
+#include <stdint.h>
 
 #define LINE_MAX 256
+
+// Boot logo, decoded once from the logo.qoi Limine module and kept resident so
+// it can be re-blitted cheaply. The text console (flanterm) keeps its own
+// canvas and rewrites the whole framebuffer from it whenever it scrolls, which
+// erases anything we drew directly — so the logo has to be redrawn after output
+// that may have scrolled, not just once at startup.
+static uint32_t* logo_pixels;
+static qoi_image logo_img;
+
+static void logo_load(void)
+{
+    size_t size = 0;
+    const void* data = kmodule_find("logo.qoi", &size);
+    if (data != NULL) {
+        logo_pixels = qoi_decode(&heap_default()->base, data, size, &logo_img);
+    }
+}
+
+// Blit the logo into the top-right corner (clamped on-screen).
+static void logo_draw(void)
+{
+    if (!gfx_available() || logo_pixels == NULL) {
+        return;
+    }
+    int64_t x = (int64_t)gfx_width() - (int64_t)logo_img.width - 16;
+    if (x < 0) {
+        x = 0;
+    }
+    gfx_blit(x, 16, logo_img.width, logo_img.height, logo_pixels);
+}
 
 void shell_run(void)
 {
     static char line[LINE_MAX];
     luashell_init();
+    logo_load();
     console_print(
             "\njuampiOS Lua shell (Lua 5.4).\n"
             "  math/string/table/coroutine, and 'k' for kernel introspection:\n"
             "  k.cpubrand()  k.freemem()  k.uptime()  k.bench(fn,n)  "
             "k.hexdump(addr)\n"
             "  run(\"name.lua\") runs a shipped script.\n");
+    // Draw the logo after the banner (which may have scrolled the console).
+    logo_draw();
 
     int cont = 0;
 
@@ -52,5 +90,10 @@ void shell_run(void)
         fault_armed = true;
         cont = luashell_eval(line);
         fault_armed = false;
+        // A completed evaluation may have printed output and scrolled the
+        // console, wiping the logo; redraw it so it stays in the corner.
+        if (!cont) {
+            logo_draw();
+        }
     }
 }
