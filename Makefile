@@ -19,6 +19,9 @@ CROSS        ?=
 CC            = $(CROSS)gcc
 LD            = $(CROSS)ld
 CLANG_FORMAT  = clang-format
+# Native compiler for build-time host tools (e.g. the logo generator). Never
+# the cross prefix: these run on the build host, not the target.
+HOSTCC       ?= cc
 
 # Directories.
 SRC_DIR     := src
@@ -142,10 +145,26 @@ OVMF_FD ?= $$(nix build --no-link --print-out-paths nixpkgs\#OVMF.fd)/FV/OVMF.fd
 # available via run("name.lua") in the shell).
 SCRIPTS := $(wildcard $(BUILD_DIR)/scripts/*.lua)
 
-# Pack the kernel and the Lua scripts into a bootable UEFI image with Limine
-# (sudo-free, mtools).
-boot.img: $(KERNEL) $(SCRIPTS) $(BUILD_DIR)/limine.conf $(BUILD_DIR)/mkboot.sh
-	bash $(BUILD_DIR)/mkboot.sh $(KERNEL) $@ $(SCRIPTS)
+# Boot logo: a QOI image generated at build time by a host tool and shipped as a
+# Limine module. mklogo (build/tools/mklogo.c) draws the emblem and encodes it
+# with the reference QOI codec; the kernel decodes it with src/qoi.c and
+# fb.image() blits it (see init.lua / logo.lua).
+MKLOGO := $(BUILD_DIR)/tools/mklogo
+LOGO   := $(BUILD_DIR)/scripts/logo.qoi
+
+$(MKLOGO): $(BUILD_DIR)/tools/mklogo.c $(BUILD_DIR)/tools/qoi.h
+	$(HOSTCC) -O2 -I$(BUILD_DIR)/tools -o $@ $<
+
+$(LOGO): $(MKLOGO)
+	$(MKLOGO) $@
+
+# Everything shipped to the image as a Limine module.
+MODULES := $(SCRIPTS) $(LOGO)
+
+# Pack the kernel and the modules (scripts + logo) into a bootable UEFI image
+# with Limine (sudo-free, mtools).
+boot.img: $(KERNEL) $(MODULES) $(BUILD_DIR)/limine.conf $(BUILD_DIR)/mkboot.sh
+	bash $(BUILD_DIR)/mkboot.sh $(KERNEL) $@ $(MODULES)
 
 # Boot the OS in QEMU under OVMF. Limine loads the kernel straight into 64-bit
 # long mode. OVMF vars must be writable, so we boot from a private copy.
@@ -171,7 +190,7 @@ lint:
 # --- Housekeeping -----------------------------------------------------------
 
 clean:
-	rm -rf $(OBJ_DIR) $(KERNEL) boot.img .ovmf.fd
+	rm -rf $(OBJ_DIR) $(KERNEL) boot.img .ovmf.fd $(MKLOGO) $(LOGO)
 
 help:
 	@echo "Targets: all kernel.bin run test format lint clean"

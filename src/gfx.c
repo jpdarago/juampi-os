@@ -78,6 +78,34 @@ void gfx_clear(uint32_t rgb)
     gfx_rect(0, 0, (int64_t)width, (int64_t)height, rgb);
 }
 
+void gfx_blit(int64_t x, int64_t y, uint64_t w, uint64_t h,
+              const uint32_t* pixels)
+{
+    if (fb == NULL) {
+        return;
+    }
+    for (uint64_t j = 0; j < h; j++) {
+        int64_t py = y + (int64_t)j;
+        if (py < 0 || (uint64_t)py >= height) {
+            continue;
+        }
+        volatile uint32_t* row =
+                (volatile uint32_t*)(fb + (uint64_t)py * pitch);
+        const uint32_t* src = pixels + j * w;
+        for (uint64_t i = 0; i < w; i++) {
+            int64_t px = x + (int64_t)i;
+            if (px < 0 || (uint64_t)px >= width) {
+                continue;
+            }
+            uint32_t p = src[i];
+            if ((p >> 24) == 0) {
+                continue; // fully transparent
+            }
+            row[px] = pack(p & 0xffffff);
+        }
+    }
+}
+
 void gfx_line(int64_t x0, int64_t y0, int64_t x1, int64_t y1, uint32_t rgb)
 {
     // Bresenham's line algorithm.

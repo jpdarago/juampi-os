@@ -1,5 +1,10 @@
 # Run `pre-commit install` once to enable these hooks locally.
 # See https://pre-commit.com for details.
+
+# build/tools/qoi.h is the reference QOI codec, vendored verbatim; keep every
+# hook off it.
+exclude: ^build/tools/qoi\.h$
+
 repos:
   - repo: https://github.com/pre-commit/mirrors-clang-format
     rev: v18.1.8

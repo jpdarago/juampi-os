@@ -52,3 +52,7 @@ boot.img
 
 # Userland module built for the x86-64 port
 build/user/*.elf
+
+# Generated at build time: the boot logo and its host generator binary
+build/scripts/logo.qoi
+build/tools/mklogo

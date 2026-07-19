@@ -3,6 +3,9 @@
 // versa. Good for visualizing what the `k` library measures.
 
 #include <gfx.h>
+#include <qoi.h>
+#include <kmodule.h>
+#include <memory.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -43,10 +46,36 @@ static int l_line(lua_State* L)
     return 0;
 }
 
+// fb.image(name [,x,y]) -> width, height. Decode a QOI image shipped as a
+// Limine module and blit it. x/y default to centring the image on screen.
+static int l_image(lua_State* L)
+{
+    const char* name = luaL_checkstring(L, 1);
+    size_t size = 0;
+    const void* data = kmodule_find(name, &size);
+    if (data == NULL) {
+        return luaL_error(L, "no such image: %s", name);
+    }
+    qoi_image img;
+    uint32_t* pixels = qoi_decode(&heap_default()->base, data, size, &img);
+    if (pixels == NULL) {
+        return luaL_error(L, "not a valid QOI image: %s", name);
+    }
+    int64_t x = luaL_optinteger(
+            L, 2, ((int64_t)gfx_width() - (int64_t)img.width) / 2);
+    int64_t y = luaL_optinteger(
+            L, 3, ((int64_t)gfx_height() - (int64_t)img.height) / 2);
+    gfx_blit(x, y, img.width, img.height, pixels);
+    heap_free(heap_default(), pixels);
+    lua_pushinteger(L, (lua_Integer)img.width);
+    lua_pushinteger(L, (lua_Integer)img.height);
+    return 2;
+}
+
 static const luaL_Reg fblib[] = {
         {"width", l_width}, {"height", l_height}, {"pixel", l_pixel},
         {"rect", l_rect},   {"clear", l_clear},   {"line", l_line},
-        {NULL, NULL},
+        {"image", l_image}, {NULL, NULL},
 };
 
 int luaopen_fb(lua_State* L)

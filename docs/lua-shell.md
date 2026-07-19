@@ -76,6 +76,14 @@ framebuffer (colours are `0xRRGGBB`). It shares the surface with the text
 console, so graphics and text overwrite each other — good for *visualizing* what
 the `k` library measures. `run("demo.lua")` draws a sampler.
 
+`fb.image(name [,x,y])` decodes a **QOI** image (`src/qoi.c` — a ~90-line
+decoder for the "Quite OK Image" format) shipped as a Limine module and blits
+it, skipping fully transparent pixels; `x`/`y` default to centring it. The boot
+logo (`logo.qoi`, drawn top-right by `init.lua`, or centred by
+`run("logo.lua")`) is generated at build time by a host tool
+(`build/tools/mklogo.c`) that encodes it with the reference QOI codec — so the
+kernel decoder is validated against real, independently-encoded files.
+
 ## The `pci` library — PCI configuration space
 
 `pci.read(bus,dev,func,offset)` / `pci.write(...)` access config space (via the
