@@ -15,6 +15,7 @@
 #include <shell.h>
 #include <console.h>
 #include <keyboard.h>
+#include <ktime.h>
 
 #include <printf/printf.h>
 
@@ -276,6 +277,18 @@ void kmain(void)
     if (bp_hits == 1 && timer_ticks() >= 3) {
         console_print("juampiOS: interrupts OK\n");
     }
+
+    // --- Timekeeping: calibrate the TSC and expose a monotonic clock. --------
+    ktime_init();
+    uint64_t hz = tsc_hz();
+    console_print("juampiOS: TSC ");
+    console_dec(hz / 1000000);
+    console_print(" MHz (");
+    console_print(ktime_tsc_invariant() ? "invariant" : "variable");
+    console_print("), monotonic clock ns=");
+    console_dec(ktime_ns());
+    console_print(hz > 100000000ull ? "\njuampiOS: timekeeping OK\n"
+                                    : "\njuampiOS: timekeeping FAILED\n");
 
     // --- Milestone 3: software context switch (kernel threads) --------------
     sched_init(mem);
