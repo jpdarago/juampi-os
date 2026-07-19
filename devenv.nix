@@ -10,7 +10,6 @@
     pkgs.gnumake
     pkgs.gcc # host gcc builds the freestanding 64-bit kernel
     pkgs.binutils # ld with elf_x86_64 support
-    pkgs.nasm
     pkgs.qemu_kvm # qemu-system-x86_64 for run + tests
     pkgs.clang-tools # clang-format for `make format` / `make lint`
     pkgs.limine # 64-bit bootloader: boots the kernel straight into long mode

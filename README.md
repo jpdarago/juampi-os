@@ -25,7 +25,7 @@ Building and running
 --------------------
 
 The repo ships a Nix/devenv environment (`devenv shell`, or automatic with
-direnv) providing the whole toolchain: host GCC, nasm, QEMU, Limine, mtools and
+direnv) providing the whole toolchain: host GCC, QEMU, Limine, mtools and
 clang-format. Then:
 
     make && make run
@@ -42,7 +42,7 @@ clang-format. Then:
 
 The boot image is a plain FAT/UEFI image built entirely in userspace with
 `mtools` — no `sudo`, no loopback mounts. Without Nix, install
-`gcc nasm qemu-system-x86 ovmf mtools clang-format`, fetch Limine's binary
+`gcc qemu-system-x86 ovmf mtools clang-format`, fetch Limine's binary
 branch, and point the build at them (see `.github/workflows/ci.yml` for the
 exact recipe).
 

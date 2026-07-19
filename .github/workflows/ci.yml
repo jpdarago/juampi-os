@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain
-        run: sudo apt-get update && sudo apt-get install -y gcc nasm
+        run: sudo apt-get update && sudo apt-get install -y gcc
       - name: Build kernel
         run: make kernel.bin
       - name: Build userland module
@@ -41,7 +41,7 @@ jobs:
       - name: Install toolchain + QEMU + OVMF + mtools
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc nasm qemu-system-x86 ovmf mtools socat
+          sudo apt-get install -y gcc qemu-system-x86 ovmf mtools socat
       - name: Fetch Limine (binary release branch)
         run: git clone --branch=v9.x-binary --depth=1 https://github.com/limine-bootloader/limine.git /tmp/limine
       - name: Boot smoke test (kernel through to userland)

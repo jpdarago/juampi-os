@@ -17,7 +17,6 @@
 # to build with a cross toolchain instead, as needed on macOS.
 CROSS        ?=
 CC            = $(CROSS)gcc
-ASM           = nasm
 LD            = $(CROSS)ld
 CLANG_FORMAT  = clang-format
 
@@ -50,16 +49,16 @@ CFLAGS := -O2 -std=c11 -Werror -Wall -Wextra \
 
 # Generate per-object .d dependency files so header edits trigger rebuilds.
 CPPFLAGS  := -MMD -MP
-NASMFLAGS := -i$(INCLUDE_DIR)/ -felf64
+# Assembly (.S, GNU assembler via gcc): the files carry their own .note.GNU-stack
+# so no exec-stack markers are needed here.
 LINKSCRIPT := $(BUILD_DIR)/linker.ld
-# -z noexecstack silences the "missing .note.GNU-stack" warning from the NASM
-# objects; an executable-stack note is meaningless for a freestanding kernel.
-LDFLAGS   := -melf_x86_64 -z noexecstack -z max-page-size=0x1000 -T $(LINKSCRIPT)
+LDFLAGS   := -melf_x86_64 -z max-page-size=0x1000 -T $(LINKSCRIPT)
 
 # Sources and (out-of-tree) objects. Kernel sources live in a flat src/ dir;
 # src/flanterm/ is the vendored flanterm terminal emulator (kept verbatim).
+# Assembly is GNU-assembler .S (assembled by gcc); there is no NASM dependency.
 CSOURCES   := $(wildcard $(SRC_DIR)/*.c)
-ASMSOURCES := $(wildcard $(SRC_DIR)/*.asm)
+ASMSOURCES := $(wildcard $(SRC_DIR)/*.S)
 # Vendored third-party C (flanterm terminal, printf), compiled verbatim.
 VENDOR_CSOURCES := $(SRC_DIR)/flanterm/flanterm.c \
 	$(SRC_DIR)/flanterm/flanterm_backends/fb.c \
@@ -73,7 +72,7 @@ LUA_ASM_OBJ  := $(OBJ_DIR)/lua/klibc_setjmp.o
 LUA_INC      := -I$(SRC_DIR)/lua/klibc -Iinclude/lua
 
 COBJS      := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CSOURCES))
-ASMOBJS    := $(patsubst $(SRC_DIR)/%.asm,$(OBJ_DIR)/%.o,$(ASMSOURCES))
+ASMOBJS    := $(patsubst $(SRC_DIR)/%.S,$(OBJ_DIR)/%.o,$(ASMSOURCES))
 VENDOR_OBJS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(VENDOR_CSOURCES))
 OBJS       := $(COBJS) $(ASMOBJS) $(VENDOR_OBJS) $(LUA_OBJS) $(LUA_ASM_OBJ)
 DEPS       := $(COBJS:.o=.d) $(VENDOR_OBJS:.o=.d) $(LUA_OBJS:.o=.d)
@@ -104,8 +103,9 @@ $(OBJ_DIR):
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o $@ $<
 
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.asm | $(OBJ_DIR)
-	$(ASM) $(NASMFLAGS) -o $@ $<
+# GNU-assembler sources (.S): assembled by gcc (runs cpp + as).
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.S | $(OBJ_DIR)
+	$(CC) $(CPPFLAGS) -c -o $@ $<
 
 # Vendored third-party C (flanterm, printf): compiled with our kernel flags but
 # without our warning gauntlet (kept verbatim). The %-stem includes the subdir.
@@ -122,9 +122,9 @@ $(OBJ_DIR)/lua/%.o: $(SRC_DIR)/lua/%.c | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w $(LUA_INC) $(CPPFLAGS) -c -o $@ $<
 
-$(OBJ_DIR)/lua/%.o: $(SRC_DIR)/lua/%.asm | $(OBJ_DIR)
+$(OBJ_DIR)/lua/%.o: $(SRC_DIR)/lua/%.S | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
-	$(ASM) $(NASMFLAGS) -o $@ $<
+	$(CC) $(CPPFLAGS) -c -o $@ $<
 
 $(KERNEL): $(OBJS)
 	$(LD) $(LDFLAGS) -o $@ $^
