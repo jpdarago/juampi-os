@@ -148,11 +148,15 @@ SCRIPTS := $(wildcard $(BUILD_DIR)/scripts/*.lua)
 # Boot logo: build/scripts/logo.qoi is a checked-in QOI image (decoded by the
 # kernel's src/qoi.c and blitted by fb.image(); see init.lua / logo.lua). It is
 # a static asset, so the normal build needs no image tooling. Regenerate it from
-# the source PNG with `make logo` (needs ImageMagick): that resizes the art to
-# raw RGBA and encodes it with the reference QOI codec via the png2qoi host tool.
+# the source PNG with `make logo` (needs ImageMagick): that resizes the art,
+# flood-fills the (connected) background to transparent so the logo composes
+# over the console instead of showing as a square, and encodes the RGBA to QOI
+# with the reference codec via the png2qoi host tool.
 LOGO       := $(BUILD_DIR)/scripts/logo.qoi
 LOGO_SRC   := $(BUILD_DIR)/assets/logo.png
 LOGO_SIZE  ?= 256
+# Last pixel index (LOGO_SIZE-1), used as the corner flood-fill seeds.
+LOGO_MAX   := $(shell expr $(LOGO_SIZE) - 1)
 PNG2QOI    := $(BUILD_DIR)/tools/png2qoi
 MAGICK     ?= magick
 
@@ -161,7 +165,12 @@ $(PNG2QOI): $(BUILD_DIR)/tools/png2qoi.c $(BUILD_DIR)/tools/qoi.h
 
 .PHONY: logo
 logo: $(PNG2QOI) $(LOGO_SRC) | $(OBJ_DIR)
-	$(MAGICK) $(LOGO_SRC) -resize $(LOGO_SIZE)x$(LOGO_SIZE)\! -alpha on \
+	$(MAGICK) $(LOGO_SRC) -resize $(LOGO_SIZE)x$(LOGO_SIZE)\! -alpha set \
+		-fuzz 22% -fill none \
+		-draw "alpha 0,0 floodfill" \
+		-draw "alpha $(LOGO_MAX),0 floodfill" \
+		-draw "alpha 0,$(LOGO_MAX) floodfill" \
+		-draw "alpha $(LOGO_MAX),$(LOGO_MAX) floodfill" \
 		-depth 8 RGBA:$(OBJ_DIR)/logo.rgba
 	$(PNG2QOI) $(LOGO_SIZE) $(LOGO_SIZE) $(OBJ_DIR)/logo.rgba $(LOGO)
 

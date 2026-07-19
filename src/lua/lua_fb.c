@@ -46,8 +46,11 @@ static int l_line(lua_State* L)
     return 0;
 }
 
-// fb.image(name [,x,y]) -> width, height. Decode a QOI image shipped as a
-// Limine module and blit it. x/y default to centring the image on screen.
+// fb.image(name [,x,y [,key [,tol]]]) -> width, height. Decode a QOI image
+// shipped as a Limine module and blit it. x/y default to centring the image on
+// screen. If `key` (an 0xRRGGBB colour) is given, pixels within `tol` (default
+// 16) of it per channel are made transparent — a chroma key, so e.g. a solid
+// background colour drops out. (Images can also carry their own alpha.)
 static int l_image(lua_State* L)
 {
     const char* name = luaL_checkstring(L, 1);
@@ -61,6 +64,32 @@ static int l_image(lua_State* L)
     if (pixels == NULL) {
         return luaL_error(L, "not a valid QOI image: %s", name);
     }
+
+    if (!lua_isnoneornil(L, 4)) {
+        uint32_t key = (uint32_t)luaL_checkinteger(L, 4);
+        int tol = (int)luaL_optinteger(L, 5, 16);
+        int kr = (key >> 16) & 0xff, kg = (key >> 8) & 0xff, kb = key & 0xff;
+        uint64_t n = (uint64_t)img.width * img.height;
+        for (uint64_t i = 0; i < n; i++) {
+            int r = (pixels[i] >> 16) & 0xff;
+            int g = (pixels[i] >> 8) & 0xff;
+            int b = pixels[i] & 0xff;
+            int dr = r - kr, dg = g - kg, db = b - kb;
+            if (dr < 0) {
+                dr = -dr;
+            }
+            if (dg < 0) {
+                dg = -dg;
+            }
+            if (db < 0) {
+                db = -db;
+            }
+            if (dr <= tol && dg <= tol && db <= tol) {
+                pixels[i] = 0; // alpha 0 -> skipped by gfx_blit
+            }
+        }
+    }
+
     int64_t x = luaL_optinteger(
             L, 2, ((int64_t)gfx_width() - (int64_t)img.width) / 2);
     int64_t y = luaL_optinteger(

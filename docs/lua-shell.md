@@ -74,17 +74,24 @@ explorer, profiler, and prototyping surface you can poke at freely.
 `fb.line(x0,y0,x1,y1,rgb)`, `fb.clear(rgb)` draw directly to the Limine
 framebuffer (colours are `0xRRGGBB`). It shares the surface with the text
 console, so graphics and text overwrite each other — good for *visualizing* what
-the `k` library measures. `run("demo.lua")` draws a sampler.
+the `k` library measures. `run("demo.lua")` draws a sampler, and
+`run("boing.lua")` plays the Amiga "Boing Ball" (a shaded checker sphere
+bouncing over the magenta grid) as an animation/stress test of the `fb` library.
 
-`fb.image(name [,x,y])` decodes a **QOI** image (`src/qoi.c` — a ~90-line
-decoder for the "Quite OK Image" format) shipped as a Limine module and blits
-it, skipping fully transparent pixels; `x`/`y` default to centring it. The boot
-logo (`build/scripts/logo.qoi`, drawn top-right by `init.lua`, or centred by
-`run("logo.lua")`) is a checked-in asset, so the normal build needs no image
-tooling. Regenerate it from the source art (`build/assets/logo.png`) with
-`make logo`: ImageMagick resizes it to raw RGBA and the `png2qoi` host tool
-encodes it with the reference QOI codec — so the kernel decoder is validated
-against a real, independently-encoded file (confirmed pixel-identical).
+`fb.image(name [,x,y [,key [,tol]]])` decodes a **QOI** image (`src/qoi.c` — a
+~90-line decoder for the "Quite OK Image" format) shipped as a Limine module and
+blits it, skipping transparent pixels; `x`/`y` default to centring it. Pass
+`key` (an `0xRRGGBB` colour) to chroma-key it out — pixels within `tol`
+(default 16) per channel become transparent — so a flat background drops away.
+The boot logo (`build/scripts/logo.qoi`, drawn top-right by the shell and kept
+redrawn after each command, or shown anywhere with `run("logo.lua")`) is a
+checked-in asset, so the normal build needs no image tooling. Regenerate it from
+the source art (`build/assets/logo.png`) with `make logo`: ImageMagick resizes
+it, flood-fills the connected background to transparent (so it floats over the
+console rather than showing as a square, without touching the enclosed globe),
+and the `png2qoi` host tool encodes the RGBA with the reference QOI codec — so
+the kernel decoder is validated against a real, independently-encoded file
+(confirmed pixel-identical).
 
 ## The `pci` library — PCI configuration space
 
