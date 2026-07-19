@@ -76,6 +76,14 @@ framebuffer (colours are `0xRRGGBB`). It shares the surface with the text
 console, so graphics and text overwrite each other — good for *visualizing* what
 the `k` library measures. `run("demo.lua")` draws a sampler.
 
+## The `pci` library — PCI configuration space
+
+`pci.read(bus,dev,func,offset)` / `pci.write(...)` access config space (via the
+0xCF8/0xCFC mechanism), and `pci.list()` returns a table of every device
+(`{bus, dev, func, vendor, device, class, subclass, prog_if, header}`).
+`run("lspci.lua")` prints them lspci-style with class names — the prerequisite
+introspection for future device drivers.
+
 ## Running scripts
 
 Lua scripts are shipped as Limine modules (files under `build/scripts/`, copied

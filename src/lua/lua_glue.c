@@ -15,9 +15,10 @@
 #include "lauxlib.h"
 #include "lualib.h"
 
-// The kernel introspection and framebuffer libraries (lua_k.c, lua_fb.c).
+// The kernel libraries (lua_k.c, lua_fb.c, lua_pci.c).
 int luaopen_k(lua_State* L);
 int luaopen_fb(lua_State* L);
+int luaopen_pci(lua_State* L);
 
 static lua_State* L;
 
@@ -74,8 +75,9 @@ void luashell_init(void)
             {LUA_GNAME, luaopen_base},        {LUA_TABLIBNAME, luaopen_table},
             {LUA_STRLIBNAME, luaopen_string}, {LUA_MATHLIBNAME, luaopen_math},
             {LUA_COLIBNAME, luaopen_coroutine},
-            {"k", luaopen_k},   // kernel introspection
-            {"fb", luaopen_fb}, // framebuffer drawing
+            {"k", luaopen_k},     // kernel introspection
+            {"fb", luaopen_fb},   // framebuffer drawing
+            {"pci", luaopen_pci}, // PCI configuration space
     };
     for (unsigned i = 0; i < sizeof(libs) / sizeof(libs[0]); i++) {
         luaL_requiref(L, libs[i].name, libs[i].func, 1);
