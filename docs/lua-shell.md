@@ -66,6 +66,15 @@ Poking a bad address or MSR faults into the (symbolized) exception handler — t
 price of "full access". This turns the shell into a live kernel explorer,
 profiler, and prototyping surface.
 
+## Running scripts
+
+Lua scripts are shipped as Limine modules (files under `build/scripts/`, copied
+into the boot image). `build/scripts/init.lua` runs once at startup — edit it and
+rebuild to customize the boot (it defines a couple of shell helpers). Any shipped
+script can be run from the shell with `run("name.lua")`. The REPL also handles
+multi-line input: an incomplete statement continues with a `>>` prompt, so whole
+snippets can be pasted.
+
 ## What this deliberately gives up
 
 Protection: Lua scripts run in ring 0 and can crash or corrupt the machine.

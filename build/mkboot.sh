@@ -6,7 +6,8 @@ set -euo pipefail
 
 KERNEL="${1:-kernel.bin}"
 OUT="${2:-boot.img}"
-MODULE="${3:-}" # optional userland ELF loaded as a Limine module
+shift 2 2>/dev/null || true
+SCRIPTS=("$@") # Lua scripts, each loaded as a Limine module under /boot/scripts
 
 # Locate Limine's UEFI loader: either from LIMINE_DIR (a directory containing
 # BOOTX64.EFI, e.g. a checkout of the limine binary branch in CI) or from the
@@ -28,12 +29,12 @@ fi
 rm -f "$OUT"
 truncate -s 64M "$OUT"
 mformat -i "$OUT" -F ::                       # FAT32 across the whole image
-mmd -i "$OUT" ::/EFI ::/EFI/BOOT ::/boot ::/boot/limine
+mmd -i "$OUT" ::/EFI ::/EFI/BOOT ::/boot ::/boot/limine ::/boot/scripts
 mcopy -i "$OUT" "$EFI" ::/EFI/BOOT/BOOTX64.EFI
 mcopy -i "$OUT" "$KERNEL" ::/boot/kernel.bin
 mcopy -i "$OUT" build/limine.conf ::/boot/limine/limine.conf
-if [ -n "$MODULE" ]; then
-    mcopy -i "$OUT" "$MODULE" ::/boot/hello.elf
-fi
+for s in "${SCRIPTS[@]}"; do
+    [ -n "$s" ] && mcopy -i "$OUT" "$s" "::/boot/scripts/$(basename "$s")"
+done
 
-echo "wrote $OUT (kernel: $KERNEL${MODULE:+, module: $MODULE})"
+echo "wrote $OUT (kernel: $KERNEL, scripts: ${SCRIPTS[*]:-none})"

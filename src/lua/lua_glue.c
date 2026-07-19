@@ -1,12 +1,15 @@
 // Glue between the kernel shell and the embedded Lua interpreter. Compiled with
 // the Lua include path (so its libc stubs resolve), it holds one persistent
-// lua_State and evaluates a line at a time, printing results like the standard
-// Lua REPL (an expression prints its value).
+// lua_State and evaluates input a line at a time like the standard Lua REPL: a
+// bare expression prints its value, and incomplete input asks for more.
 
 #include <luashell.h>
 #include <console.h>
+#include <kmodule.h>
 
 #include <printf/printf.h>
+#include <string.h>
+#include <stdbool.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -16,6 +19,41 @@
 int luaopen_k(lua_State* L);
 
 static lua_State* L;
+
+// run("name.lua"): load a script shipped as a Limine module and execute it.
+static int l_run(lua_State* Ls)
+{
+    const char* name = luaL_checkstring(Ls, 1);
+    size_t size = 0;
+    const void* data = kmodule_find(name, &size);
+    if (data == NULL) {
+        return luaL_error(Ls, "no such script: %s", name);
+    }
+    int base = lua_gettop(Ls);
+    if (luaL_loadbuffer(Ls, data, size, name) != LUA_OK) {
+        return lua_error(Ls);
+    }
+    lua_call(Ls, 0, LUA_MULTRET);
+    return lua_gettop(Ls) - base;
+}
+
+// Run init.lua (if shipped) once at startup.
+static void run_init(void)
+{
+    size_t size = 0;
+    const void* data = kmodule_find("init.lua", &size);
+    if (data == NULL) {
+        return;
+    }
+    if (luaL_loadbuffer(L, data, size, "@init.lua") == LUA_OK &&
+        lua_pcall(L, 0, 0, 0) == LUA_OK) {
+        return;
+    }
+    console_print("init.lua: ");
+    console_print(lua_tostring(L, -1));
+    console_print("\n");
+    lua_pop(L, 1);
+}
 
 void luashell_init(void)
 {
@@ -36,6 +74,10 @@ void luashell_init(void)
         luaL_requiref(L, libs[i].name, libs[i].func, 1);
         lua_pop(L, 1);
     }
+    lua_pushcfunction(L, l_run);
+    lua_setglobal(L, "run");
+
+    run_init();
 }
 
 // Print every value from stack index `from` to the top, tab-separated, using
@@ -51,28 +93,65 @@ static void print_results(int from)
     }
 }
 
-void luashell_eval(const char* line)
+// A LUA_ERRSYNTAX whose message ends with "<eof>" means the chunk is incomplete
+// (more input needed) rather than malformed.
+static bool is_incomplete(int status)
+{
+    if (status != LUA_ERRSYNTAX) {
+        return false;
+    }
+    size_t len = 0;
+    const char* msg = lua_tolstring(L, -1, &len);
+    const char* mark = "<eof>";
+    size_t ml = 5;
+    return len >= ml && memcmp(msg + len - ml, mark, ml) == 0;
+}
+
+// Accumulator for multi-line input (pasted or continued scripts).
+#define PENDING_MAX 4096
+static char pending[PENDING_MAX];
+static size_t pending_len;
+
+int luashell_eval(const char* line)
 {
     if (L == NULL) {
-        return;
+        return 0;
     }
-    // Try to compile "return <line>" first, so a bare expression prints its
-    // value; if that fails to compile, run the line as a statement.
-    char buf[600];
-    snprintf(buf, sizeof(buf), "return %s", line);
+    // Append this line to any pending (continued) input.
+    size_t ll = strlen(line);
+    if (pending_len + ll + 2 >= PENDING_MAX) {
+        console_print("input too long\n");
+        pending_len = 0;
+        return 0;
+    }
+    if (pending_len > 0) {
+        pending[pending_len++] = '\n';
+    }
+    memcpy(pending + pending_len, line, ll);
+    pending_len += ll;
+    pending[pending_len] = '\0';
+
+    // Try "return <src>" first so a bare expression prints its value.
+    char buf[PENDING_MAX + 8];
+    snprintf(buf, sizeof(buf), "return %s", pending);
     int status = luaL_loadstring(L, buf);
     if (status != LUA_OK) {
         lua_pop(L, 1);
-        status = luaL_loadstring(L, line);
+        status = luaL_loadstring(L, pending);
+        if (is_incomplete(status)) {
+            lua_pop(L, 1);
+            return 1; // ask the shell for another line
+        }
     }
 
     if (status == LUA_OK) {
-        int base = lua_gettop(L); // the compiled chunk
+        int base = lua_gettop(L);
         status = lua_pcall(L, 0, LUA_MULTRET, 0);
         if (status == LUA_OK) {
             print_results(base);
             lua_settop(L, base - 1);
-            return;
+            pending_len = 0;
+            return 0;
         }
     }
 
@@ -81,4 +160,6 @@ void luashell_eval(const char* line)
     console_print(msg != NULL ? msg : "(unknown error)");
     console_print("\n");
     lua_settop(L, 0);
+    pending_len = 0;
+    return 0;
 }

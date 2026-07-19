@@ -138,18 +138,14 @@ $(KERNEL): $(OBJS)
 # at a local firmware file if you are not using Nix.
 OVMF_FD ?= $$(nix build --no-link --print-out-paths nixpkgs\#OVMF.fd)/FV/OVMF.fd
 
-# A minimal freestanding 64-bit userland program, loaded as a Limine module and
-# run by the kernel. Statically linked, non-PIE, at a low user VA.
-USER_ELF := $(BUILD_DIR)/user/hello.elf
-$(USER_ELF): $(BUILD_DIR)/user/hello.c
-	$(CC) -ffreestanding -nostdlib -static -fno-pic -no-pie -mno-red-zone \
-		-fno-stack-protector -mno-sse -mno-mmx \
-		-Wl,-Ttext=0x400000 -Wl,-e_start -o $@ $<
+# Lua scripts shipped as Limine modules (init.lua runs at startup; the rest are
+# available via run("name.lua") in the shell).
+SCRIPTS := $(wildcard $(BUILD_DIR)/scripts/*.lua)
 
-# Pack the kernel and the userland module into a bootable UEFI image with Limine
+# Pack the kernel and the Lua scripts into a bootable UEFI image with Limine
 # (sudo-free, mtools).
-boot.img: $(KERNEL) $(USER_ELF) $(BUILD_DIR)/limine.conf $(BUILD_DIR)/mkboot.sh
-	bash $(BUILD_DIR)/mkboot.sh $(KERNEL) $@ $(USER_ELF)
+boot.img: $(KERNEL) $(SCRIPTS) $(BUILD_DIR)/limine.conf $(BUILD_DIR)/mkboot.sh
+	bash $(BUILD_DIR)/mkboot.sh $(KERNEL) $@ $(SCRIPTS)
 
 # Boot the OS in QEMU under OVMF. Limine loads the kernel straight into 64-bit
 # long mode. OVMF vars must be writable, so we boot from a private copy.
@@ -175,7 +171,7 @@ lint:
 # --- Housekeeping -----------------------------------------------------------
 
 clean:
-	rm -rf $(OBJ_DIR) $(KERNEL) boot.img .ovmf.fd $(USER_ELF)
+	rm -rf $(OBJ_DIR) $(KERNEL) boot.img .ovmf.fd
 
 help:
 	@echo "Targets: all kernel.bin run test format lint clean"
