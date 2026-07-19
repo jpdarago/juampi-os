@@ -38,7 +38,9 @@ CFLAGS := -O2 -std=c11 -Werror -Wall -Wextra \
 	-nodefaultlibs -fno-stack-protector -I$(INCLUDE_DIR) \
 	-mno-mmx -mno-3dnow \
 	-mno-red-zone -mcmodel=kernel -fno-pic -fno-pie \
+	-fno-omit-frame-pointer \
 	-DPRINTF_ALIAS_STANDARD_FUNCTION_NAMES_HARD=1
+# -fno-omit-frame-pointer keeps a walkable rbp chain for panic backtraces.
 # The last flag makes the vendored printf provide the standard names
 # (printf/snprintf/vsnprintf/...) as real symbols; the kernel supplies putchar_.
 # SSE/SSE2 are enabled (for double arithmetic, e.g. Lua): the entry stub turns

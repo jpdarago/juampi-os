@@ -7,6 +7,7 @@
 #include <idt.h>
 #include <ports.h>
 #include <console.h>
+#include <ksym.h>
 
 // 8259 PIC ports and commands.
 #define PIC1_CMD 0x20
@@ -116,6 +117,14 @@ static void exception_panic(interrupt_frame* f)
     console_print(" cr2=");
     console_hex(cr2);
     console_print("\n");
+    // Symbolized backtrace of the faulting context (rbp saved in the frame).
+    const char* fn = ksym_lookup(f->rip, NULL);
+    if (fn) {
+        console_print("  in ");
+        console_print(fn);
+        console_print("\n");
+    }
+    backtrace_from(f->rip, f->rbp);
     for (;;) {
         __asm__ __volatile__("cli; hlt");
     }

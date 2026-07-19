@@ -16,6 +16,7 @@
 #include <console.h>
 #include <keyboard.h>
 #include <ktime.h>
+#include <ksym.h>
 
 #include <printf/printf.h>
 
@@ -40,6 +41,10 @@ __attribute__((
 __attribute__((used, section(".limine_requests"))) static volatile struct
         limine_framebuffer_request fb_request = {
                 .id = LIMINE_FRAMEBUFFER_REQUEST, .revision = 0};
+
+__attribute__((used, section(".limine_requests"))) static volatile struct
+        limine_kernel_file_request kfile_request = {
+                .id = LIMINE_KERNEL_FILE_REQUEST, .revision = 0};
 
 // Section markers that delimit the request list for the bootloader's scan.
 __attribute__((used,
@@ -173,6 +178,16 @@ void kmain(void)
     }
     console_print("\n=== juampiOS booting (framebuffer + COM1 console) ===\n");
     console_print("juampiOS: running in 64-bit long mode (booted by Limine)\n");
+
+    // Load the kernel's own symbol table (from Limine) so panics and faults —
+    // including any from here on — print symbolized backtraces.
+    if (kfile_request.response != NULL) {
+        ksym_init(kfile_request.response->kernel_file->address);
+    }
+    uint64_t sym_off = 0;
+    const char* sym_self = ksym_lookup((uint64_t)&kmain, &sym_off);
+    console_print("juampiOS: symbols ");
+    console_print(sym_self ? "OK (kmain resolved)\n" : "unavailable\n");
 
     // Prove the protocol works end to end: report the higher-half offset and
     // the usable-RAM total the bootloader gave us.
