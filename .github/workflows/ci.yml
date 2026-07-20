@@ -16,13 +16,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install clang-format
-        run: sudo apt-get update && sudo apt-get install -y clang-format
+      # Pin the exact clang-format the devenv/nix toolchain uses, so CI and local
+      # agree byte-for-byte (the distro's clang-format is a different version).
+      - name: Install clang-format 21.1.8
+        run: pipx install clang-format==21.1.8
       - name: Check formatting
         run: make lint
 
   build:
-    name: build kernel + userland
+    name: build kernel + native binaries
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,18 +32,18 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y gcc
       - name: Build kernel
         run: make kernel.bin
-      - name: Build userland module
-        run: make build/user/hello.elf
+      - name: Build lab binaries (native userland)
+        run: make lab
 
   test:
     name: qemu boot test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install toolchain + QEMU + OVMF + mtools
+      - name: Install toolchain + QEMU + OVMF + mtools + e2fsprogs
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc qemu-system-x86 ovmf mtools socat
+          sudo apt-get install -y gcc qemu-system-x86 ovmf mtools socat e2fsprogs
       - name: Fetch Limine (binary release branch)
         run: git clone --branch=v9.x-binary --depth=1 https://github.com/limine-bootloader/limine.git /tmp/limine
       - name: Boot smoke test (kernel through to userland)

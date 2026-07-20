@@ -182,16 +182,22 @@ logo: $(PNG2QOI) $(LOGO_SRC) | $(OBJ_DIR)
 # include/lab.h): a "sterile lab" for benchmarking algorithm implementations.
 # -mno-red-zone is mandatory — they run in ring 0, where an interrupt reuses the
 # stack. Entry symbol is `bench`; they include <lab.h> for the ABI.
+# -fcf-protection=none stops gcc emitting a .note.gnu.property (CET) section,
+# which on some toolchains gets an LMA overlapping .text under -Ttext (CI).
 LAB_DIR    := $(BUILD_DIR)/lab
 LAB_SRCS   := $(wildcard $(LAB_DIR)/*.c)
 LAB_ELVES  := $(patsubst $(LAB_DIR)/%.c,$(LAB_DIR)/%.elf,$(LAB_SRCS))
 LAB_CFLAGS := -O2 -std=c11 -ffreestanding -nostdlib -fno-pic -fno-pie \
 	-mno-red-zone -mno-mmx -mno-3dnow -fno-stack-protector \
-	-Wall -Wextra -I$(INCLUDE_DIR)
+	-fcf-protection=none -Wall -Wextra -I$(INCLUDE_DIR)
 
 $(LAB_DIR)/%.elf: $(LAB_DIR)/%.c $(INCLUDE_DIR)/lab.h
 	$(CC) $(LAB_CFLAGS) -c -o $(@:.elf=.o) $<
 	$(LD) -melf_x86_64 -e bench -Ttext 0x400000 -o $@ $(@:.elf=.o)
+
+# Build all lab binaries (a gcc/ld-only "userland" target for CI).
+.PHONY: lab
+lab: $(LAB_ELVES)
 
 # Everything shipped to the image as a Limine module.
 MODULES := $(SCRIPTS) $(LOGO) $(LAB_ELVES)
