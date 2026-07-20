@@ -13,12 +13,12 @@
 
 static int l_width(lua_State* L)
 {
-    lua_pushinteger(L, (lua_Integer)gfx_width());
+    lua_pushinteger(L, gfx_width());
     return 1;
 }
 static int l_height(lua_State* L)
 {
-    lua_pushinteger(L, (lua_Integer)gfx_height());
+    lua_pushinteger(L, gfx_height());
     return 1;
 }
 static int l_pixel(lua_State* L)
@@ -116,8 +116,8 @@ static int l_image(lua_State* L)
             L, 3, ((int64_t)gfx_height() - (int64_t)img.height) / 2);
     gfx_blit(x, y, img.width, img.height, pixels);
     heap_free(heap_default(), pixels);
-    lua_pushinteger(L, (lua_Integer)img.width);
-    lua_pushinteger(L, (lua_Integer)img.height);
+    lua_pushinteger(L, img.width);
+    lua_pushinteger(L, img.height);
     return 2;
 }
 
@@ -132,7 +132,7 @@ static int l_setmode(lua_State* L)
 // fb.pitch() -> bytes per scanline.
 static int l_pitch(lua_State* L)
 {
-    lua_pushinteger(L, (lua_Integer)gfx_pitch());
+    lua_pushinteger(L, gfx_pitch());
     return 1;
 }
 

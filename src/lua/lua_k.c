@@ -22,32 +22,32 @@
 
 static int l_rdtsc(lua_State* L)
 {
-    lua_pushinteger(L, (lua_Integer)rdtsc());
+    lua_pushinteger(L, rdtsc());
     return 1;
 }
 static int l_ns(lua_State* L)
 {
-    lua_pushinteger(L, (lua_Integer)ktime_ns());
+    lua_pushinteger(L, ktime_ns());
     return 1;
 }
 static int l_us(lua_State* L)
 {
-    lua_pushinteger(L, (lua_Integer)ktime_us());
+    lua_pushinteger(L, ktime_us());
     return 1;
 }
 static int l_ms(lua_State* L)
 {
-    lua_pushinteger(L, (lua_Integer)ktime_ms());
+    lua_pushinteger(L, ktime_ms());
     return 1;
 }
 static int l_uptime(lua_State* L)
 {
-    lua_pushnumber(L, (lua_Number)ktime_ns() / 1e9);
+    lua_pushnumber(L, ktime_ns() / 1e9);
     return 1;
 }
 static int l_tsc_hz(lua_State* L)
 {
-    lua_pushinteger(L, (lua_Integer)tsc_hz());
+    lua_pushinteger(L, tsc_hz());
     return 1;
 }
 
@@ -55,12 +55,12 @@ static int l_tsc_hz(lua_State* L)
 // call runs on (the shell runs on the BSP, so 0, until Lua runs on APs in M9).
 static int l_ncores(lua_State* L)
 {
-    lua_pushinteger(L, (lua_Integer)smp_cpu_count());
+    lua_pushinteger(L, smp_cpu_count());
     return 1;
 }
 static int l_cpu(lua_State* L)
 {
-    lua_pushinteger(L, (lua_Integer)smp_this_cpu()->index);
+    lua_pushinteger(L, smp_this_cpu()->index);
     return 1;
 }
 
@@ -107,7 +107,7 @@ static int l_random(lua_State* L)
             unsigned char ok;
             __asm__ __volatile__("rdrand %0; setc %1" : "=r"(v), "=qm"(ok));
             if (ok) {
-                lua_pushinteger(L, (lua_Integer)v);
+                lua_pushinteger(L, v);
                 return 1;
             }
         }
@@ -119,7 +119,7 @@ static int l_random(lua_State* L)
     s ^= s << 13;
     s ^= s >> 7;
     s ^= s << 17;
-    lua_pushinteger(L, (lua_Integer)s);
+    lua_pushinteger(L, s);
     return 1;
 }
 
@@ -127,17 +127,17 @@ static int l_random(lua_State* L)
 
 static int l_freeframes(lua_State* L)
 {
-    lua_pushinteger(L, (lua_Integer)frames_available());
+    lua_pushinteger(L, frames_available());
     return 1;
 }
 static int l_freemem(lua_State* L)
 {
-    lua_pushinteger(L, (lua_Integer)(frames_available() * 4096ull));
+    lua_pushinteger(L, (frames_available() * 4096ull));
     return 1;
 }
 static int l_totalmem(lua_State* L)
 {
-    lua_pushinteger(L, (lua_Integer)(frames_total() * 4096ull));
+    lua_pushinteger(L, (frames_total() * 4096ull));
     return 1;
 }
 
@@ -176,7 +176,7 @@ static int l_rdmsr(lua_State* L)
     uint32_t msr = (uint32_t)luaL_checkinteger(L, 1);
     uint32_t lo, hi;
     __asm__ __volatile__("rdmsr" : "=a"(lo), "=d"(hi) : "c"(msr));
-    lua_pushinteger(L, (lua_Integer)(((uint64_t)hi << 32) | lo));
+    lua_pushinteger(L, (((uint64_t)hi << 32) | lo));
     return 1;
 }
 static int l_wrmsr(lua_State* L)
@@ -207,7 +207,7 @@ static int l_peek32(lua_State* L)
 }
 static int l_peek64(lua_State* L)
 {
-    lua_pushinteger(L, (lua_Integer)*(volatile uint64_t*)(uintptr_t)
+    lua_pushinteger(L, *(volatile uint64_t*)(uintptr_t)
                                luaL_checkinteger(L, 1));
     return 1;
 }
@@ -283,7 +283,7 @@ static int l_sym(lua_State* L)
         return 0;
     }
     lua_pushstring(L, name);
-    lua_pushinteger(L, (lua_Integer)off);
+    lua_pushinteger(L, off);
     return 2;
 }
 

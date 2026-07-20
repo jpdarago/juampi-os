@@ -15,7 +15,7 @@ static int l_present(lua_State* L)
 
 static int l_sectors(lua_State* L)
 {
-    lua_pushinteger(L, (lua_Integer)ata_sectors());
+    lua_pushinteger(L, ata_sectors());
     return 1;
 }
 

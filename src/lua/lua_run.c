@@ -63,7 +63,7 @@ static uint64_t time_lua_callable(lua_State* L, int idx, long arg,
     uint64_t start = rdtsc();
     for (uint64_t i = 0; i < iters; i++) {
         lua_pushvalue(L, idx);
-        lua_pushinteger(L, (lua_Integer)arg);
+        lua_pushinteger(L, arg);
         lua_call(L, 1, 0);
     }
     return rdtsc() - start;
@@ -88,7 +88,7 @@ static int l_run(lua_State* L)
         if (owned != NULL) {
             heap_free(heap_default(), owned);
         }
-        lua_pushinteger(L, (lua_Integer)r);
+        lua_pushinteger(L, r);
         return 1;
     }
 
@@ -149,7 +149,7 @@ static int l_bench(lua_State* L)
         }
     }
 
-    lua_pushinteger(L, (lua_Integer)cycles);
+    lua_pushinteger(L, cycles);
     lua_pushnumber(L, (lua_Number)cycles / (lua_Number)iters);
     return 2;
 }

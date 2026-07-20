@@ -37,7 +37,7 @@ static void push_device(lua_State* L, uint8_t bus, uint8_t dev, uint8_t func)
     lua_createtable(L, 0, 9);
 #define FIELD(name, val)                                                       \
     do {                                                                       \
-        lua_pushinteger(L, (lua_Integer)(val));                                \
+        lua_pushinteger(L, (val));                                \
         lua_setfield(L, -2, name);                                             \
     } while (0)
     FIELD("bus", bus);

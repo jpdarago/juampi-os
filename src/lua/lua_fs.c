@@ -65,7 +65,7 @@ static void emit(void* ctx, const char* name, uint32_t inode, uint8_t type)
     lua_createtable(L, 0, 3);
     lua_pushstring(L, name);
     lua_setfield(L, -2, "name");
-    lua_pushinteger(L, (lua_Integer)inode);
+    lua_pushinteger(L, inode);
     lua_setfield(L, -2, "inode");
     lua_pushstring(L, type_name(type));
     lua_setfield(L, -2, "type");
@@ -98,13 +98,13 @@ static int l_stat(lua_State* L)
         return 2;
     }
     lua_createtable(L, 0, 4);
-    lua_pushinteger(L, (lua_Integer)st.size);
+    lua_pushinteger(L, st.size);
     lua_setfield(L, -2, "size");
     lua_pushboolean(L, st.is_dir);
     lua_setfield(L, -2, "dir");
-    lua_pushinteger(L, (lua_Integer)st.inode);
+    lua_pushinteger(L, st.inode);
     lua_setfield(L, -2, "inode");
-    lua_pushinteger(L, (lua_Integer)st.mode);
+    lua_pushinteger(L, st.mode);
     lua_setfield(L, -2, "mode");
     return 1;
 }

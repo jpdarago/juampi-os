@@ -458,22 +458,22 @@ static int l_parallel(lua_State* L)
 
 static int l_cores(lua_State* L)
 {
-    lua_pushinteger(L, (lua_Integer)smp_cpu_count());
+    lua_pushinteger(L, smp_cpu_count());
     return 1;
 }
 static int l_cpu(lua_State* L)
 {
-    lua_pushinteger(L, (lua_Integer)smp_this_cpu()->index);
+    lua_pushinteger(L, smp_this_cpu()->index);
     return 1;
 }
 static int l_trdtsc(lua_State* L)
 {
-    lua_pushinteger(L, (lua_Integer)rdtsc());
+    lua_pushinteger(L, rdtsc());
     return 1;
 }
 static int l_tns(lua_State* L)
 {
-    lua_pushinteger(L, (lua_Integer)ktime_ns());
+    lua_pushinteger(L, ktime_ns());
     return 1;
 }
 
@@ -542,7 +542,7 @@ static int l_shared_gc(lua_State* L)
 static int l_size(lua_State* L)
 {
     shared_buf* sb = luaL_checkudata(L, 1, SHARED_MT);
-    lua_pushinteger(L, (lua_Integer)sb->size);
+    lua_pushinteger(L, sb->size);
     return 1;
 }
 
@@ -566,7 +566,7 @@ static unsigned char* at(lua_State* L, shared_buf* sb, lua_Integer off,
         if (lua_isnoneornil(L, 3)) {                                          \
             CTYPE v;                                                           \
             memcpy(&v, a, WIDTH);                                              \
-            lua_pushinteger(L, (lua_Integer)v);                               \
+            lua_pushinteger(L, v);                                            \
             return 1;                                                          \
         }                                                                      \
         CTYPE v = (CTYPE)luaL_checkinteger(L, 3);                             \
@@ -587,7 +587,7 @@ static int l_f64(lua_State* L)
     if (lua_isnoneornil(L, 3)) {
         double v;
         memcpy(&v, a, 8);
-        lua_pushnumber(L, (lua_Number)v);
+        lua_pushnumber(L, v);
         return 1;
     }
     double v = (double)luaL_checknumber(L, 3);
