@@ -34,6 +34,11 @@ void gdt_init(allocator* mem);
 // ring 3.
 void tss_set_rsp0(uint64_t rsp0);
 
+// Build and load a per-CPU GDT `g` and TSS `t` (with interrupt stack `rsp0`) on
+// the calling core. Used to give each application processor its own GDT/TSS
+// while sharing the same descriptor layout as the BSP.
+void gdt_ap_load(uint64_t g[7], tss64* t, uint64_t rsp0);
+
 // Assembly helpers (gdt64_load.asm).
 void gdt_flush(void* gdtr);        // lgdt + reload CS/DS/SS to kernel selectors
 void tss_flush(uint16_t selector); // ltr

@@ -9,6 +9,7 @@
 #include <ksym.h>
 #include <ports.h>
 #include <memory.h>
+#include <smp.h>
 
 #include <printf/printf.h>
 #include <stdint.h>
@@ -46,6 +47,19 @@ static int l_uptime(lua_State* L)
 static int l_tsc_hz(lua_State* L)
 {
     lua_pushinteger(L, (lua_Integer)tsc_hz());
+    return 1;
+}
+
+// k.ncores() -> number of CPU cores online; k.cpu() -> index of the core this
+// call runs on (the shell runs on the BSP, so 0, until Lua runs on APs in M9).
+static int l_ncores(lua_State* L)
+{
+    lua_pushinteger(L, (lua_Integer)smp_cpu_count());
+    return 1;
+}
+static int l_cpu(lua_State* L)
+{
+    lua_pushinteger(L, (lua_Integer)smp_this_cpu()->index);
     return 1;
 }
 
@@ -244,6 +258,7 @@ static const luaL_Reg klib[] = {
         {"rdtsc", l_rdtsc},       {"ns", l_ns},
         {"us", l_us},             {"ms", l_ms},
         {"uptime", l_uptime},     {"tsc_hz", l_tsc_hz},
+        {"ncores", l_ncores},     {"cpu", l_cpu},
         {"bench", l_bench},       {"freeframes", l_freeframes},
         {"freemem", l_freemem},   {"totalmem", l_totalmem},
         {"cpuid", l_cpuid},       {"cpubrand", l_cpubrand},

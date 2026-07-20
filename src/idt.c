@@ -32,3 +32,10 @@ void idt_init(void)
     idtr.base = (uintptr_t)&idt;
     __asm__ __volatile__("lidt %0" ::"m"(idtr));
 }
+
+void idt_load(void)
+{
+    // Load the already-built IDT on the calling core (used by APs; the one IDT
+    // is shared by all cores).
+    __asm__ __volatile__("lidt %0" ::"m"(idtr));
+}

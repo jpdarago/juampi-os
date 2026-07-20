@@ -1,6 +1,7 @@
 #include <console.h>
 #include <serial.h>
 #include <keyboard.h>
+#include <spinlock.h>
 
 #include <printf/printf.h>
 
@@ -32,9 +33,15 @@ void console_init(struct limine_framebuffer* fb)
                           FLANTERM_FB_ROTATE_0);
 }
 
+// Serializes console output across cores (the APs share these sinks once SMP is
+// up). Taken at the string level so a whole print/number stays intact; the
+// unlocked emit() below is the single writer the locked wrappers call.
+static spinlock console_lock;
+
+// Write one character to both sinks. Not locked — callers hold console_lock.
 // Both sinks are real terminals: '\n' is a pure line feed, so newlines are
 // expanded to CRLF for each.
-void console_putc(char c)
+static void emit(char c)
 {
     if (c == '\n') {
         serial_putc('\r');
@@ -48,11 +55,20 @@ void console_putc(char c)
     }
 }
 
+void console_putc(char c)
+{
+    spin_lock(&console_lock);
+    emit(c);
+    spin_unlock(&console_lock);
+}
+
 void console_print(const char* s)
 {
+    spin_lock(&console_lock);
     while (*s) {
-        console_putc(*s++);
+        emit(*s++);
     }
+    spin_unlock(&console_lock);
 }
 
 void console_dec(uint64_t v)
@@ -72,10 +88,13 @@ void console_dec(uint64_t v)
 
 void console_hex(uint64_t v)
 {
-    console_print("0x");
+    spin_lock(&console_lock);
+    emit('0');
+    emit('x');
     for (int shift = 60; shift >= 0; shift -= 4) {
-        console_putc("0123456789abcdef"[(v >> shift) & 0xF]);
+        emit("0123456789abcdef"[(v >> shift) & 0xF]);
     }
+    spin_unlock(&console_lock);
 }
 
 // Blocking read from whichever input source has a byte first: the PS/2

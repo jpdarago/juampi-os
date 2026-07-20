@@ -40,6 +40,8 @@ typedef void (*interrupt_handler)(interrupt_frame*);
 
 // Build and load the IDT, wiring vectors 0-47 to the assembly stubs.
 void idt_init(void);
+// Load the (already-built, shared) IDT on the calling core — used by APs.
+void idt_load(void);
 // Register a C handler for an interrupt vector (0-255).
 void register_interrupt_handler(uint32_t vector, interrupt_handler h);
 // Bring up the IDT, the 8259 PICs and the PIT timer (IRQ0 @ ~100 Hz).

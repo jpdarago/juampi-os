@@ -94,7 +94,8 @@ FORMAT_FILES := $(filter-out $(INCLUDE_DIR)/limine.h,$(wildcard \
 # override the backend if you prefer, e.g. `make run QEMU_DISPLAY=curses`.
 QEMU         ?= qemu-system-x86_64
 QEMU_DISPLAY ?= gtk
-export QEMU
+QEMU_SMP     ?= 4   # number of cores QEMU exposes (drives the SMP bring-up)
+export QEMU QEMU_SMP
 
 .PHONY: all run test clean format lint help
 
@@ -209,7 +210,7 @@ DISK_QEMU := -drive file=$(DISK_IMG),format=raw,if=none,id=juampidisk \
 run: boot.img $(DISK_IMG)
 	cp "$(OVMF_FD)" .ovmf.fd && chmod +w .ovmf.fd
 	$(QEMU) -bios .ovmf.fd -drive file=boot.img,format=raw -m 512 \
-		-accel kvm -accel tcg \
+		-smp $(QEMU_SMP) -accel kvm -accel tcg \
 		$(DISK_QEMU) \
 		-display $(QEMU_DISPLAY) -serial stdio -no-reboot
 

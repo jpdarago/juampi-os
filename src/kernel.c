@@ -20,6 +20,7 @@
 #include <gfx.h>
 #include <ata.h>
 #include <ext2.h>
+#include <smp.h>
 
 #include <printf/printf.h>
 
@@ -101,6 +102,22 @@ static void worker_c(void)
         wcounters[2]++;
         yield();
     }
+}
+
+// SMP self-test job: sum the half-open integer range [lo, hi). Each core runs
+// one of these on its own slice in parallel; the BSP combines and checks the
+// total against the closed form, proving every core executed.
+struct sum_job {
+    uint64_t lo, hi, result;
+};
+static void sum_worker(void* p)
+{
+    struct sum_job* j = p;
+    uint64_t s = 0;
+    for (uint64_t k = j->lo; k < j->hi; k++) {
+        s += k;
+    }
+    j->result = s;
 }
 
 // Stress the segregated heap: many allocations across small size classes and
@@ -324,6 +341,42 @@ void kmain(void)
     }
     console_print(", ext2 ");
     console_print(fs_ok ? "mounted\n" : "not mounted\n");
+
+    // --- Milestone 8: SMP. Bring up the application processors, then prove ---
+    // real parallel execution: partition a big integer sum across all cores
+    // (each on its own slice via the work mailbox) and check the combined
+    // total.
+    smp_init(mem);
+    uint64_t ncores = smp_cpu_count();
+    const uint64_t SUM_N = 100000000ull; // sum 0..SUM_N-1 across the cores
+    struct sum_job* jobs = new (mem, struct sum_job, (ptrdiff_t)ncores);
+    uint64_t chunk = SUM_N / ncores;
+    for (uint64_t i = 0; i < ncores; i++) {
+        jobs[i].lo = i * chunk;
+        jobs[i].hi = (i == ncores - 1) ? SUM_N : (i + 1) * chunk;
+        jobs[i].result = 0;
+    }
+    uint32_t bsp = smp_bsp_index();
+    for (uint64_t i = 0; i < ncores; i++) {
+        if (i != bsp) {
+            smp_run_on((uint32_t)i, sum_worker, &jobs[i]);
+        }
+    }
+    sum_worker(&jobs[bsp]); // the BSP takes its own slice
+    for (uint64_t i = 0; i < ncores; i++) {
+        if (i != bsp) {
+            smp_join((uint32_t)i);
+        }
+    }
+    uint64_t sum = 0;
+    for (uint64_t i = 0; i < ncores; i++) {
+        sum += jobs[i].result;
+    }
+    bool smp_ok = sum == SUM_N * (SUM_N - 1) / 2;
+    console_print(smp_ok ? "juampiOS: SMP OK: " : "juampiOS: SMP FAILED: ");
+    console_dec(ncores);
+    console_print(smp_ok ? " cores (parallel sum verified)\n"
+                         : " cores (parallel sum MISMATCH)\n");
 
     // --- Milestone 3: software context switch (kernel threads) --------------
     sched_init(mem);

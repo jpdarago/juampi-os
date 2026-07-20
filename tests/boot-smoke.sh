@@ -46,6 +46,7 @@ chmod +w "$ovmf_copy"
     sleep 4
 } | timeout 30 "$QEMU" -bios "$ovmf_copy" \
     -drive file="$IMG",format=raw -m 512 \
+    -smp "${QEMU_SMP:-4}" \
     "${disk_args[@]}" \
     -display none -serial stdio -no-reboot >"$out" 2>&1
 
