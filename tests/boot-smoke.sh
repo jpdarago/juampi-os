@@ -39,12 +39,16 @@ cp "$OVMF_FD" "$ovmf_copy"
 chmod +w "$ovmf_copy"
 
 # Feed the shell input on stdin (a leading delay lets the kernel finish booting
-# before the line is delivered), then let timeout stop the forever-looping shell.
+# before the line is delivered), then keep the pipe open until QEMU is stopped by
+# timeout. Holding it open matters: boot to the shell can take longer than the
+# leading delay (SMP bring-up + per-core Lua init, especially under TCG on CI),
+# and if the writer exits first, QEMU sees EOF and the queued input is dropped
+# before the shell ever reads it.
 {
-    sleep 6
+    sleep 8
     printf '%s\r' "$INPUT"
-    sleep 4
-} | timeout 30 "$QEMU" -bios "$ovmf_copy" \
+    sleep 40
+} | timeout 45 "$QEMU" -bios "$ovmf_copy" \
     -drive file="$IMG",format=raw -m 512 \
     -smp "${QEMU_SMP:-4}" \
     "${disk_args[@]}" \

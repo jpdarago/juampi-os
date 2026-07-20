@@ -31,12 +31,14 @@ ovmf_copy="$(mktemp)"
 cp "$OVMF_FD" "$ovmf_copy"
 chmod +w "$ovmf_copy"
 
-timeout 40 "$QEMU" -bios "$ovmf_copy" \
+timeout 50 "$QEMU" -bios "$ovmf_copy" \
     -drive file="$IMG",format=raw -m 512 \
     -display none -serial file:"$out" \
     -qmp unix:"$sock",server,nowait -no-reboot &
 qpid=$!
-sleep 8
+# Let the kernel reach the shell before typing. Keystrokes are IRQ-buffered
+# (keyboard.c ring), so a little early is harmless, but give boot margin.
+sleep 12
 
 send_keys() {
     {

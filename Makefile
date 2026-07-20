@@ -95,7 +95,10 @@ FORMAT_FILES := $(filter-out $(INCLUDE_DIR)/limine.h,$(wildcard \
 # override the backend if you prefer, e.g. `make run QEMU_DISPLAY=curses`.
 QEMU         ?= qemu-system-x86_64
 QEMU_DISPLAY ?= gtk
-QEMU_SMP     ?= 4   # number of cores QEMU exposes (drives the SMP bring-up)
+# Number of cores QEMU exposes (drives the SMP bring-up). Keep the value on its
+# own line: a trailing inline comment would leave whitespace in the value, which
+# breaks the quoted `-smp "$QEMU_SMP"` in tests/boot-smoke.sh.
+QEMU_SMP     ?= 4
 export QEMU QEMU_SMP
 
 .PHONY: all run test clean format lint help
