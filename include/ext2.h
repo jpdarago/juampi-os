@@ -39,4 +39,16 @@ int ext2_list(const char* path,
                            uint8_t type),
               void* ctx);
 
+// --- Write (read-modify-write, no journal) ---------------------------------
+
+// Create or overwrite a regular file with `size` bytes from `data` (the parent
+// directory must exist). Supports direct + single-indirect blocks (~268 KiB at
+// 1 KiB blocks). Returns false on error / out of space.
+bool ext2_write_file(const char* path, const void* data, size_t size);
+// Create a directory (its parent must exist and the name must be free).
+bool ext2_mkdir(const char* path);
+// Delete a regular file, or an empty directory. Returns false if missing, if a
+// directory is non-empty, or on error.
+bool ext2_remove(const char* path);
+
 #endif

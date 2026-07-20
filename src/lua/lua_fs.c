@@ -117,9 +117,51 @@ static int l_exists(lua_State* L)
     return 1;
 }
 
+// fs.write(path, data) -> true | nil,err. Create or overwrite a regular file.
+static int l_write(lua_State* L)
+{
+    const char* path = luaL_checkstring(L, 1);
+    size_t len = 0;
+    const char* data = luaL_checklstring(L, 2, &len);
+    if (!ext2_write_file(path, data, len)) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "could not write: %s", path);
+        return 2;
+    }
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+// fs.mkdir(path) -> true | nil,err.
+static int l_mkdir(lua_State* L)
+{
+    const char* path = luaL_checkstring(L, 1);
+    if (!ext2_mkdir(path)) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "could not mkdir: %s", path);
+        return 2;
+    }
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+// fs.remove(path) -> true | nil,err. Delete a file or an empty directory.
+static int l_remove(lua_State* L)
+{
+    const char* path = luaL_checkstring(L, 1);
+    if (!ext2_remove(path)) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "could not remove: %s", path);
+        return 2;
+    }
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
 static const luaL_Reg fslib[] = {
         {"mounted", l_mounted}, {"read", l_read},     {"list", l_list},
-        {"stat", l_stat},       {"exists", l_exists}, {NULL, NULL},
+        {"stat", l_stat},       {"exists", l_exists}, {"write", l_write},
+        {"mkdir", l_mkdir},     {"remove", l_remove}, {NULL, NULL},
 };
 
 int luaopen_fs(lua_State* L)

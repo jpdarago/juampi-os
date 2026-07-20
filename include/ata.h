@@ -17,4 +17,8 @@ uint64_t ata_sectors(void); // total addressable 512-byte sectors (0 if absent)
 // on timeout, device error, or when no disk is present.
 bool ata_read(uint64_t lba, uint32_t count, void* buf);
 
+// Write `count` 512-byte sectors starting at LBA `lba` from `buf`, then flush
+// the drive's write cache. Returns false on timeout/error or with no disk.
+bool ata_write(uint64_t lba, uint32_t count, const void* buf);
+
 #endif

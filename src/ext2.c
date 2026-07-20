@@ -3,8 +3,11 @@
 #include <memory.h>
 #include <utils.h>
 
-// Read-only ext2. On-disk layout is little-endian and x86-64 is too, so the
-// packed structs below map straight onto the bytes read from disk.
+// ext2 read + write. On-disk layout is little-endian and x86-64 is too, so the
+// packed structs below map straight onto the bytes read from disk. Writes are
+// read-modify-write straight to disk (no cache, no journal); the primary
+// superblock and group descriptors are kept consistent, but sparse_super
+// backups are not (e2fsck -f refreshes them).
 
 #define EXT2_MAGIC 0xEF53
 #define EXT2_ROOT_INO 2
@@ -15,6 +18,10 @@
 
 #define INCOMPAT_FILETYPE 0x0002
 #define RO_COMPAT_LARGE_FILE 0x0002
+
+// Directory-entry file types (used when the fs has the filetype feature).
+#define FT_REG 1
+#define FT_DIR 2
 
 struct superblock {
     uint32_t inodes_count;
@@ -93,6 +100,7 @@ static bool mounted;
 static struct superblock sb;
 static uint32_t block_size;
 static uint32_t inode_size;
+static uint32_t groups; // number of block groups
 static bool has_filetype;
 
 static allocator* mem(void)
@@ -344,6 +352,8 @@ bool ext2_mount(void)
         inode_size = sizeof(struct inode);
     }
     has_filetype = (sb.feature_incompat & INCOMPAT_FILETYPE) != 0;
+    groups = (sb.blocks_count - sb.first_data_block + sb.blocks_per_group - 1) /
+             sb.blocks_per_group;
     mounted = true;
     return true;
 }
@@ -427,4 +437,621 @@ int ext2_list(const char* path,
     struct emit_ctx e = {.emit = emit, .ctx = ctx, .count = 0};
     walk_dir(&in, emit_entry, &e);
     return e.count;
+}
+
+// --- Write support ---------------------------------------------------------
+// Every operation is read-modify-write straight to disk (no cache, no journal),
+// keeping the primary superblock, group descriptors, bitmaps, inode table, and
+// directory data consistent.
+
+static uint32_t roundup4(uint32_t x)
+{
+    return (x + 3) & ~3u;
+}
+
+static bool write_block(uint32_t blk, const void* buf)
+{
+    uint32_t spb = block_size / 512;
+    return ata_write((uint64_t)blk * spb, spb, buf);
+}
+
+static bool write_group_desc(uint32_t group, const struct group_desc* gd)
+{
+    uint32_t table = sb.first_data_block + 1;
+    uint32_t byte = group * (uint32_t)sizeof(struct group_desc);
+    uint8_t* blk = new (mem(), uint8_t, block_size);
+    bool ok = read_block(table + byte / block_size, blk);
+    if (ok) {
+        memcpy(blk + byte % block_size, gd, sizeof *gd);
+        ok = write_block(table + byte / block_size, blk);
+    }
+    heap_free(heap_default(), blk);
+    return ok;
+}
+
+static bool write_inode(uint32_t ino, const struct inode* in)
+{
+    uint32_t group = (ino - 1) / sb.inodes_per_group;
+    uint32_t index = (ino - 1) % sb.inodes_per_group;
+    struct group_desc gd;
+    if (!read_group_desc(group, &gd)) {
+        return false;
+    }
+    uint32_t byte = index * inode_size;
+    uint32_t b = gd.inode_table + byte / block_size;
+    uint8_t* blk = new (mem(), uint8_t, block_size);
+    bool ok = read_block(b, blk);
+    if (ok) {
+        memcpy(blk + byte % block_size, in, sizeof *in);
+        ok = write_block(b, blk);
+    }
+    heap_free(heap_default(), blk);
+    return ok;
+}
+
+// Write the cached superblock back, preserving the bytes of the 1 KiB block we
+// don't model.
+static bool write_superblock(void)
+{
+    uint8_t buf[1024];
+    if (!ata_read(2, 2, buf)) {
+        return false;
+    }
+    memcpy(buf, &sb, sizeof sb);
+    return ata_write(2, 2, buf);
+}
+
+// Set the first free bit (< nbits) in a bitmap block; return its index or -1.
+static int bitmap_alloc(uint32_t bitmap_block, uint32_t nbits)
+{
+    uint8_t* bm = new (mem(), uint8_t, block_size);
+    int found = -1;
+    if (read_block(bitmap_block, bm)) {
+        for (uint32_t i = 0; i < nbits; i++) {
+            if (!(bm[i >> 3] & (1u << (i & 7)))) {
+                bm[i >> 3] |= (uint8_t)(1u << (i & 7));
+                found = (int)i;
+                break;
+            }
+        }
+        if (found >= 0) {
+            write_block(bitmap_block, bm);
+        }
+    }
+    heap_free(heap_default(), bm);
+    return found;
+}
+
+static void bitmap_free(uint32_t bitmap_block, uint32_t bit)
+{
+    uint8_t* bm = new (mem(), uint8_t, block_size);
+    if (read_block(bitmap_block, bm)) {
+        bm[bit >> 3] &= (uint8_t)~(1u << (bit & 7));
+        write_block(bitmap_block, bm);
+    }
+    heap_free(heap_default(), bm);
+}
+
+// Allocate a zeroed data block; 0 on failure.
+static uint32_t alloc_block(void)
+{
+    for (uint32_t g = 0; g < groups; g++) {
+        struct group_desc gd;
+        if (!read_group_desc(g, &gd) || gd.free_blocks_count == 0) {
+            continue;
+        }
+        int bit = bitmap_alloc(gd.block_bitmap, sb.blocks_per_group);
+        if (bit < 0) {
+            continue;
+        }
+        gd.free_blocks_count--;
+        write_group_desc(g, &gd);
+        sb.free_blocks_count--;
+        write_superblock();
+        uint32_t blk =
+                sb.first_data_block + g * sb.blocks_per_group + (uint32_t)bit;
+        uint8_t* zero = new (mem(), uint8_t, block_size);
+        memset(zero, 0, block_size);
+        write_block(blk, zero);
+        heap_free(heap_default(), zero);
+        return blk;
+    }
+    return 0;
+}
+
+static void free_block(uint32_t blk)
+{
+    if (blk < sb.first_data_block) {
+        return;
+    }
+    uint32_t rel = blk - sb.first_data_block;
+    uint32_t g = rel / sb.blocks_per_group;
+    if (g >= groups) {
+        return;
+    }
+    struct group_desc gd;
+    if (!read_group_desc(g, &gd)) {
+        return;
+    }
+    bitmap_free(gd.block_bitmap, rel % sb.blocks_per_group);
+    gd.free_blocks_count++;
+    write_group_desc(g, &gd);
+    sb.free_blocks_count++;
+    write_superblock();
+}
+
+static uint32_t alloc_inode(bool is_dir)
+{
+    for (uint32_t g = 0; g < groups; g++) {
+        struct group_desc gd;
+        if (!read_group_desc(g, &gd) || gd.free_inodes_count == 0) {
+            continue;
+        }
+        int bit = bitmap_alloc(gd.inode_bitmap, sb.inodes_per_group);
+        if (bit < 0) {
+            continue;
+        }
+        gd.free_inodes_count--;
+        if (is_dir) {
+            gd.used_dirs_count++;
+        }
+        write_group_desc(g, &gd);
+        sb.free_inodes_count--;
+        write_superblock();
+        return g * sb.inodes_per_group + (uint32_t)bit + 1;
+    }
+    return 0;
+}
+
+static void free_inode(uint32_t ino, bool was_dir)
+{
+    uint32_t g = (ino - 1) / sb.inodes_per_group;
+    if (g >= groups) {
+        return;
+    }
+    struct group_desc gd;
+    if (!read_group_desc(g, &gd)) {
+        return;
+    }
+    bitmap_free(gd.inode_bitmap, (ino - 1) % sb.inodes_per_group);
+    gd.free_inodes_count++;
+    if (was_dir && gd.used_dirs_count > 0) {
+        gd.used_dirs_count--;
+    }
+    write_group_desc(g, &gd);
+    sb.free_inodes_count++;
+    write_superblock();
+}
+
+// Map logical block `n` of `in` to physical `blk`, allocating the single-
+// indirect block on demand. False if beyond direct + single indirect.
+static bool set_block_of(struct inode* in, uint32_t n, uint32_t blk)
+{
+    uint32_t per = block_size / 4;
+    if (n < 12) {
+        in->block[n] = blk;
+        in->blocks += block_size / 512;
+        return true;
+    }
+    n -= 12;
+    if (n >= per) {
+        return false;
+    }
+    if (in->block[12] == 0) {
+        uint32_t ind = alloc_block();
+        if (ind == 0) {
+            return false;
+        }
+        in->block[12] = ind;
+        in->blocks += block_size / 512; // the indirect block itself
+    }
+    uint32_t* tmp = new (mem(), uint32_t, per);
+    bool ok = read_block(in->block[12], tmp);
+    if (ok) {
+        tmp[n] = blk;
+        ok = write_block(in->block[12], tmp);
+        in->blocks += block_size / 512;
+    }
+    heap_free(heap_default(), tmp);
+    return ok;
+}
+
+// Free every data + metadata block of an inode (direct, single, and double
+// indirect — double only ever appears on files mke2fs created).
+static void free_all_blocks(struct inode* in)
+{
+    uint32_t per = block_size / 4;
+    for (int i = 0; i < 12; i++) {
+        if (in->block[i]) {
+            free_block(in->block[i]);
+        }
+        in->block[i] = 0;
+    }
+    uint32_t* tmp = new (mem(), uint32_t, per);
+    if (in->block[12]) {
+        if (read_block(in->block[12], tmp)) {
+            for (uint32_t i = 0; i < per; i++) {
+                if (tmp[i]) {
+                    free_block(tmp[i]);
+                }
+            }
+        }
+        free_block(in->block[12]);
+        in->block[12] = 0;
+    }
+    if (in->block[13]) {
+        uint32_t* l1 = new (mem(), uint32_t, per);
+        if (read_block(in->block[13], l1)) {
+            for (uint32_t i = 0; i < per; i++) {
+                if (!l1[i]) {
+                    continue;
+                }
+                if (read_block(l1[i], tmp)) {
+                    for (uint32_t j = 0; j < per; j++) {
+                        if (tmp[j]) {
+                            free_block(tmp[j]);
+                        }
+                    }
+                }
+                free_block(l1[i]);
+            }
+        }
+        heap_free(heap_default(), l1);
+        free_block(in->block[13]);
+        in->block[13] = 0;
+    }
+    heap_free(heap_default(), tmp);
+    in->blocks = 0;
+}
+
+static uint32_t dir_find(struct inode* dir, const char* name, uint32_t namelen)
+{
+    struct lookup l = {.name = name, .namelen = namelen, .found = 0};
+    walk_dir(dir, match_entry, &l);
+    return l.found;
+}
+
+// Add an entry to directory `dir` (its inode `dir_ino`); grows the directory a
+// block if needed (updating and rewriting the inode).
+static bool dir_add(uint32_t dir_ino, struct inode* dir, const char* name,
+                    uint32_t namelen, uint32_t child, uint8_t type)
+{
+    uint32_t need = roundup4(8 + namelen);
+    uint8_t* block = new (mem(), uint8_t, block_size);
+    uint64_t size = inode_file_size(dir);
+    bool done = false;
+    for (uint32_t bi = 0; (uint64_t)bi * block_size < size && !done; bi++) {
+        uint32_t phys = block_of(dir, bi);
+        if (phys == 0 || !read_block(phys, block)) {
+            continue;
+        }
+        uint32_t off = 0;
+        while (off + 8 <= block_size) {
+            struct dirent* de = (struct dirent*)(block + off);
+            if (de->rec_len < 8) {
+                break;
+            }
+            uint32_t used = de->inode == 0 ? 0 : roundup4(8 + de->name_len);
+            if (de->rec_len - used >= need) {
+                uint32_t total = de->rec_len;
+                struct dirent* nd;
+                if (de->inode == 0) {
+                    nd = de; // reuse the whole empty slot
+                } else {
+                    de->rec_len = (uint16_t)used;
+                    nd = (struct dirent*)(block + off + used);
+                    total -= used;
+                }
+                nd->inode = child;
+                nd->rec_len = (uint16_t)total;
+                nd->name_len = (uint8_t)namelen;
+                nd->file_type = has_filetype ? type : 0;
+                memcpy(nd->name, name, namelen);
+                write_block(phys, block);
+                done = true;
+                break;
+            }
+            off += de->rec_len;
+        }
+    }
+    if (!done) {
+        uint32_t blk = alloc_block();
+        if (blk != 0 && set_block_of(dir, (uint32_t)(size / block_size), blk)) {
+            memset(block, 0, block_size);
+            struct dirent* nd = (struct dirent*)block;
+            nd->inode = child;
+            nd->rec_len = (uint16_t)block_size;
+            nd->name_len = (uint8_t)namelen;
+            nd->file_type = has_filetype ? type : 0;
+            memcpy(nd->name, name, namelen);
+            write_block(blk, block);
+            dir->size += block_size;
+            write_inode(dir_ino, dir);
+            done = true;
+        }
+    }
+    heap_free(heap_default(), block);
+    return done;
+}
+
+// Remove `name` from directory `dir`: absorb its record into the previous entry
+// (or clear the inode field if it is first in its block).
+static bool dir_remove(struct inode* dir, const char* name, uint32_t namelen)
+{
+    uint8_t* block = new (mem(), uint8_t, block_size);
+    uint64_t size = inode_file_size(dir);
+    bool done = false;
+    for (uint32_t bi = 0; (uint64_t)bi * block_size < size && !done; bi++) {
+        uint32_t phys = block_of(dir, bi);
+        if (phys == 0 || !read_block(phys, block)) {
+            continue;
+        }
+        uint32_t off = 0, prev = 0;
+        bool have_prev = false;
+        while (off + 8 <= block_size) {
+            struct dirent* de = (struct dirent*)(block + off);
+            if (de->rec_len < 8) {
+                break;
+            }
+            if (de->inode != 0 && de->name_len == namelen &&
+                str_eq(de->name, name, namelen)) {
+                if (have_prev) {
+                    ((struct dirent*)(block + prev))->rec_len += de->rec_len;
+                } else {
+                    de->inode = 0;
+                }
+                write_block(phys, block);
+                done = true;
+                break;
+            }
+            prev = off;
+            have_prev = true;
+            off += de->rec_len;
+        }
+    }
+    heap_free(heap_default(), block);
+    return done;
+}
+
+// Split `path` into its parent directory (must exist) and the final component.
+static bool resolve_parent(const char* path, uint32_t* parent_ino,
+                           struct inode* parent, const char** base,
+                           uint32_t* baselen)
+{
+    size_t len = 0;
+    while (path[len]) {
+        len++;
+    }
+    while (len > 0 && path[len - 1] == '/') {
+        len--; // ignore trailing slashes
+    }
+    if (len == 0) {
+        return false; // empty or root
+    }
+    size_t slash = len;
+    while (slash > 0 && path[slash - 1] != '/') {
+        slash--;
+    }
+    *base = path + slash;
+    *baselen = (uint32_t)(len - slash);
+    if (*baselen == 0 || *baselen > 255) {
+        return false;
+    }
+    char pbuf[256];
+    if (slash == 0) {
+        pbuf[0] = '/';
+        pbuf[1] = '\0';
+    } else {
+        if (slash >= sizeof pbuf) {
+            return false;
+        }
+        memcpy(pbuf, path, slash);
+        pbuf[slash] = '\0';
+    }
+    if (!resolve(pbuf, parent_ino, parent)) {
+        return false;
+    }
+    return (parent->mode & S_IFMT) == S_IFDIR;
+}
+
+bool ext2_write_file(const char* path, const void* data, size_t size)
+{
+    if (!mounted) {
+        return false;
+    }
+    uint32_t parent_ino;
+    struct inode parent;
+    const char* base;
+    uint32_t baselen;
+    if (!resolve_parent(path, &parent_ino, &parent, &base, &baselen)) {
+        return false;
+    }
+
+    uint32_t ino = dir_find(&parent, base, baselen);
+    struct inode in;
+    if (ino != 0) {
+        if (!read_inode(ino, &in) || (in.mode & S_IFMT) != S_IFREG) {
+            return false; // won't overwrite a directory
+        }
+        free_all_blocks(&in); // truncate to empty, then rewrite
+        in.size = 0;
+        in.dir_acl = 0;
+    } else {
+        ino = alloc_inode(false);
+        if (ino == 0) {
+            return false;
+        }
+        memset(&in, 0, sizeof in);
+        in.mode = S_IFREG | 0644;
+        in.links_count = 1;
+        if (!dir_add(parent_ino, &parent, base, baselen, ino, FT_REG)) {
+            free_inode(ino, false);
+            return false;
+        }
+    }
+
+    const uint8_t* p = data;
+    uint32_t nblocks = (uint32_t)((size + block_size - 1) / block_size);
+    uint8_t* buf = new (mem(), uint8_t, block_size);
+    bool ok = true;
+    for (uint32_t bi = 0; bi < nblocks; bi++) {
+        uint32_t blk = alloc_block();
+        if (blk == 0) {
+            ok = false;
+            break;
+        }
+        uint32_t chunk = (uint32_t)(size - (uint64_t)bi * block_size);
+        if (chunk > block_size) {
+            chunk = block_size;
+        }
+        memset(buf, 0, block_size);
+        memcpy(buf, p + (uint64_t)bi * block_size, chunk);
+        write_block(blk, buf);
+        if (!set_block_of(&in, bi, blk)) {
+            free_block(blk);
+            ok = false;
+            break;
+        }
+    }
+    heap_free(heap_default(), buf);
+    in.size = (uint32_t)size;
+    write_inode(ino, &in);
+    return ok;
+}
+
+bool ext2_mkdir(const char* path)
+{
+    if (!mounted) {
+        return false;
+    }
+    uint32_t parent_ino;
+    struct inode parent;
+    const char* base;
+    uint32_t baselen;
+    if (!resolve_parent(path, &parent_ino, &parent, &base, &baselen)) {
+        return false;
+    }
+    if (dir_find(&parent, base, baselen) != 0) {
+        return false; // already exists
+    }
+
+    uint32_t ino = alloc_inode(true);
+    if (ino == 0) {
+        return false;
+    }
+    uint32_t blk = alloc_block();
+    if (blk == 0) {
+        free_inode(ino, true);
+        return false;
+    }
+
+    // Initial directory block: "." -> self, ".." -> parent.
+    uint8_t* block = new (mem(), uint8_t, block_size);
+    memset(block, 0, block_size);
+    struct dirent* dot = (struct dirent*)block;
+    dot->inode = ino;
+    dot->name_len = 1;
+    dot->file_type = has_filetype ? FT_DIR : 0;
+    dot->rec_len = (uint16_t)roundup4(8 + 1);
+    dot->name[0] = '.';
+    struct dirent* dd = (struct dirent*)(block + dot->rec_len);
+    dd->inode = parent_ino;
+    dd->name_len = 2;
+    dd->file_type = has_filetype ? FT_DIR : 0;
+    dd->rec_len = (uint16_t)(block_size - dot->rec_len);
+    dd->name[0] = '.';
+    dd->name[1] = '.';
+    write_block(blk, block);
+    heap_free(heap_default(), block);
+
+    struct inode in;
+    memset(&in, 0, sizeof in);
+    in.mode = S_IFDIR | 0755;
+    in.links_count = 2; // "." and the entry we add to the parent
+    in.size = block_size;
+    in.blocks = block_size / 512;
+    in.block[0] = blk;
+    write_inode(ino, &in);
+
+    if (!dir_add(parent_ino, &parent, base, baselen, ino, FT_DIR)) {
+        free_block(blk);
+        free_inode(ino, true);
+        return false;
+    }
+    parent.links_count++; // the new dir's ".." links back to the parent
+    write_inode(parent_ino, &parent);
+    return true;
+}
+
+static bool count_cb(void* ctx, uint32_t ino, uint8_t type, const char* name,
+                     uint32_t namelen)
+{
+    (void)ino;
+    (void)type;
+    if (namelen == 1 && name[0] == '.') {
+        return false;
+    }
+    if (namelen == 2 && name[0] == '.' && name[1] == '.') {
+        return false;
+    }
+    *(int*)ctx += 1;
+    return true; // a real entry: stop early
+}
+
+bool ext2_remove(const char* path)
+{
+    if (!mounted) {
+        return false;
+    }
+    uint32_t parent_ino;
+    struct inode parent;
+    const char* base;
+    uint32_t baselen;
+    if (!resolve_parent(path, &parent_ino, &parent, &base, &baselen)) {
+        return false;
+    }
+    uint32_t ino = dir_find(&parent, base, baselen);
+    if (ino == 0) {
+        return false;
+    }
+    struct inode in;
+    if (!read_inode(ino, &in)) {
+        return false;
+    }
+    bool is_dir = (in.mode & S_IFMT) == S_IFDIR;
+    if (is_dir) {
+        int n = 0;
+        walk_dir(&in, count_cb, &n);
+        if (n != 0) {
+            return false; // directory not empty
+        }
+    }
+
+    if (!dir_remove(&parent, base, baselen)) {
+        return false;
+    }
+
+    if (is_dir) {
+        free_all_blocks(&in);
+        memset(&in, 0, sizeof in); // a zeroed inode is an unused inode
+        write_inode(ino, &in);
+        free_inode(ino, true);
+        if (parent.links_count > 0) {
+            parent.links_count--; // lose the removed dir's ".."
+        }
+        write_inode(parent_ino, &parent);
+    } else {
+        if (in.links_count > 0) {
+            in.links_count--;
+        }
+        if (in.links_count == 0) {
+            free_all_blocks(&in);
+            memset(&in, 0, sizeof in);
+            write_inode(ino, &in);
+            free_inode(ino, false);
+        } else {
+            write_inode(ino, &in);
+        }
+    }
+    return true;
 }

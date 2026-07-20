@@ -111,6 +111,26 @@ and the `png2qoi` host tool encodes the RGBA with the reference QOI codec — so
 the kernel decoder is validated against a real, independently-encoded file
 (confirmed pixel-identical).
 
+## The `fs` / `disk` libraries — the ext2 data disk
+
+A second QEMU disk (`disk.img`, attached as the primary IDE slave; built from
+`build/disk/` with `mke2fs`) carries an **ext2** filesystem that a polled ATA PIO
+driver (`src/ata.c`) reads and writes.
+
+- `disk.present()`, `disk.sectors()`, `disk.read(lba[,count])` — raw 512-byte
+  block access.
+- `fs.read(path)`, `fs.list(path)`, `fs.stat(path)`, `fs.exists(path)`,
+  `fs.mounted()` — read the filesystem (superblock, inodes, direct + single/
+  double-indirect blocks, directory walk).
+- `fs.write(path, data)`, `fs.mkdir(path)`, `fs.remove(path)` — **write** support
+  (`src/ext2.c`): create/overwrite files (direct + single indirect, ~268 KiB),
+  make directories, and delete files/empty directories, keeping the superblock,
+  group descriptors, and bitmaps consistent (verified with host `e2fsck`). No
+  journal — a crash mid-operation is `e2fsck`-recoverable.
+
+`run("name")` also loads scripts and binaries off this disk (see below), so you
+can write a script to the disk and run it: `fs.write("/x.lua", '...'); run("/x.lua")`.
+
 ## The `pci` library — PCI configuration space
 
 `pci.read(bus,dev,func,offset)` / `pci.write(...)` access config space (via the

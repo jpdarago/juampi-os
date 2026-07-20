@@ -22,6 +22,8 @@
 
 #define CMD_IDENTIFY 0xEC
 #define CMD_READ_PIO 0x20
+#define CMD_WRITE_PIO 0x30
+#define CMD_FLUSH 0xE7
 
 // Drive/head register: bit 6 selects LBA mode, bit 4 selects the slave drive.
 #define DRIVE_SLAVE_CHS 0xB0 // slave, for the CHS-style IDENTIFY select
@@ -142,5 +144,47 @@ bool ata_read(uint64_t lba, uint32_t count, void* buf)
         lba += chunk;
         count -= chunk;
     }
+    return true;
+}
+
+bool ata_write(uint64_t lba, uint32_t count, const void* buf)
+{
+    if (!present || count == 0) {
+        return false;
+    }
+    const uint8_t* in = (const uint8_t*)buf;
+    while (count > 0) {
+        uint32_t chunk = count > 256 ? 256 : count;
+
+        if (!wait_ready(false)) {
+            return false;
+        }
+        outb(REG_DRIVE, DRIVE_SLAVE_LBA | (uint8_t)((lba >> 24) & 0x0F));
+        settle();
+        outb(REG_SECCOUNT, (uint8_t)(chunk & 0xFF));
+        outb(REG_LBA0, (uint8_t)(lba & 0xFF));
+        outb(REG_LBA1, (uint8_t)((lba >> 8) & 0xFF));
+        outb(REG_LBA2, (uint8_t)((lba >> 16) & 0xFF));
+        outb(REG_COMMAND, CMD_WRITE_PIO);
+
+        for (uint32_t s = 0; s < chunk; s++) {
+            if (!wait_ready(true)) {
+                return false;
+            }
+            const uint16_t* w = (const uint16_t*)in;
+            for (int i = 0; i < 256; i++) {
+                outw(REG_DATA, w[i]);
+            }
+            in += 512;
+        }
+        lba += chunk;
+        count -= chunk;
+    }
+    // Flush the drive's write cache so the data is durable on disk.
+    if (!wait_ready(false)) {
+        return false;
+    }
+    outb(REG_COMMAND, CMD_FLUSH);
+    wait_ready(false);
     return true;
 }
