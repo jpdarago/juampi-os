@@ -17,4 +17,10 @@ void parallel_init(allocator* global);
 // check each returns its own core id. True if all cores ran correctly.
 bool parallel_selftest(void);
 
+// Push a borrowed `mem`-style shared-buffer view over arbitrary kernel memory
+// onto the Lua stack (used by fb.canvas to expose the framebuffer). Defined in
+// lua_thread.c; the shared-buffer metatable is registered by luaopen_mem.
+struct lua_State;
+void mem_push_view(struct lua_State* L, void* ptr, size_t size);
+
 #endif

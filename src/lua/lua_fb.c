@@ -6,6 +6,7 @@
 #include <qoi.h>
 #include <kmodule.h>
 #include <memory.h>
+#include <parallel.h> // mem_push_view, for fb.canvas
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -120,11 +121,53 @@ static int l_image(lua_State* L)
     return 2;
 }
 
+// fb.setmode(w, h) -> bool. Switch to a w*h 32bpp mode at runtime.
+static int l_setmode(lua_State* L)
+{
+    lua_pushboolean(L, gfx_set_mode((uint32_t)luaL_checkinteger(L, 1),
+                                    (uint32_t)luaL_checkinteger(L, 2)));
+    return 1;
+}
+
+// fb.pitch() -> bytes per scanline.
+static int l_pitch(lua_State* L)
+{
+    lua_pushinteger(L, (lua_Integer)gfx_pitch());
+    return 1;
+}
+
+// fb.shifts() -> r, g, b bit shifts for the current mode (for packing pixels
+// written directly to fb.canvas).
+static int l_shifts(lua_State* L)
+{
+    uint8_t r, g, b;
+    gfx_shifts(&r, &g, &b);
+    lua_pushinteger(L, r);
+    lua_pushinteger(L, g);
+    lua_pushinteger(L, b);
+    return 3;
+}
+
+// fb.canvas() -> a shared buffer aliasing the live framebuffer, so pixels can be
+// written directly (e.g. by every core in a parallel renderer). Index with
+// y*fb.pitch() + x*4 and store a packed pixel via :u32().
+static int l_canvas(lua_State* L)
+{
+    uint64_t size = 0, pitch = 0;
+    void* fb = gfx_framebuffer(&size, &pitch);
+    if (fb == NULL) {
+        return luaL_error(L, "fb.canvas: no framebuffer");
+    }
+    mem_push_view(L, fb, (size_t)size);
+    return 1;
+}
+
 static const luaL_Reg fblib[] = {
-        {"width", l_width}, {"height", l_height}, {"pixel", l_pixel},
-        {"rect", l_rect},   {"clear", l_clear},   {"line", l_line},
-        {"image", l_image}, {"buffer", l_buffer}, {"flip", l_flip},
-        {NULL, NULL},
+        {"width", l_width},     {"height", l_height}, {"pixel", l_pixel},
+        {"rect", l_rect},       {"clear", l_clear},   {"line", l_line},
+        {"image", l_image},     {"buffer", l_buffer}, {"flip", l_flip},
+        {"setmode", l_setmode}, {"pitch", l_pitch},   {"shifts", l_shifts},
+        {"canvas", l_canvas},   {NULL, NULL},
 };
 
 int luaopen_fb(lua_State* L)

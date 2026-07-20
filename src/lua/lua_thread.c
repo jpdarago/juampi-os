@@ -23,7 +23,7 @@
 #include "lualib.h"
 
 #define WORKER_HEAP_SZ (8 * 1024 * 1024) // per-core Lua heap
-#define MAX_ARGS 8
+#define MAX_ARGS 16
 #define ERR_MAX 200
 #define SHARED_MT "juampi.shared"
 
@@ -291,7 +291,11 @@ static void check_no_upvalues(lua_State* L, int idx)
 }
 
 // Dump the function at `idx` to a bytecode string pushed on top; returns it via
-// lua_tolstring (valid until popped).
+// lua_tolstring. lua_dump needs the function on top, so push a copy and leave
+// it: don't pop it afterwards, because for a large function luaL_addlstring has
+// already pushed the buffer box above it, and popping would corrupt the buffer
+// (this is why only big functions were affected). The leftover copy sits below
+// the result and is discarded when the calling C function returns.
 static const char* dump_fn(lua_State* L, int idx, size_t* len)
 {
     luaL_Buffer b;
@@ -300,7 +304,6 @@ static const char* dump_fn(lua_State* L, int idx, size_t* len)
     if (lua_dump(L, dump_writer, &b, 1) != 0) {
         luaL_error(L, "thread: cannot serialize function");
     }
-    lua_pop(L, 1); // the copy dumped
     luaL_pushresult(&b);
     return lua_tolstring(L, -1, len);
 }
@@ -503,6 +506,13 @@ static void push_shared_view(lua_State* L, void* ptr, size_t size)
     luaL_setmetatable(L, SHARED_MT);
 }
 
+// Wrap arbitrary kernel memory as a borrowed shared buffer (used by fb.canvas
+// to expose the framebuffer). The metatable is registered by luaopen_mem.
+void mem_push_view(lua_State* L, void* ptr, size_t size)
+{
+    push_shared_view(L, ptr, size);
+}
+
 // mem.shared(n) -> a zeroed n-byte buffer every core can read/write.
 static int l_shared(lua_State* L)
 {
@@ -654,12 +664,11 @@ bool parallel_selftest(void)
     }
     luaL_Buffer b;
     luaL_buffinit(Lb, &b);
-    lua_pushvalue(Lb, 1); // a fresh copy on top for lua_dump (the buffer box
-                          // may otherwise sit above the loaded chunk)
+    lua_pushvalue(Lb, 1); // a copy on top for lua_dump; left in place (see
+                          // dump_fn — popping it can corrupt the buffer box)
     if (lua_dump(Lb, dump_writer, &b, 1) != 0) {
         return false;
     }
-    lua_pop(Lb, 1);
     luaL_pushresult(&b);
     size_t len;
     const char* code = lua_tolstring(Lb, -1, &len);

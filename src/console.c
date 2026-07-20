@@ -2,6 +2,7 @@
 #include <serial.h>
 #include <keyboard.h>
 #include <spinlock.h>
+#include <memory.h>
 
 #include <printf/printf.h>
 
@@ -31,6 +32,34 @@ void console_init(struct limine_framebuffer* fb)
                           fb->blue_mask_size, fb->blue_mask_shift, NULL, NULL,
                           NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, 0, 0, 0, 0,
                           FLANTERM_FB_ROTATE_0);
+}
+
+// Heap-backed allocator for flanterm, so the terminal can be re-created on a
+// resolution change (the default bump pool is one-shot).
+static void* ft_malloc(size_t n)
+{
+    return alloc(&heap_default()->base, (ptrdiff_t)n, 16, 1);
+}
+static void ft_free(void* p, size_t n)
+{
+    (void)n;
+    heap_free(heap_default(), p);
+}
+static bool ft_heap; // is the current context heap-allocated (deinit-able)?
+
+// Re-point the console at a new 32bpp framebuffer geometry (after
+// gfx_set_mode). The channel layout matches gfx_set_mode's DISPI mode (xRGB:
+// B0/G8/R16).
+void console_reinit(void* fb, uint64_t w, uint64_t h, uint64_t pitch)
+{
+    // Called from the shell (BSP) on a mode change; no other core prints then.
+    if (ft != NULL && ft_heap) {
+        flanterm_deinit(ft, ft_free);
+    }
+    ft = flanterm_fb_init(ft_malloc, ft_free, (uint32_t*)fb, w, h, pitch, 8, 16,
+                          8, 8, 8, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                          NULL, 0, 0, 0, 0, 0, 0, FLANTERM_FB_ROTATE_0);
+    ft_heap = true;
 }
 
 // Serializes console output across cores (the APs share these sinks once SMP is

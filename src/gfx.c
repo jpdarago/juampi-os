@@ -1,6 +1,10 @@
 #include <gfx.h>
 #include <memory.h>
 #include <utils.h>
+#include <pci.h>
+#include <paging.h>
+#include <ports.h>
+#include <console.h>
 
 #include <stddef.h>
 
@@ -56,6 +60,26 @@ uint64_t gfx_width(void)
 uint64_t gfx_height(void)
 {
     return height;
+}
+uint64_t gfx_pitch(void)
+{
+    return pitch;
+}
+void gfx_shifts(uint8_t* r, uint8_t* g, uint8_t* b)
+{
+    *r = r_shift;
+    *g = g_shift;
+    *b = b_shift;
+}
+void* gfx_framebuffer(uint64_t* size, uint64_t* out_pitch)
+{
+    if (size != NULL) {
+        *size = height * pitch;
+    }
+    if (out_pitch != NULL) {
+        *out_pitch = pitch;
+    }
+    return fb;
 }
 
 // Pack an 0xRRGGBB colour into the framebuffer's channel layout.
@@ -195,4 +219,109 @@ void gfx_flip(void)
             memcpy(fb + y * pitch, back + y * width, width * 4);
         }
     }
+}
+
+// --- Runtime mode setting (Bochs DISPI / QEMU stdvga) -----------------------
+// The QEMU display (PCI 1234:1111) is Bochs-VBE compatible: its resolution can
+// be reprogrammed at runtime through the DISPI index/data I/O ports. We map the
+// whole LFB aperture (from the device's BAR0) once, then each mode change just
+// reprograms DISPI and re-points the console/graphics at the new geometry.
+
+#define DISPI_INDEX 0x01CE
+#define DISPI_DATA 0x01CF
+#define DISPI_ID 0
+#define DISPI_XRES 1
+#define DISPI_YRES 2
+#define DISPI_BPP 3
+#define DISPI_ENABLE 4
+#define DISPI_VIRT_WIDTH 6
+#define DISPI_ENABLED 0x01
+#define DISPI_LFB_ENABLED 0x40
+
+// A dedicated VA window for the linear framebuffer aperture (16 MiB, enough for
+// modes up to ~2048x2048x32). Clear of KHEAP (0xffffc…) and the other fixed
+// VAs.
+#define FBWIN_VA 0xffffe00000000000ull
+#define FBWIN_SZ 0x1000000ull
+
+static bool win_mapped;
+
+static void dispi_write(uint16_t idx, uint16_t val)
+{
+    outw(DISPI_INDEX, idx);
+    outw(DISPI_DATA, val);
+}
+static uint16_t dispi_read(uint16_t idx)
+{
+    outw(DISPI_INDEX, idx);
+    return inw(DISPI_DATA);
+}
+
+// Physical base of the display controller's linear framebuffer (its BAR0).
+static uintptr_t vga_lfb_phys(void)
+{
+    for (int bus = 0; bus < 256; bus++) {
+        for (int dev = 0; dev < 32; dev++) {
+            if ((pci_read32((uint8_t)bus, (uint8_t)dev, 0, 0) & 0xFFFF) ==
+                0xFFFF) {
+                continue;
+            }
+            uint32_t cls = pci_read32((uint8_t)bus, (uint8_t)dev, 0, 0x08);
+            if (((cls >> 24) & 0xFF) == 0x03) { // display controller
+                uint32_t bar0 = pci_read32((uint8_t)bus, (uint8_t)dev, 0, 0x10);
+                return (uintptr_t)(bar0 & 0xFFFFFFF0u);
+            }
+        }
+    }
+    return 0;
+}
+
+bool gfx_set_mode(uint32_t w, uint32_t h)
+{
+    if (fb == NULL) {
+        return false; // headless
+    }
+    // Bochs DISPI present? (ID register reads back 0xB0Cx.)
+    uint16_t id = dispi_read(DISPI_ID);
+    if (id < 0xB0C0 || id > 0xB0C5) {
+        return false;
+    }
+    if (w < 64 || h < 64 || (uint64_t)w * h * 4 > FBWIN_SZ) {
+        return false;
+    }
+
+    // Map the LFB aperture once, then reuse it for every mode.
+    if (!win_mapped) {
+        uintptr_t phys = vga_lfb_phys();
+        if (phys == 0) {
+            return false;
+        }
+        for (uint64_t off = 0; off < FBWIN_SZ; off += PAGE_SZ) {
+            map_page(kernel_dir, FBWIN_VA + off, phys + off,
+                     PAGEF_P | PAGEF_RW);
+        }
+        win_mapped = true;
+    }
+
+    dispi_write(DISPI_ENABLE, 0);
+    dispi_write(DISPI_XRES, (uint16_t)w);
+    dispi_write(DISPI_YRES, (uint16_t)h);
+    dispi_write(DISPI_BPP, 32);
+    dispi_write(DISPI_VIRT_WIDTH, (uint16_t)w);
+    dispi_write(DISPI_ENABLE, DISPI_ENABLED | DISPI_LFB_ENABLED);
+
+    // Adopt the new geometry (DISPI 32bpp is xRGB: blue 0, green 8, red 16).
+    if (back != NULL) {
+        heap_free(heap_default(), back);
+        back = NULL;
+    }
+    fb = (uint8_t*)FBWIN_VA;
+    width = w;
+    height = h;
+    pitch = (uint64_t)w * 4;
+    r_shift = 16;
+    g_shift = 8;
+    b_shift = 0;
+    console_reinit(fb, width, height, pitch);
+    return true;
 }

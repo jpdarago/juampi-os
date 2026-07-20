@@ -14,6 +14,18 @@ void gfx_init(struct limine_framebuffer* fb);
 bool gfx_available(void);
 uint64_t gfx_width(void);
 uint64_t gfx_height(void);
+uint64_t gfx_pitch(void); // bytes per scanline (may exceed width*4)
+// The framebuffer's 0xRRGGBB channel bit shifts, so callers packing pixels
+// themselves (e.g. a parallel renderer over fb.canvas) match the current mode.
+void gfx_shifts(uint8_t* r, uint8_t* g, uint8_t* b);
+// The live framebuffer base; *size (bytes) and *pitch describe it. NULL if
+// headless.
+void* gfx_framebuffer(uint64_t* size, uint64_t* pitch);
+
+// Switch the display to width*height at 32bpp at runtime (QEMU stdvga / Bochs
+// DISPI). Re-points graphics and the console at the new geometry. Returns false
+// if there is no framebuffer, no DISPI, or the mode is out of range.
+bool gfx_set_mode(uint32_t width, uint32_t height);
 void gfx_pixel(int64_t x, int64_t y, uint32_t rgb);
 void gfx_rect(int64_t x, int64_t y, int64_t w, int64_t h, uint32_t rgb);
 void gfx_clear(uint32_t rgb);

@@ -77,7 +77,18 @@ explorer, profiler, and prototyping surface you can poke at freely.
 `fb.line(x0,y0,x1,y1,rgb)`, `fb.clear(rgb)` draw directly to the Limine
 framebuffer (colours are `0xRRGGBB`). It shares the surface with the text
 console, so graphics and text overwrite each other — good for *visualizing* what
-the `k` library measures. `run("demo.lua")` draws a sampler, and
+the `k` library measures.
+
+`fb.setmode(w,h)` changes the display resolution at runtime (32bpp, via the QEMU
+stdvga Bochs-DISPI registers), re-pointing both graphics and the console at the
+new geometry. `fb.buffer(true)`/`fb.flip()` add double buffering (see
+`boing.lua`). For parallel rendering, `fb.canvas()` returns a `mem.shared`-style
+handle aliasing the live framebuffer and `fb.pitch()`/`fb.shifts()` give its
+stride and channel layout, so **every core can write disjoint pixels straight to
+the screen**: `run("raytracer.lua")` traces a sphere scene across all cores with
+`thread.parallel`, filling the framebuffer band by band.
+
+`run("demo.lua")` draws a sampler, and
 `run("boing.lua")` plays the Amiga "Boing Ball" (a shaded checker sphere
 bouncing over the magenta grid) as an animation/stress test of the `fb` library.
 
