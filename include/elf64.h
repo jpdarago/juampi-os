@@ -42,4 +42,8 @@ typedef struct {
 // or 0 if the image is not a valid ELF64 executable.
 uint64_t elf64_load(void* image);
 
+// Like elf64_load but maps segments as kernel-only pages, for a binary that is
+// called directly in ring 0 (the "sterile lab" — see lab.h). Returns the entry.
+uint64_t elf64_load_exec(void* image);
+
 #endif

@@ -88,7 +88,8 @@ KERNEL := kernel.bin
 # include/limine.h is vendored from the Limine project and kept verbatim, so it
 # is excluded from our formatting rules.
 FORMAT_FILES := $(filter-out $(INCLUDE_DIR)/limine.h,$(wildcard \
-	$(SRC_DIR)/*.c $(INCLUDE_DIR)/*.h $(BUILD_DIR)/user/*.c))
+	$(SRC_DIR)/*.c $(INCLUDE_DIR)/*.h $(BUILD_DIR)/user/*.c \
+	$(BUILD_DIR)/lab/*.c))
 
 # QEMU drives both `make run` and `make test`. make run opens a GTK window;
 # override the backend if you prefer, e.g. `make run QEMU_DISPLAY=curses`.
@@ -175,8 +176,25 @@ logo: $(PNG2QOI) $(LOGO_SRC) | $(OBJ_DIR)
 		-depth 8 RGBA:$(OBJ_DIR)/logo.rgba
 	$(PNG2QOI) $(LOGO_SIZE) $(LOGO_SIZE) $(OBJ_DIR)/logo.rgba $(LOGO)
 
+# --- Lab: native benchmark binaries ----------------------------------------
+# C programs in build/lab/, compiled freestanding and linked static at a fixed
+# VA, are loaded and called directly in ring 0 by the `lab` Lua library (see
+# include/lab.h): a "sterile lab" for benchmarking algorithm implementations.
+# -mno-red-zone is mandatory — they run in ring 0, where an interrupt reuses the
+# stack. Entry symbol is `bench`; they include <lab.h> for the ABI.
+LAB_DIR    := $(BUILD_DIR)/lab
+LAB_SRCS   := $(wildcard $(LAB_DIR)/*.c)
+LAB_ELVES  := $(patsubst $(LAB_DIR)/%.c,$(LAB_DIR)/%.elf,$(LAB_SRCS))
+LAB_CFLAGS := -O2 -std=c11 -ffreestanding -nostdlib -fno-pic -fno-pie \
+	-mno-red-zone -mno-mmx -mno-3dnow -fno-stack-protector \
+	-Wall -Wextra -I$(INCLUDE_DIR)
+
+$(LAB_DIR)/%.elf: $(LAB_DIR)/%.c $(INCLUDE_DIR)/lab.h
+	$(CC) $(LAB_CFLAGS) -c -o $(@:.elf=.o) $<
+	$(LD) -melf_x86_64 -e bench -Ttext 0x400000 -o $@ $(@:.elf=.o)
+
 # Everything shipped to the image as a Limine module.
-MODULES := $(SCRIPTS) $(LOGO)
+MODULES := $(SCRIPTS) $(LOGO) $(LAB_ELVES)
 
 # Pack the kernel and the modules (scripts + logo) into a bootable UEFI image
 # with Limine (sudo-free, mtools).
@@ -221,6 +239,8 @@ test: boot.img $(DISK_IMG)
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/kbd-smoke.sh
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" DISK="$(DISK_IMG)" \
 		INPUT='run("hello.lua")' MARKER=HELLO_FROM_EXT2 tests/boot-smoke.sh
+	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" \
+		INPUT='lab.run("hello.elf")' MARKER=LAB_OK tests/boot-smoke.sh
 
 # --- Formatting / linting ---------------------------------------------------
 
@@ -235,7 +255,8 @@ lint:
 # Note: build/scripts/logo.qoi is a checked-in asset, not a build artifact, so
 # clean leaves it in place (regenerate it with `make logo`).
 clean:
-	rm -rf $(OBJ_DIR) $(KERNEL) boot.img disk.img .ovmf.fd $(PNG2QOI)
+	rm -rf $(OBJ_DIR) $(KERNEL) boot.img disk.img .ovmf.fd $(PNG2QOI) \
+		$(LAB_DIR)/*.o $(LAB_DIR)/*.elf
 
 help:
 	@echo "Targets: all kernel.bin run test format lint clean"

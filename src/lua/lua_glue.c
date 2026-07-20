@@ -23,6 +23,7 @@ int luaopen_fb(lua_State* L);
 int luaopen_pci(lua_State* L);
 int luaopen_disk(lua_State* L);
 int luaopen_fs(lua_State* L);
+int luaopen_lab(lua_State* L);
 
 static lua_State* L;
 
@@ -104,6 +105,7 @@ void luashell_init(void)
             {"pci", luaopen_pci},   // PCI configuration space
             {"disk", luaopen_disk}, // raw ATA block access
             {"fs", luaopen_fs},     // read-only ext2 filesystem
+            {"lab", luaopen_lab},   // load & benchmark native binaries
     };
     for (unsigned i = 0; i < sizeof(libs) / sizeof(libs[0]); i++) {
         luaL_requiref(L, libs[i].name, libs[i].func, 1);

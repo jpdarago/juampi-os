@@ -54,6 +54,9 @@ disk.img
 # Userland module built for the x86-64 port
 build/user/*.elf
 
+# Native benchmark binaries built from build/lab/*.c (loaded by the `lab` lib)
+build/lab/*.elf
+
 # Host tool binary for regenerating the logo (`make logo`); the logo.qoi it
 # produces is a checked-in asset, so it is NOT ignored.
 build/tools/png2qoi
