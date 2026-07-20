@@ -18,6 +18,8 @@
 #include <ktime.h>
 #include <ksym.h>
 #include <gfx.h>
+#include <ata.h>
+#include <ext2.h>
 
 #include <printf/printf.h>
 
@@ -306,6 +308,22 @@ void kmain(void)
     console_dec(ktime_ns());
     console_print(hz > 100000000ull ? "\njuampiOS: timekeeping OK\n"
                                     : "\njuampiOS: timekeeping FAILED\n");
+
+    // --- Block device + filesystem: ATA data disk and a read-only ext2. -----
+    // ata_init() polls with a timeout, so it must run after ktime_init(). The
+    // data disk (primary IDE slave) is separate from the Limine boot disk; a
+    // valid ext2 there backs the `disk`/`fs` Lua libraries and run()-from-disk.
+    ata_init();
+    bool fs_ok = ext2_mount();
+    console_print("juampiOS: ata ");
+    if (ata_present()) {
+        console_print("sectors=");
+        console_dec(ata_sectors());
+    } else {
+        console_print("absent");
+    }
+    console_print(", ext2 ");
+    console_print(fs_ok ? "mounted\n" : "not mounted\n");
 
     // --- Milestone 3: software context switch (kernel threads) --------------
     sched_init(mem);

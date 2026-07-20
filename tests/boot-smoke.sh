@@ -13,6 +13,15 @@ MARKER="${MARKER:-SHELL_ALIVE_9271}"
 IMG="${IMG:-boot.img}"
 out="$(mktemp)"
 
+# Optionally attach a data disk (ext2) as the primary IDE slave, so tests can
+# exercise the disk/fs libraries and run()-from-disk. Enabled by setting DISK.
+DISK="${DISK:-}"
+disk_args=()
+if [ -n "$DISK" ] && [ -f "$DISK" ]; then
+    disk_args=(-drive "file=$DISK,format=raw,if=none,id=juampidisk" \
+        -device ide-hd,drive=juampidisk,bus=ide.0,unit=1)
+fi
+
 if ! command -v "$QEMU" >/dev/null 2>&1; then
     echo "error: $QEMU not found" >&2
     exit 127
@@ -37,6 +46,7 @@ chmod +w "$ovmf_copy"
     sleep 4
 } | timeout 30 "$QEMU" -bios "$ovmf_copy" \
     -drive file="$IMG",format=raw -m 512 \
+    "${disk_args[@]}" \
     -display none -serial stdio -no-reboot >"$out" 2>&1
 
 echo "--- serial output ---"

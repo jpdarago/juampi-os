@@ -15,6 +15,7 @@
     pkgs.limine # 64-bit bootloader: boots the kernel straight into long mode
     pkgs.mtools # mformat/mcopy/mmd build the FAT boot image without sudo
     pkgs.socat # QMP scripting for the keyboard test (tests/kbd-smoke.sh)
+    pkgs.e2fsprogs # mke2fs builds the ext2 data disk (disk.img)
   ];
 
   enterShell = ''

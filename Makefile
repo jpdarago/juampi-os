@@ -182,18 +182,44 @@ MODULES := $(SCRIPTS) $(LOGO)
 boot.img: $(KERNEL) $(MODULES) $(BUILD_DIR)/limine.conf $(BUILD_DIR)/mkboot.sh
 	bash $(BUILD_DIR)/mkboot.sh $(KERNEL) $@ $(MODULES)
 
+# --- Data disk (ext2) -------------------------------------------------------
+# A second, non-boot disk carrying an ext2 filesystem, attached to QEMU as the
+# primary IDE slave; the kernel's ata.c + ext2.c read it, backing the `disk`
+# and `fs` Lua libraries and run()-from-disk. Built from build/disk/ with
+# mke2fs -d (no root needed). The feature set is deliberately conservative
+# (1 KiB blocks; no resize_inode/dir_index/ext_attr) — exactly what the
+# read-only reader in src/ext2.c supports. Drop files into build/disk/ to ship
+# them on the disk.
+DISK_DIR    := $(BUILD_DIR)/disk
+DISK_FILES  := $(shell find $(DISK_DIR) -type f 2>/dev/null)
+DISK_IMG    := disk.img
+DISK_BLOCKS ?= 8192   # 1 KiB blocks -> 8 MiB image
+
+$(DISK_IMG): $(DISK_FILES)
+	mke2fs -q -F -t ext2 -b 1024 -O ^resize_inode,^dir_index,^ext_attr \
+		-d $(DISK_DIR) $@ $(DISK_BLOCKS)
+
+# QEMU args attaching the data disk as the primary IDE slave (bus ide.0 unit 1);
+# shared by `run` and the smoke tests.
+DISK_QEMU := -drive file=$(DISK_IMG),format=raw,if=none,id=juampidisk \
+	-device ide-hd,drive=juampidisk,bus=ide.0,unit=1
+
 # Boot the OS in QEMU under OVMF. Limine loads the kernel straight into 64-bit
 # long mode. OVMF vars must be writable, so we boot from a private copy.
-run: boot.img
+run: boot.img $(DISK_IMG)
 	cp "$(OVMF_FD)" .ovmf.fd && chmod +w .ovmf.fd
 	$(QEMU) -bios .ovmf.fd -drive file=boot.img,format=raw -m 512 \
+		-accel kvm -accel tcg \
+		$(DISK_QEMU) \
 		-display $(QEMU_DISPLAY) -serial stdio -no-reboot
 
 # Boot the Limine image headless and drive the shell over both input paths:
 # serial (boot-smoke) and the PS/2 keyboard via QMP send-key (kbd-smoke).
-test: boot.img
+test: boot.img $(DISK_IMG)
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/boot-smoke.sh
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/kbd-smoke.sh
+	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" DISK="$(DISK_IMG)" \
+		INPUT='run("hello.lua")' MARKER=HELLO_FROM_EXT2 tests/boot-smoke.sh
 
 # --- Formatting / linting ---------------------------------------------------
 
@@ -208,7 +234,7 @@ lint:
 # Note: build/scripts/logo.qoi is a checked-in asset, not a build artifact, so
 # clean leaves it in place (regenerate it with `make logo`).
 clean:
-	rm -rf $(OBJ_DIR) $(KERNEL) boot.img .ovmf.fd $(PNG2QOI)
+	rm -rf $(OBJ_DIR) $(KERNEL) boot.img disk.img .ovmf.fd $(PNG2QOI)
 
 help:
 	@echo "Targets: all kernel.bin run test format lint clean"

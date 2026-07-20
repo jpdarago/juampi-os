@@ -1,0 +1,2 @@
+Welcome to juampiOS. This message of the day is stored on the ext2 data disk
+and read through the fs library (fs.read("/etc/motd.txt")).

@@ -6,6 +6,8 @@
 #include <luashell.h>
 #include <console.h>
 #include <kmodule.h>
+#include <ext2.h>
+#include <memory.h>
 
 #include <printf/printf.h>
 #include <string.h>
@@ -15,10 +17,12 @@
 #include "lauxlib.h"
 #include "lualib.h"
 
-// The kernel libraries (lua_k.c, lua_fb.c, lua_pci.c).
+// The kernel libraries (lua_k.c, lua_fb.c, lua_pci.c, lua_disk.c, lua_fs.c).
 int luaopen_k(lua_State* L);
 int luaopen_fb(lua_State* L);
 int luaopen_pci(lua_State* L);
+int luaopen_disk(lua_State* L);
+int luaopen_fs(lua_State* L);
 
 static lua_State* L;
 
@@ -27,17 +31,37 @@ static lua_State* L;
 static char pending[PENDING_MAX];
 static size_t pending_len;
 
-// run("name.lua"): load a script shipped as a Limine module and execute it.
+// run("name.lua"): load a script and execute it. Built-in scripts shipped as
+// Limine modules win; otherwise the ext2 data disk is searched, trying the name
+// as given and then rooted at / and /scripts/.
 static int l_run(lua_State* Ls)
 {
     const char* name = luaL_checkstring(Ls, 1);
     size_t size = 0;
     const void* data = kmodule_find(name, &size);
+    void* owned = NULL; // heap buffer when loaded from disk (must be freed)
+    if (data == NULL) {
+        owned = ext2_read_path(name, &size);
+        if (owned == NULL && name[0] != '/') {
+            char path[256];
+            snprintf(path, sizeof path, "/%s", name);
+            owned = ext2_read_path(path, &size);
+            if (owned == NULL) {
+                snprintf(path, sizeof path, "/scripts/%s", name);
+                owned = ext2_read_path(path, &size);
+            }
+        }
+        data = owned;
+    }
     if (data == NULL) {
         return luaL_error(Ls, "no such script: %s", name);
     }
     int base = lua_gettop(Ls);
-    if (luaL_loadbuffer(Ls, data, size, name) != LUA_OK) {
+    int status = luaL_loadbuffer(Ls, data, size, name);
+    if (owned != NULL) {
+        heap_free(heap_default(), owned); // loadbuffer copied the bytes
+    }
+    if (status != LUA_OK) {
         return lua_error(Ls);
     }
     lua_call(Ls, 0, LUA_MULTRET);
@@ -75,9 +99,11 @@ void luashell_init(void)
             {LUA_GNAME, luaopen_base},        {LUA_TABLIBNAME, luaopen_table},
             {LUA_STRLIBNAME, luaopen_string}, {LUA_MATHLIBNAME, luaopen_math},
             {LUA_COLIBNAME, luaopen_coroutine},
-            {"k", luaopen_k},     // kernel introspection
-            {"fb", luaopen_fb},   // framebuffer drawing
-            {"pci", luaopen_pci}, // PCI configuration space
+            {"k", luaopen_k},       // kernel introspection
+            {"fb", luaopen_fb},     // framebuffer drawing
+            {"pci", luaopen_pci},   // PCI configuration space
+            {"disk", luaopen_disk}, // raw ATA block access
+            {"fs", luaopen_fs},     // read-only ext2 filesystem
     };
     for (unsigned i = 0; i < sizeof(libs) / sizeof(libs[0]); i++) {
         luaL_requiref(L, libs[i].name, libs[i].func, 1);
