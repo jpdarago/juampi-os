@@ -126,19 +126,26 @@ void console_hex(uint64_t v)
     spin_unlock(&console_lock);
 }
 
-// Blocking read from whichever input source has a byte first: the PS/2
+// Clear the screen and home the cursor (ANSI; handled by flanterm and by a
+// serial terminal alike).
+void console_clear(void)
+{
+    console_print("\033[2J\033[H");
+}
+
+// Blocking read of one byte from whichever input source has one first: the PS/2
 // keyboard ring buffer (fed by IRQ 1) or the serial FIFO. hlt naps until the
 // next interrupt (timer, keyboard) rather than spinning hot.
-static char console_getc(void)
+int console_getch(void)
 {
     for (;;) {
         int c = keyboard_poll();
         if (c >= 0) {
-            return (char)c;
+            return c;
         }
         c = serial_poll();
         if (c >= 0) {
-            return (char)c;
+            return c;
         }
         __asm__ __volatile__("hlt");
     }
@@ -148,7 +155,7 @@ size_t console_read_line(char* buf, size_t max)
 {
     size_t n = 0;
     for (;;) {
-        char c = console_getc();
+        char c = (char)console_getch();
         if (c == '\r' || c == '\n') {
             console_print("\n");
             buf[n] = '\0';

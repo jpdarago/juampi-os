@@ -159,9 +159,16 @@ Two polymorphic globals launch and measure code regardless of language:
   boundary — e.g. `bench("quick.elf", 3000)` vs `bench(my_lua_sort, 3000)`.
 
 Lua scripts are shipped as Limine modules (files under `build/scripts/`);
-`build/scripts/init.lua` runs once at startup — edit it and rebuild to customize
-the boot. The REPL handles multi-line input: an incomplete statement continues
-with a `>>` prompt, so whole snippets can be pasted.
+`build/scripts/prelude.lua` runs first (built-in helpers), then
+`build/scripts/init.lua` (edit it and rebuild to customize the boot). The REPL
+handles multi-line input: an incomplete statement continues with a `>>` prompt,
+so whole snippets can be pasted.
+
+Shell conveniences: the line editor recalls previous commands with the **up/down
+arrows** (history, working over both serial and the PS/2 keyboard); `clear()`
+clears the screen; `help()` prints an overview and `help(lib)` (e.g. `help(fb)`)
+lists a library's functions; and `dump(v)` / `pp(v)` pretty-print a value or
+table (indented, sorted keys, cycle-safe). `help`/`dump` live in `prelude.lua`.
 
 **Native binaries (the "lab").** C programs in `build/lab/` are compiled
 freestanding, statically linked at a fixed VA, and shipped as Limine modules. A

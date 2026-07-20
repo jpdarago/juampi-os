@@ -33,22 +33,31 @@ static lua_State* L;
 static char pending[PENDING_MAX];
 static size_t pending_len;
 
-// Run init.lua (if shipped) once at startup.
-static void run_init(void)
+// Run a shipped Lua module (if present) once at startup; report load/run errors.
+static void run_module(const char* name)
 {
     size_t size = 0;
-    const void* data = kmodule_find("init.lua", &size);
+    const void* data = kmodule_find(name, &size);
     if (data == NULL) {
         return;
     }
-    if (luaL_loadbuffer(L, data, size, "@init.lua") == LUA_OK &&
+    if (luaL_loadbuffer(L, data, size, name) == LUA_OK &&
         lua_pcall(L, 0, 0, 0) == LUA_OK) {
         return;
     }
-    console_print("init.lua: ");
+    console_print(name);
+    console_print(": ");
     console_print(lua_tostring(L, -1));
     console_print("\n");
     lua_pop(L, 1);
+}
+
+// clear(): clear the screen and home the cursor.
+static int l_clear(lua_State* Ls)
+{
+    (void)Ls;
+    console_clear();
+    return 0;
 }
 
 void luashell_init(void)
@@ -77,12 +86,15 @@ void luashell_init(void)
         lua_pop(L, 1);
     }
     lua_run_open(L); // the run() and bench() globals
+    lua_pushcfunction(L, l_clear);
+    lua_setglobal(L, "clear");
 
     // Clear any half-entered input (e.g. when re-initializing after a recovered
     // fault longjmp'd out mid-evaluation).
     pending_len = 0;
 
-    run_init();
+    run_module("prelude.lua"); // built-in helpers (help, dump, ...)
+    run_module("init.lua");    // user startup script
 }
 
 // Print every value from stack index `from` to the top, tab-separated, using

@@ -34,6 +34,16 @@ static const char keymap_shift[128] = {
 #define SC_CAPS 0x3A
 #define SC_EXTENDED 0xE0
 
+// Extended (0xE0-prefixed) navigation make codes and the VT100 escape-sequence
+// final byte we relay for each, so the line editor sees the same "ESC [
+// <final>" a serial terminal sends.
+#define SC_UP 0x48
+#define SC_DOWN 0x50
+#define SC_LEFT 0x4B
+#define SC_RIGHT 0x4D
+#define SC_HOME 0x47
+#define SC_END 0x4F
+
 // Ring buffer filled by the IRQ handler, drained by keyboard_poll. Single
 // producer (the interrupt) and single consumer; on this single CPU the consumer
 // masks nothing because index updates are single writes.
@@ -43,21 +53,62 @@ static volatile uint32_t khead, ktail;
 
 static bool shift, ctrl, caps, extended;
 
+// Push one byte into the input ring (dropping it if the ring is full).
+static void kpush(char c)
+{
+    uint32_t next = (khead + 1) % KBUF_SZ;
+    if (next != ktail) {
+        kbuf[khead] = c;
+        khead = next;
+    }
+}
+
+// Relay a navigation key as its VT100 escape sequence: ESC [ <final>.
+static void kpush_seq(char final)
+{
+    kpush(27);
+    kpush('[');
+    kpush(final);
+}
+
 static void kbd_irq(interrupt_frame* f)
 {
     (void)f;
     uint8_t sc = inb(PS2_DATA);
 
     if (sc == SC_EXTENDED) {
-        // Extended prefix (arrows, right ctrl/alt, ...): consume the prefix and
-        // ignore the extended key itself for now.
+        // Extended prefix: the arrows/nav keys and right ctrl/alt follow.
         extended = true;
         return;
     }
     if (extended) {
         extended = false;
-        if ((sc & 0x7F) == SC_CTRL) {
+        uint8_t code = sc & 0x7F;
+        if (code == SC_CTRL) {
             ctrl = !(sc & 0x80);
+        } else if (!(sc & 0x80)) { // make (press) only
+            switch (code) {
+            case SC_UP:
+                kpush_seq('A');
+                break;
+            case SC_DOWN:
+                kpush_seq('B');
+                break;
+            case SC_RIGHT:
+                kpush_seq('C');
+                break;
+            case SC_LEFT:
+                kpush_seq('D');
+                break;
+            case SC_HOME:
+                kpush_seq('H');
+                break;
+            case SC_END:
+                kpush_seq('F');
+                break;
+            default:
+                break;
+            }
         }
         return;
     }
@@ -96,11 +147,7 @@ static void kbd_irq(interrupt_frame* f)
         c &= 0x1F; // Ctrl-A .. Ctrl-Z
     }
 
-    uint32_t next = (khead + 1) % KBUF_SZ;
-    if (next != ktail) { // drop the key if the buffer is full
-        kbuf[khead] = c;
-        khead = next;
-    }
+    kpush(c);
 }
 
 int keyboard_poll(void)

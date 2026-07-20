@@ -19,6 +19,11 @@ void console_putc(char c);
 void console_print(const char* s);
 void console_dec(uint64_t v);
 void console_hex(uint64_t v);
+// Clear the screen and home the cursor.
+void console_clear(void);
+// Blocking read of one input byte (PS/2 keyboard or serial). Used by the
+// shell's line editor; arrow/navigation keys arrive as VT100 escape sequences.
+int console_getch(void);
 
 // Blocking line input with echo and basic editing (backspace), reading from
 // whichever input source has a byte first (PS/2 keyboard or serial). Returns
