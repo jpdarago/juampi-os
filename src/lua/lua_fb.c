@@ -46,6 +46,25 @@ static int l_line(lua_State* L)
     return 0;
 }
 
+// fb.buffer([on]) -> bool. Turn double buffering on (default) or off, returning
+// whether it is now active. While on, drawing goes to an off-screen buffer and
+// nothing appears until fb.flip(), so animations don't flicker.
+static int l_buffer(lua_State* L)
+{
+    bool on = lua_isnoneornil(L, 1) ? true : lua_toboolean(L, 1);
+    lua_pushboolean(L, gfx_buffer(on));
+    return 1;
+}
+
+// fb.flip(). Copy the back buffer to the screen in one pass. No-op unless
+// double buffering is on.
+static int l_flip(lua_State* L)
+{
+    (void)L;
+    gfx_flip();
+    return 0;
+}
+
 // fb.image(name [,x,y [,key [,tol]]]) -> width, height. Decode a QOI image
 // shipped as a Limine module and blit it. x/y default to centring the image on
 // screen. If `key` (an 0xRRGGBB colour) is given, pixels within `tol` (default
@@ -104,7 +123,8 @@ static int l_image(lua_State* L)
 static const luaL_Reg fblib[] = {
         {"width", l_width}, {"height", l_height}, {"pixel", l_pixel},
         {"rect", l_rect},   {"clear", l_clear},   {"line", l_line},
-        {"image", l_image}, {NULL, NULL},
+        {"image", l_image}, {"buffer", l_buffer}, {"flip", l_flip},
+        {NULL, NULL},
 };
 
 int luaopen_fb(lua_State* L)

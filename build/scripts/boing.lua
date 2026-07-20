@@ -1,7 +1,8 @@
 -- boing.lua: the Amiga "Boing Ball" — a red/white checkered ball bouncing
 -- around the framebuffer at constant speed, the checker pattern scrolling to
 -- fake the spin, over the classic magenta grid. A sampler and stress test for
--- the fb library (fb.clear/line/rect) and k.ns() frame pacing.
+-- the fb library (fb.clear/line/rect), double buffering (fb.buffer/flip), and
+-- k.ns() frame pacing.
 -- Run with run("boing.lua"); it plays for a few seconds then returns.
 
 if fb.width() == 0 then
@@ -68,6 +69,9 @@ local function draw_ball(cx, cy)
     end
 end
 
+-- Draw off-screen and present whole frames, so the clear/grid/ball sequence
+-- never shows as a flicker.
+fb.buffer(true)
 for _ = 1, 480 do
     local t = k.ns()
     -- Backdrop: wall + grid.
@@ -82,9 +86,11 @@ for _ = 1, 480 do
     oval(bx, H - 14, R, R // 5, 0x0a0a12)
     draw_ball(bx, by)
     rot = rot + 2
+    fb.flip()
     -- Pace to ~50 fps.
     local nxt = t + 20000000
     while k.ns() < nxt do end
 end
+fb.buffer(false)
 
 print("boing.lua: done")

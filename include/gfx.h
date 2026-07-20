@@ -26,4 +26,16 @@ void gfx_line(int64_t x0, int64_t y0, int64_t x1, int64_t y1, uint32_t rgb);
 void gfx_blit(int64_t x, int64_t y, uint64_t width, uint64_t height,
               const uint32_t* pixels);
 
+// Double buffering. gfx_buffer(true) allocates an off-screen back buffer and
+// redirects all subsequent drawing to it (seeded with the current screen);
+// gfx_buffer(false) frees it and returns to drawing straight to the screen.
+// While buffered, nothing appears until gfx_flip() copies the back buffer to
+// the framebuffer in one pass — so animations never show a half-drawn frame.
+// Both return / report whether buffering is now active (false if there is no
+// framebuffer). Text drawn by the console goes to the screen directly and is
+// therefore overwritten by the next flip.
+bool gfx_buffer(bool on);
+bool gfx_buffered(void);
+void gfx_flip(void);
+
 #endif

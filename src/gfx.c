@@ -1,10 +1,34 @@
 #include <gfx.h>
+#include <memory.h>
+#include <utils.h>
 
 #include <stddef.h>
 
-static volatile uint8_t* fb;
+// The framebuffer is written with plain (non-volatile) stores: there are no
+// readers and no ordering requirements, so dropping volatile lets the compiler
+// vectorize the full-screen fills and the back-buffer flip (a volatile
+// per-pixel loop can't be widened, which made double buffering slow).
+static uint8_t* fb;
 static uint64_t pitch, width, height;
 static uint8_t r_shift, g_shift, b_shift;
+
+// Optional off-screen back buffer for double buffering. When non-NULL, every
+// draw goes here (a tightly packed width*height array of native-layout pixels)
+// instead of the live framebuffer, and gfx_flip() copies it to the screen in
+// one pass — so an animation never shows a half-drawn frame. NULL means draws
+// go straight to the framebuffer, as before.
+static uint32_t* back;
+
+// Start of scanline y in the current draw target: the back buffer if one is
+// active, otherwise the hardware framebuffer. Pixels within a row are
+// contiguous in both, so callers index [x] off the returned pointer.
+static inline uint32_t* row_of(uint64_t y)
+{
+    if (back != NULL) {
+        return back + y * width;
+    }
+    return (uint32_t*)(fb + y * pitch);
+}
 
 void gfx_init(struct limine_framebuffer* f)
 {
@@ -49,8 +73,7 @@ void gfx_pixel(int64_t x, int64_t y, uint32_t rgb)
         (uint64_t)y >= height) {
         return;
     }
-    volatile uint32_t* row = (volatile uint32_t*)(fb + (uint64_t)y * pitch);
-    row[x] = pack(rgb);
+    row_of((uint64_t)y)[x] = pack(rgb);
 }
 
 void gfx_rect(int64_t x, int64_t y, int64_t w, int64_t h, uint32_t rgb)
@@ -59,16 +82,17 @@ void gfx_rect(int64_t x, int64_t y, int64_t w, int64_t h, uint32_t rgb)
         return;
     }
     uint32_t px = pack(rgb);
-    for (int64_t yy = y; yy < y + h; yy++) {
-        if (yy < 0 || (uint64_t)yy >= height) {
-            continue;
-        }
-        volatile uint32_t* row =
-                (volatile uint32_t*)(fb + (uint64_t)yy * pitch);
-        for (int64_t xx = x; xx < x + w; xx++) {
-            if (xx >= 0 && (uint64_t)xx < width) {
-                row[xx] = px;
-            }
+    // Clip the rectangle to the screen once, so the inner loop is a tight,
+    // branch-free fill the compiler can vectorize (this is the per-frame
+    // clear).
+    int64_t x0 = x < 0 ? 0 : x;
+    int64_t y0 = y < 0 ? 0 : y;
+    int64_t x1 = x + w > (int64_t)width ? (int64_t)width : x + w;
+    int64_t y1 = y + h > (int64_t)height ? (int64_t)height : y + h;
+    for (int64_t yy = y0; yy < y1; yy++) {
+        uint32_t* row = row_of((uint64_t)yy);
+        for (int64_t xx = x0; xx < x1; xx++) {
+            row[xx] = px;
         }
     }
 }
@@ -89,8 +113,7 @@ void gfx_blit(int64_t x, int64_t y, uint64_t w, uint64_t h,
         if (py < 0 || (uint64_t)py >= height) {
             continue;
         }
-        volatile uint32_t* row =
-                (volatile uint32_t*)(fb + (uint64_t)py * pitch);
+        uint32_t* row = row_of((uint64_t)py);
         const uint32_t* src = pixels + j * w;
         for (uint64_t i = 0; i < w; i++) {
             int64_t px = x + (int64_t)i;
@@ -128,6 +151,48 @@ void gfx_line(int64_t x0, int64_t y0, int64_t x1, int64_t y1, uint32_t rgb)
         if (e2 < adx) {
             err += adx;
             y0 += sy;
+        }
+    }
+}
+
+bool gfx_buffered(void)
+{
+    return back != NULL;
+}
+
+bool gfx_buffer(bool on)
+{
+    if (fb == NULL) {
+        return false;
+    }
+    if (on && back == NULL) {
+        back = new (&heap_default()->base, uint32_t,
+                    (ptrdiff_t)(width * height));
+        // Seed the back buffer with what's on screen, so enabling buffering is
+        // transparent: pixels never redrawn keep their current value until the
+        // first flip.
+        for (uint64_t y = 0; y < height; y++) {
+            memcpy(back + y * width, fb + y * pitch, width * 4);
+        }
+    } else if (!on && back != NULL) {
+        heap_free(heap_default(), back);
+        back = NULL;
+    }
+    return back != NULL;
+}
+
+void gfx_flip(void)
+{
+    if (fb == NULL || back == NULL) {
+        return;
+    }
+    if (pitch == width * 4) {
+        // Rows are contiguous in the framebuffer: copy the whole buffer at
+        // once.
+        memcpy(fb, back, width * height * 4);
+    } else {
+        for (uint64_t y = 0; y < height; y++) {
+            memcpy(fb + y * pitch, back + y * width, width * 4);
         }
     }
 }
