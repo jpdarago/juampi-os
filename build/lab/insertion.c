@@ -1,5 +1,5 @@
 // Insertion sort — O(n^2). Benchmark it against quick.c on the same input:
-//   lab.bench("insertion.elf", 2000)  vs  lab.bench("quick.elf", 2000)
+//   bench("insertion.elf", 2000)  vs  bench("quick.elf", 2000)
 // Both fill `arg` ints from the same LCG and return the same order-sensitive
 // checksum (so a matching result proves both sort correctly), but the cycle
 // counts differ by orders of magnitude.

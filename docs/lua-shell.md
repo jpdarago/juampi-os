@@ -54,8 +54,9 @@ end
 Because the shell runs in ring 0, Lua has full access to the machine, exposed
 through a `k` library:
 
-- **Time / profiling:** `k.rdtsc()`, `k.ns/us/ms()`, `k.uptime()`, `k.tsc_hz()`,
-  `k.bench(fn [,n])` → total & per-call cycles.
+- **Time / profiling:** `k.rdtsc()`, `k.ns/us/ms()`, `k.uptime()`, `k.tsc_hz()`
+  (benchmarking is the top-level `bench()` — see "Running scripts").
+- **SMP:** `k.ncores()`, `k.cpu()` (the core the shell runs on).
 - **Memory / CPU:** `k.freemem()`, `k.totalmem()`, `k.freeframes()`,
   `k.cpuid(leaf [,sub])`, `k.cpubrand()`, `k.rdmsr/wrmsr(msr [,val])`.
 - **Raw access:** `k.peek8/16/32/64(addr)`, `k.poke8/16/32/64(addr,val)`,
@@ -101,14 +102,35 @@ the kernel decoder is validated against a real, independently-encoded file
 `run("lspci.lua")` prints them lspci-style with class names — the prerequisite
 introspection for future device drivers.
 
-## Running scripts
+## Running and benchmarking code
 
-Lua scripts are shipped as Limine modules (files under `build/scripts/`, copied
-into the boot image). `build/scripts/init.lua` runs once at startup — edit it and
-rebuild to customize the boot (it defines a couple of shell helpers). Any shipped
-script can be run from the shell with `run("name.lua")`. The REPL also handles
-multi-line input: an incomplete statement continues with a `>>` prompt, so whole
-snippets can be pasted.
+Two polymorphic globals launch and measure code regardless of language:
+
+- **`run(name [,arg])`** loads by name — a built-in Limine module first, then the
+  ext2 disk (`name`, `/name`, `/scripts/name`, `/lab/name`) — and dispatches on
+  the bytes: a `.lua` script is executed (receiving `arg` as a vararg); an ELF64
+  binary is loaded and **called directly in ring 0**, returning its result.
+- **`bench(target [,arg=0] [,iters=1000])` → `total_cycles, per_call`** times a
+  Lua function, a script, or a native binary the *same* way (TSC-fenced calls of
+  `target(arg)`), so implementations are directly comparable across the language
+  boundary — e.g. `bench("quick.elf", 3000)` vs `bench(my_lua_sort, 3000)`.
+
+Lua scripts are shipped as Limine modules (files under `build/scripts/`);
+`build/scripts/init.lua` runs once at startup — edit it and rebuild to customize
+the boot. The REPL handles multi-line input: an incomplete statement continues
+with a `>>` prompt, so whole snippets can be pasted.
+
+**Native binaries (the "lab").** C programs in `build/lab/` are compiled
+freestanding, statically linked at a fixed VA, and shipped as Limine modules. A
+binary's entry is `long bench(const lab_api* api, long arg)`; the kernel
+(`src/lab.c`) hands it a table of callbacks (`alloc`/`free`, `print`,
+`rdtsc`/`ns`, `ncores`, `run_on`/`join` — see `include/lab.h`) and calls it in
+ring 0 for the cleanest possible timing. Because the kernel enforces no NX/SMEP,
+the loaded blob is directly callable; a fault inside it unwinds to the prompt via
+the shell's fault recovery, so a buggy benchmark can't halt the machine. This is
+a "sterile lab" for pitting algorithm implementations against each other —
+`build/lab/insertion.c` vs `build/lab/quick.c` return the same checksum with very
+different cycle counts.
 
 ## What this deliberately gives up
 

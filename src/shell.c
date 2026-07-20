@@ -51,9 +51,11 @@ void shell_run(void)
     console_print(
             "\njuampiOS Lua shell (Lua 5.4).\n"
             "  math/string/table/coroutine, and 'k' for kernel introspection:\n"
-            "  k.cpubrand()  k.freemem()  k.uptime()  k.bench(fn,n)  "
+            "  k.cpubrand()  k.freemem()  k.uptime()  k.ncores()  "
             "k.hexdump(addr)\n"
-            "  run(\"name.lua\") runs a shipped script.\n");
+            "  run(name[,arg]) runs a .lua script or a native .elf binary.\n"
+            "  bench(fn|name[,arg[,iters]]) -> total,per_call (Lua or "
+            "native).\n");
     // Draw the logo after the banner (which may have scrolled the console).
     logo_draw();
 

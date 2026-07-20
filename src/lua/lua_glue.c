@@ -6,8 +6,6 @@
 #include <luashell.h>
 #include <console.h>
 #include <kmodule.h>
-#include <ext2.h>
-#include <memory.h>
 
 #include <printf/printf.h>
 #include <string.h>
@@ -23,7 +21,8 @@ int luaopen_fb(lua_State* L);
 int luaopen_pci(lua_State* L);
 int luaopen_disk(lua_State* L);
 int luaopen_fs(lua_State* L);
-int luaopen_lab(lua_State* L);
+// The unified launch/benchmark surface (lua_run.c): sets the run/bench globals.
+void lua_run_open(lua_State* L);
 
 static lua_State* L;
 
@@ -31,43 +30,6 @@ static lua_State* L;
 #define PENDING_MAX 4096
 static char pending[PENDING_MAX];
 static size_t pending_len;
-
-// run("name.lua"): load a script and execute it. Built-in scripts shipped as
-// Limine modules win; otherwise the ext2 data disk is searched, trying the name
-// as given and then rooted at / and /scripts/.
-static int l_run(lua_State* Ls)
-{
-    const char* name = luaL_checkstring(Ls, 1);
-    size_t size = 0;
-    const void* data = kmodule_find(name, &size);
-    void* owned = NULL; // heap buffer when loaded from disk (must be freed)
-    if (data == NULL) {
-        owned = ext2_read_path(name, &size);
-        if (owned == NULL && name[0] != '/') {
-            char path[256];
-            snprintf(path, sizeof path, "/%s", name);
-            owned = ext2_read_path(path, &size);
-            if (owned == NULL) {
-                snprintf(path, sizeof path, "/scripts/%s", name);
-                owned = ext2_read_path(path, &size);
-            }
-        }
-        data = owned;
-    }
-    if (data == NULL) {
-        return luaL_error(Ls, "no such script: %s", name);
-    }
-    int base = lua_gettop(Ls);
-    int status = luaL_loadbuffer(Ls, data, size, name);
-    if (owned != NULL) {
-        heap_free(heap_default(), owned); // loadbuffer copied the bytes
-    }
-    if (status != LUA_OK) {
-        return lua_error(Ls);
-    }
-    lua_call(Ls, 0, LUA_MULTRET);
-    return lua_gettop(Ls) - base;
-}
 
 // Run init.lua (if shipped) once at startup.
 static void run_init(void)
@@ -105,14 +67,12 @@ void luashell_init(void)
             {"pci", luaopen_pci},   // PCI configuration space
             {"disk", luaopen_disk}, // raw ATA block access
             {"fs", luaopen_fs},     // read-only ext2 filesystem
-            {"lab", luaopen_lab},   // load & benchmark native binaries
     };
     for (unsigned i = 0; i < sizeof(libs) / sizeof(libs[0]); i++) {
         luaL_requiref(L, libs[i].name, libs[i].func, 1);
         lua_pop(L, 1);
     }
-    lua_pushcfunction(L, l_run);
-    lua_setglobal(L, "run");
+    lua_run_open(L); // the run() and bench() globals
 
     // Clear any half-entered input (e.g. when re-initializing after a recovered
     // fault longjmp'd out mid-evaluation).

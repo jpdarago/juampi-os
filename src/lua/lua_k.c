@@ -63,26 +63,6 @@ static int l_cpu(lua_State* L)
     return 1;
 }
 
-// k.bench(fn [, n]) -> total_cycles, cycles_per_call. Calls fn n times (default
-// 1) and times it with the TSC.
-static int l_bench(lua_State* L)
-{
-    luaL_checktype(L, 1, LUA_TFUNCTION);
-    lua_Integer n = luaL_optinteger(L, 2, 1);
-    if (n < 1) {
-        n = 1;
-    }
-    uint64_t start = rdtsc();
-    for (lua_Integer i = 0; i < n; i++) {
-        lua_pushvalue(L, 1);
-        lua_call(L, 0, 0);
-    }
-    uint64_t cycles = rdtsc() - start;
-    lua_pushinteger(L, (lua_Integer)cycles);
-    lua_pushinteger(L, (lua_Integer)(cycles / (uint64_t)n));
-    return 2;
-}
-
 // --- memory / cpu -----------------------------------------------------------
 
 static int l_freeframes(lua_State* L)
@@ -259,7 +239,7 @@ static const luaL_Reg klib[] = {
         {"us", l_us},             {"ms", l_ms},
         {"uptime", l_uptime},     {"tsc_hz", l_tsc_hz},
         {"ncores", l_ncores},     {"cpu", l_cpu},
-        {"bench", l_bench},       {"freeframes", l_freeframes},
+        {"freeframes", l_freeframes},
         {"freemem", l_freemem},   {"totalmem", l_totalmem},
         {"cpuid", l_cpuid},       {"cpubrand", l_cpubrand},
         {"rdmsr", l_rdmsr},       {"wrmsr", l_wrmsr},

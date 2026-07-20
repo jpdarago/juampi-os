@@ -10,14 +10,9 @@ print(string.format("init.lua: %d MiB free of %d, TSC %d MHz",
 -- the banner, so a console scroll doesn't wipe it. Display it yourself any time
 -- with fb.image("logo.qoi") or run("logo.lua").
 
--- A couple of convenience helpers, available in the shell after boot:
-function bench(fn, n)
-    local total, per = k.bench(fn, n or 1000)
-    print(string.format("%d calls: %d cycles total, %d per call", n or 1000,
-        total, per))
-    return per
-end
-
+-- run(name[,arg]) launches a Lua script or a native binary; bench(target[,arg
+-- [,iters]]) times a function, script, or binary the same way (both are C
+-- globals). A convenience helper, available in the shell after boot:
 function uptime()
     return string.format("%.3f s", k.uptime())
 end
