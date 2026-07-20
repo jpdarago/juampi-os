@@ -47,8 +47,11 @@ static inline void* phys_to_virt(uintptr_t pa)
     return (void*)(hhdm_offset + pa);
 }
 
-// Size of the kernel-heap window paging_init maps.
-#define KHEAP_SIZE 0x1000000ull // 16 MiB
+// Size of the kernel-heap window paging_init maps. Enlarged from 16 MiB to make
+// room for the per-core Lua heaps (parallel.h / M9): each worker interpreter
+// carves an 8 MiB private heap out of this window. Still a fraction of usable
+// RAM, and there is 16 TiB of VA headroom above KHEAP_START.
+#define KHEAP_SIZE 0x8000000ull // 128 MiB
 
 // Bring up the memory subsystem on top of what Limine set up: adopt its page
 // tables, record the HHDM offset, initialise the frame allocator over the

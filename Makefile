@@ -241,6 +241,8 @@ test: boot.img $(DISK_IMG)
 		INPUT='run("hello.lua")' MARKER=HELLO_FROM_EXT2 tests/boot-smoke.sh
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" \
 		INPUT='run("hello.elf")' MARKER=LAB_OK tests/boot-smoke.sh
+	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" \
+		INPUT='run("parallel.lua")' MARKER=PARALLEL_OK tests/boot-smoke.sh
 
 # --- Formatting / linting ---------------------------------------------------
 

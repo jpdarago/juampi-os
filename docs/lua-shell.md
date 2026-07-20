@@ -42,12 +42,14 @@ end
   formatting uses the vendored float printf; FP relies on the SSE/x87 work.
   Validated: `print(math.sqrt(2))`, loops, closures, tables, string library,
   and Lua error messages all work over serial and the PS/2 keyboard.
-- **M8 — SMP.** Limine MP request to start the application processors; per-CPU
-  GDT/TSS/IDT, per-CPU data, LAPIC, and spinlocks (the kernel's `cli`-as-lock
-  assumption no longer holds once APs run).
-- **M9 — Parallel Lua library.** A `lua_State` per core, `thread.spawn(core, fn)`
-  dispatch, `mem.shared` shared buffers, and `mem.phys`/`ncores()` primitives —
-  the custom multithreading library.
+- **M8 — SMP.** ✅ DONE. Limine MP request starts the application processors;
+  each gets its own GDT/TSS (shared IDT) and per-CPU data (via `%gs`); a
+  spinlock (`include/spinlock.h`) is the first concurrency primitive; work is
+  dispatched over a spin-polled per-CPU mailbox (`smp_run_on`/`smp_join`, no
+  LAPIC/IPI needed). `src/smp.c`, `src/smp_ap.S`.
+- **M9 — Parallel Lua library.** ✅ DONE. One `lua_State` per core, each with its
+  own heap so allocation is lock-free (`src/lua/lua_thread.c`); the `thread` and
+  `mem` libraries below. See the `thread`/`mem` section.
 
 ## The `k` library — kernel introspection from Lua
 
@@ -101,6 +103,32 @@ the kernel decoder is validated against a real, independently-encoded file
 (`{bus, dev, func, vendor, device, class, subclass, prog_if, header}`).
 `run("lspci.lua")` prints them lspci-style with class names — the prerequisite
 introspection for future device drivers.
+
+## The `thread` / `mem` libraries — parallel Lua
+
+The multithreading library (M9). Each core runs an independent `lua_State` with
+its **own heap**, so cores allocate without a lock; work crosses cores as an
+explicit function + arguments (never a shared `lua_State`), and cores share data
+through `mem.shared` buffers.
+
+- `thread.cores()`, `thread.cpu()` — core count and the current core;
+  `thread.rdtsc()`, `thread.ns()` — timing inside a worker.
+- `thread.spawn(core, fn, ...args)` / `thread.join(core)` — run `fn(core, ...)`
+  on an application processor and collect its result. `fn` is serialized to
+  **bytecode**, which carries no upvalues, so it must take its inputs as
+  arguments — a function that captures a local is rejected with a clear error.
+- `thread.parallel(fn, ...args)` — the SPMD helper: run `fn(cpu, ...)` on every
+  core, join, and return a per-core results table. A worker that errors makes it
+  re-raise (recovering to the prompt, not hanging).
+- `mem.shared(n)` → a zeroed buffer every core can read/write, with bounds-checked
+  accessors `buf:size()` and `buf:u8/u16/u32/u64/f64(off [,v])` (get if `v`
+  omitted, else set). Pass a buffer as a spawn arg and every core sees the same
+  memory. Args and results are limited to nil/boolean/number/string/shared-buffer.
+
+Worker states are compute-only (base/string/table/math/coroutine + `thread`/`mem`);
+hardware libraries (`fb`/`disk`/`fs`/`pci`/`k`) are the shell's, to avoid cores
+racing on shared devices. `run("parallel.lua")` sums a shared array across all
+cores and checks it against the serial sum, reporting the speedup.
 
 ## Running and benchmarking code
 

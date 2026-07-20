@@ -21,6 +21,8 @@ int luaopen_fb(lua_State* L);
 int luaopen_pci(lua_State* L);
 int luaopen_disk(lua_State* L);
 int luaopen_fs(lua_State* L);
+int luaopen_thread(lua_State* L); // parallel Lua (lua_thread.c)
+int luaopen_mem(lua_State* L);    // shared buffers (lua_thread.c)
 // The unified launch/benchmark surface (lua_run.c): sets the run/bench globals.
 void lua_run_open(lua_State* L);
 
@@ -65,8 +67,10 @@ void luashell_init(void)
             {"k", luaopen_k},       // kernel introspection
             {"fb", luaopen_fb},     // framebuffer drawing
             {"pci", luaopen_pci},   // PCI configuration space
-            {"disk", luaopen_disk}, // raw ATA block access
-            {"fs", luaopen_fs},     // read-only ext2 filesystem
+            {"disk", luaopen_disk},     // raw ATA block access
+            {"fs", luaopen_fs},         // read-only ext2 filesystem
+            {"thread", luaopen_thread}, // parallel Lua across cores
+            {"mem", luaopen_mem},       // shared-memory buffers
     };
     for (unsigned i = 0; i < sizeof(libs) / sizeof(libs[0]); i++) {
         luaL_requiref(L, libs[i].name, libs[i].func, 1);

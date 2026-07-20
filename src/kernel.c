@@ -21,6 +21,7 @@
 #include <ata.h>
 #include <ext2.h>
 #include <smp.h>
+#include <parallel.h>
 
 #include <printf/printf.h>
 
@@ -377,6 +378,13 @@ void kmain(void)
     console_dec(ncores);
     console_print(smp_ok ? " cores (parallel sum verified)\n"
                          : " cores (parallel sum MISMATCH)\n");
+
+    // --- Milestone 9: parallel Lua. A lua_State per core (each with its own
+    // --- heap, so allocation is lock-free), driven from Lua via the thread/mem
+    // libraries. The self-test runs a tiny Lua chunk on every core.
+    parallel_init(mem);
+    console_print(parallel_selftest() ? "juampiOS: parallel Lua OK\n"
+                                      : "juampiOS: parallel Lua FAILED\n");
 
     // --- Milestone 3: software context switch (kernel threads) --------------
     sched_init(mem);
