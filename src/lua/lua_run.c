@@ -33,14 +33,14 @@ static const void* artifact_load(const char* name, size_t* size, void** owned)
     void* d = ext2_read_path(name, size);
     if (d == NULL && name[0] != '/') {
         char path[256];
-        snprintf(path, sizeof path, "/%s", name);
+        snprintf(path, sizeof(path), "/%s", name);
         d = ext2_read_path(path, size);
         if (d == NULL) {
-            snprintf(path, sizeof path, "/scripts/%s", name);
+            snprintf(path, sizeof(path), "/scripts/%s", name);
             d = ext2_read_path(path, size);
         }
         if (d == NULL) {
-            snprintf(path, sizeof path, "/lab/%s", name);
+            snprintf(path, sizeof(path), "/lab/%s", name);
             d = ext2_read_path(path, size);
         }
     }

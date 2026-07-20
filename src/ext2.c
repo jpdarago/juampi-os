@@ -124,7 +124,7 @@ static bool read_group_desc(uint32_t group, struct group_desc* out)
     uint8_t* blk = new (mem(), uint8_t, block_size);
     bool ok = read_block(table + byte / block_size, blk);
     if (ok) {
-        memcpy(out, blk + byte % block_size, sizeof *out);
+        memcpy(out, blk + byte % block_size, sizeof(*out));
     }
     heap_free(heap_default(), blk);
     return ok;
@@ -145,7 +145,7 @@ static bool read_inode(uint32_t ino, struct inode* out)
     uint8_t* blk = new (mem(), uint8_t, block_size);
     bool ok = read_block(gd.inode_table + byte / block_size, blk);
     if (ok) {
-        memcpy(out, blk + byte % block_size, sizeof *out);
+        memcpy(out, blk + byte % block_size, sizeof(*out));
     }
     heap_free(heap_default(), blk);
     return ok;
@@ -341,7 +341,7 @@ bool ext2_mount(void)
     if (!ata_read(2, 2, buf)) {
         return false;
     }
-    memcpy(&sb, buf, sizeof sb);
+    memcpy(&sb, buf, sizeof(sb));
     if (sb.magic != EXT2_MAGIC) {
         return false;
     }
@@ -462,7 +462,7 @@ static bool write_group_desc(uint32_t group, const struct group_desc* gd)
     uint8_t* blk = new (mem(), uint8_t, block_size);
     bool ok = read_block(table + byte / block_size, blk);
     if (ok) {
-        memcpy(blk + byte % block_size, gd, sizeof *gd);
+        memcpy(blk + byte % block_size, gd, sizeof(*gd));
         ok = write_block(table + byte / block_size, blk);
     }
     heap_free(heap_default(), blk);
@@ -482,7 +482,7 @@ static bool write_inode(uint32_t ino, const struct inode* in)
     uint8_t* blk = new (mem(), uint8_t, block_size);
     bool ok = read_block(b, blk);
     if (ok) {
-        memcpy(blk + byte % block_size, in, sizeof *in);
+        memcpy(blk + byte % block_size, in, sizeof(*in));
         ok = write_block(b, blk);
     }
     heap_free(heap_default(), blk);
@@ -497,7 +497,7 @@ static bool write_superblock(void)
     if (!ata_read(2, 2, buf)) {
         return false;
     }
-    memcpy(buf, &sb, sizeof sb);
+    memcpy(buf, &sb, sizeof(sb));
     return ata_write(2, 2, buf);
 }
 
@@ -842,7 +842,7 @@ static bool resolve_parent(const char* path, uint32_t* parent_ino,
         pbuf[0] = '/';
         pbuf[1] = '\0';
     } else {
-        if (slash >= sizeof pbuf) {
+        if (slash >= sizeof(pbuf)) {
             return false;
         }
         memcpy(pbuf, path, slash);
@@ -881,7 +881,7 @@ bool ext2_write_file(const char* path, const void* data, size_t size)
         if (ino == 0) {
             return false;
         }
-        memset(&in, 0, sizeof in);
+        memset(&in, 0, sizeof(in));
         in.mode = S_IFREG | 0644;
         in.links_count = 1;
         if (!dir_add(parent_ino, &parent, base, baselen, ino, FT_REG)) {
@@ -965,7 +965,7 @@ bool ext2_mkdir(const char* path)
     heap_free(heap_default(), block);
 
     struct inode in;
-    memset(&in, 0, sizeof in);
+    memset(&in, 0, sizeof(in));
     in.mode = S_IFDIR | 0755;
     in.links_count = 2; // "." and the entry we add to the parent
     in.size = block_size;
@@ -1033,7 +1033,7 @@ bool ext2_remove(const char* path)
 
     if (is_dir) {
         free_all_blocks(&in);
-        memset(&in, 0, sizeof in); // a zeroed inode is an unused inode
+        memset(&in, 0, sizeof(in)); // a zeroed inode is an unused inode
         write_inode(ino, &in);
         free_inode(ino, true);
         if (parent.links_count > 0) {
@@ -1046,7 +1046,7 @@ bool ext2_remove(const char* path)
         }
         if (in.links_count == 0) {
             free_all_blocks(&in);
-            memset(&in, 0, sizeof in);
+            memset(&in, 0, sizeof(in));
             write_inode(ino, &in);
             free_inode(ino, false);
         } else {
