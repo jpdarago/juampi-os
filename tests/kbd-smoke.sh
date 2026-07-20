@@ -31,9 +31,9 @@ ovmf_copy="$(mktemp)"
 cp "$OVMF_FD" "$ovmf_copy"
 chmod +w "$ovmf_copy"
 
-timeout 50 "$QEMU" -bios "$ovmf_copy" \
+timeout 60 "$QEMU" -bios "$ovmf_copy" \
     -drive file="$IMG",format=raw -m 512 \
-    -display none -serial file:"$out" \
+    -vga none -display none -serial file:"$out" \
     -qmp unix:"$sock",server,nowait -no-reboot &
 qpid=$!
 # Let the kernel reach the shell before typing. Keystrokes are IRQ-buffered

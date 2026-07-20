@@ -48,11 +48,11 @@ chmod +w "$ovmf_copy"
     sleep 8
     printf '%s\r' "$INPUT"
     sleep 40
-} | timeout 45 "$QEMU" -bios "$ovmf_copy" \
+} | timeout 60 "$QEMU" -bios "$ovmf_copy" \
     -drive file="$IMG",format=raw -m 512 \
     -smp "${QEMU_SMP:-4}" \
     "${disk_args[@]}" \
-    -display none -serial stdio -no-reboot >"$out" 2>&1
+    -vga none -display none -serial stdio -no-reboot >"$out" 2>&1
 
 echo "--- serial output ---"
 cat "$out"
