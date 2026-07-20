@@ -10,6 +10,7 @@
 #include <ports.h>
 #include <memory.h>
 #include <smp.h>
+#include <acpi.h>
 
 #include <printf/printf.h>
 #include <stdint.h>
@@ -60,6 +61,58 @@ static int l_ncores(lua_State* L)
 static int l_cpu(lua_State* L)
 {
     lua_pushinteger(L, (lua_Integer)smp_this_cpu()->index);
+    return 1;
+}
+
+// --- power / entropy --------------------------------------------------------
+
+// k.shutdown() powers the machine off (ACPI S5); k.reboot() resets it. Neither
+// returns.
+static int l_shutdown(lua_State* L)
+{
+    (void)L;
+    acpi_shutdown();
+    return 0;
+}
+static int l_reboot(lua_State* L)
+{
+    (void)L;
+    acpi_reboot();
+    return 0;
+}
+
+static bool has_rdrand(void)
+{
+    uint32_t a, b, c, d;
+    __asm__ __volatile__("cpuid"
+                         : "=a"(a), "=b"(b), "=c"(c), "=d"(d)
+                         : "a"(1u), "c"(0u));
+    return (c >> 30) & 1u; // CPUID.1:ECX.RDRAND
+}
+
+// k.random() -> a random 64-bit integer, from the CPU's hardware RNG (RDRAND)
+// when available, otherwise a TSC-seeded xorshift PRNG.
+static int l_random(lua_State* L)
+{
+    uint64_t v = 0;
+    if (has_rdrand()) {
+        for (int i = 0; i < 16; i++) {
+            unsigned char ok;
+            __asm__ __volatile__("rdrand %0; setc %1" : "=r"(v), "=qm"(ok));
+            if (ok) {
+                lua_pushinteger(L, (lua_Integer)v);
+                return 1;
+            }
+        }
+    }
+    static uint64_t s;
+    if (s == 0) {
+        s = rdtsc() | 1;
+    }
+    s ^= s << 13;
+    s ^= s >> 7;
+    s ^= s << 17;
+    lua_pushinteger(L, (lua_Integer)s);
     return 1;
 }
 
@@ -239,7 +292,8 @@ static const luaL_Reg klib[] = {
         {"us", l_us},             {"ms", l_ms},
         {"uptime", l_uptime},     {"tsc_hz", l_tsc_hz},
         {"ncores", l_ncores},     {"cpu", l_cpu},
-        {"freeframes", l_freeframes},
+        {"shutdown", l_shutdown}, {"reboot", l_reboot},
+        {"random", l_random},     {"freeframes", l_freeframes},
         {"freemem", l_freemem},   {"totalmem", l_totalmem},
         {"cpuid", l_cpuid},       {"cpubrand", l_cpubrand},
         {"rdmsr", l_rdmsr},       {"wrmsr", l_wrmsr},

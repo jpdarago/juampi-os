@@ -63,6 +63,10 @@ through a `k` library:
   `k.cpuid(leaf [,sub])`, `k.cpubrand()`, `k.rdmsr/wrmsr(msr [,val])`.
 - **Raw access:** `k.peek8/16/32/64(addr)`, `k.poke8/16/32/64(addr,val)`,
   `k.inb/outb(port [,val])`, `k.hexdump(addr [,len])`.
+- **Power / entropy:** `k.shutdown()` (ACPI S5 power-off) and `k.reboot()` parse
+  the firmware's ACPI tables (via Limine's RSDP), so they work on real hardware,
+  not just QEMU; `k.random()` returns a hardware random integer from `RDRAND`
+  (TSC-seeded PRNG fallback if the CPU lacks it).
 - **Symbolication:** `k.sym(addr)` → name, offset; `k.backtrace()`.
 
 Poking a bad address or MSR faults into the (symbolized) exception handler, but

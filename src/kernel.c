@@ -22,6 +22,7 @@
 #include <ext2.h>
 #include <smp.h>
 #include <parallel.h>
+#include <acpi.h>
 
 #include <printf/printf.h>
 
@@ -50,6 +51,11 @@ __attribute__((used, section(".limine_requests"))) static volatile struct
 __attribute__((used, section(".limine_requests"))) static volatile struct
         limine_kernel_file_request kfile_request = {
                 .id = LIMINE_KERNEL_FILE_REQUEST, .revision = 0};
+
+__attribute__((
+        used,
+        section(".limine_requests"))) static volatile struct limine_rsdp_request
+        rsdp_request = {.id = LIMINE_RSDP_REQUEST, .revision = 0};
 
 // Section markers that delimit the request list for the bootloader's scan.
 __attribute__((used,
@@ -326,6 +332,11 @@ void kmain(void)
     console_dec(ktime_ns());
     console_print(hz > 100000000ull ? "\njuampiOS: timekeeping OK\n"
                                     : "\njuampiOS: timekeeping FAILED\n");
+
+    // --- ACPI: parse the firmware power tables (for k.shutdown/k.reboot). ----
+    acpi_init(rsdp_request.response != NULL
+                      ? (uint64_t)(uintptr_t)rsdp_request.response->address
+                      : 0);
 
     // --- Block device + filesystem: ATA data disk and a read-only ext2. -----
     // ata_init() polls with a timeout, so it must run after ktime_init(). The
