@@ -81,13 +81,20 @@ static int l_reboot(lua_State* L)
     return 0;
 }
 
+// Whether the CPU has RDRAND, probed once and cached: CPUID is a serializing
+// instruction (and a VM exit under virtualization), and the answer is fixed for
+// the life of the machine.
 static bool has_rdrand(void)
 {
-    uint32_t a, b, c, d;
-    __asm__ __volatile__("cpuid"
-                         : "=a"(a), "=b"(b), "=c"(c), "=d"(d)
-                         : "a"(1u), "c"(0u));
-    return (c >> 30) & 1u; // CPUID.1:ECX.RDRAND
+    static int cached = -1;
+    if (cached < 0) {
+        uint32_t a, b, c, d;
+        __asm__ __volatile__("cpuid"
+                             : "=a"(a), "=b"(b), "=c"(c), "=d"(d)
+                             : "a"(1u), "c"(0u));
+        cached = (c >> 30) & 1u; // CPUID.1:ECX.RDRAND
+    }
+    return cached;
 }
 
 // k.random() -> a random 64-bit integer, from the CPU's hardware RNG (RDRAND)
