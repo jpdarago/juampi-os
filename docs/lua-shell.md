@@ -1,3 +1,11 @@
+---
+title: Lua shell
+tags: [design, lua, smp, parallel, complete]
+status: complete
+milestone: M8–M9
+related: ["[[x86-64-port]]", "[[networking]]", "[[Index]]"]
+---
+
 # Booting to a parallel Lua shell
 
 Goal: boot into an interactive Lua shell over the serial console, with a custom

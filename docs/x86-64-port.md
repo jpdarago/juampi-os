@@ -1,3 +1,10 @@
+---
+title: x86-64 port
+tags: [design, kernel, boot, paging, complete]
+status: complete
+related: ["[[lua-shell]]", "[[networking]]", "[[Index]]"]
+---
+
 # Porting juampi-os to x86-64
 
 This document scopes the migration of the kernel from 32-bit protected mode to
