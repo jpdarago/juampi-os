@@ -13,6 +13,7 @@
 #define PAGEF_P 1  // present
 #define PAGEF_RW 2 // writable
 #define PAGEF_U 4  // user-accessible
+#define PAGEF_UC 8 // uncacheable (PCD|PWT) — for device MMIO (e.g. a NIC BAR)
 
 // x86-64 uses 4-level paging: PML4 -> PDPT -> PD -> PT, each a 512-entry table
 // of 8-byte entries. One entry type covers every level.

@@ -23,6 +23,7 @@ int luaopen_disk(lua_State* L);
 int luaopen_fs(lua_State* L);
 int luaopen_thread(lua_State* L); // parallel Lua (lua_thread.c)
 int luaopen_mem(lua_State* L);    // shared buffers (lua_thread.c)
+int luaopen_net(lua_State* L);    // IPv4/ping stack (lua_net.c)
 // The unified launch/benchmark surface (lua_run.c): sets the run/bench globals.
 void lua_run_open(lua_State* L);
 
@@ -80,6 +81,7 @@ void luashell_init(void)
             {"fs", luaopen_fs},         // read-only ext2 filesystem
             {"thread", luaopen_thread}, // parallel Lua across cores
             {"mem", luaopen_mem},       // shared-memory buffers
+            {"net", luaopen_net},       // IPv4 stack + ping
     };
     for (unsigned i = 0; i < sizeof(libs) / sizeof(libs[0]); i++) {
         luaL_requiref(L, libs[i].name, libs[i].func, 1);

@@ -3,6 +3,7 @@
 #include <keyboard.h>
 #include <spinlock.h>
 #include <memory.h>
+#include <net.h>
 
 #include <printf/printf.h>
 
@@ -147,6 +148,7 @@ int console_getch(void)
         if (c >= 0) {
             return c;
         }
+        net_poll(); // keep the network stack live while waiting for a key
         __asm__ __volatile__("hlt");
     }
 }

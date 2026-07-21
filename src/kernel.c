@@ -23,6 +23,7 @@
 #include <smp.h>
 #include <parallel.h>
 #include <acpi.h>
+#include <net.h>
 
 #include <printf/printf.h>
 
@@ -353,6 +354,10 @@ void kmain(void)
     }
     console_print(", ext2 ");
     console_print(fs_ok ? "mounted\n" : "not mounted\n");
+
+    // --- Networking: bring up the e1000 NIC and a minimal IPv4 stack
+    // --- (Ethernet/ARP/IPv4/ICMP), exposed to Lua as `net` (net.ping).
+    net_init();
 
     // --- Milestone 8: SMP. Bring up the application processors, then prove ---
     // real parallel execution: partition a big integer sum across all cores

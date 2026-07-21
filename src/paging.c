@@ -15,6 +15,8 @@
 #define PTE_RW (1ull << 1)
 #define PTE_US (1ull << 2)
 #define PTE_PS (1ull << 7)
+#define PTE_PWT (1ull << 3)
+#define PTE_PCD (1ull << 4)
 #define PTE_ADDR 0x000ffffffffff000ull
 
 // Kernel heap window: a private higher-half range (PML4 slot 384, clear of
@@ -54,6 +56,8 @@ void map_page(page_directory* pd, uintptr_t va, uintptr_t pa, uint32_t flags)
         e |= PTE_RW;
     if (flags & PAGEF_U)
         e |= PTE_US;
+    if (flags & PAGEF_UC)
+        e |= PTE_PCD | PTE_PWT; // strongly-ordered uncached, for device MMIO
     pt->entries[PT_INDEX(va)] = e;
     __asm__ __volatile__("invlpg (%0)" ::"r"(va) : "memory");
 }

@@ -239,6 +239,7 @@ run: boot.img $(DISK_IMG)
 	$(QEMU) -bios .ovmf.fd -drive file=boot.img,format=raw -m 512 \
 		-smp $(QEMU_SMP) -accel kvm -accel tcg \
 		$(DISK_QEMU) \
+		-nic user,model=e1000 \
 		-display $(QEMU_DISPLAY) -serial stdio -no-reboot
 
 # Boot the Limine image headless and drive the shell over both input paths:
@@ -250,6 +251,7 @@ test: boot.img $(DISK_IMG)
 		INPUT='run("hello.lua")' MARKER=HELLO_FROM_EXT2 tests/boot-smoke.sh
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" \
 		INPUT='run("hello.elf")' MARKER=LAB_OK tests/boot-smoke.sh
+	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/net-smoke.sh
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" \
 		INPUT='run("parallel.lua")' MARKER=PARALLEL_OK tests/boot-smoke.sh
 
