@@ -7,6 +7,7 @@
 #include <qoi.h>
 #include <kmodule.h>
 #include <memory.h>
+#include <highlight.h>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -84,13 +85,19 @@ static void hist_add(const char* line)
 }
 
 // Redraw the current line in place: return to column 0, reprint the prompt and
-// buffer, and erase anything left over from a longer previous line.
-static void redraw(const char* prompt, const char* buf)
+// the syntax-highlighted buffer, and erase anything left over from a longer
+// previous line. The cursor stays at the end (the editor only appends/erases
+// there), so no explicit cursor repositioning is needed. Highlighting expands
+// the line with SGR escapes; a generous scratch buffer holds the worst case,
+// and highlight_lua() falls back to the raw text if it ever overflows.
+static void redraw(const char* prompt, const char* buf, size_t n)
 {
+    static char colored[LINE_MAX * 12];
+    highlight_lua(buf, n, colored, sizeof colored);
     console_print("\r");
     console_print(prompt);
-    console_print(buf);
-    console_print("\033[K");
+    console_print(colored);
+    console_print("\033[0m\033[K");
 }
 
 // Replace the edit buffer with `src` and redraw (used on history recall).
@@ -102,7 +109,7 @@ static void set_line(const char* prompt, char* buf, size_t* n, const char* src)
     }
     buf[i] = '\0';
     *n = i;
-    redraw(prompt, buf);
+    redraw(prompt, buf, i);
 }
 
 // Read a line with echo, backspace, and up/down history. Cursor stays at the
@@ -125,7 +132,7 @@ static void shell_read_line(const char* prompt, char* buf, size_t max)
         if (c == 0x7F || c == 0x08) { // backspace
             if (n > 0) {
                 buf[--n] = '\0';
-                console_print("\b \b");
+                redraw(prompt, buf, n); // re-highlight the shortened line
             }
             continue;
         }
@@ -157,7 +164,10 @@ static void shell_read_line(const char* prompt, char* buf, size_t max)
         if (c >= 0x20 && c < 0x7F && n < max - 1) {
             buf[n++] = (char)c;
             buf[n] = '\0';
-            console_putc((char)c);
+            // Re-highlight the whole line: a keystroke can change the color of
+            // earlier characters (e.g. finishing a keyword or closing a
+            // string).
+            redraw(prompt, buf, n);
         }
     }
 }

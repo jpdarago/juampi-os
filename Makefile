@@ -76,11 +76,20 @@ LUA_OBJS     := $(patsubst $(SRC_DIR)/lua/%.c,$(OBJ_DIR)/lua/%.o,$(LUA_CSOURCES)
 LUA_ASM_OBJ  := $(OBJ_DIR)/lua/klibc_setjmp.o
 LUA_INC      := -I$(SRC_DIR)/lua/klibc -Iinclude/lua
 
+# Shell syntax highlighter (src/highlight/): a Ragel-generated Lua scanner over a
+# gperf perfect-hash keyword table. Both .c files are generated then committed,
+# so a normal build compiles them like any other source (no ragel/gperf needed);
+# `make highlight-gen` regenerates them from the .rl/.gperf. Compiled verbatim
+# (-w) with the klibc <string.h> on the include path — the gperf lookup calls
+# memcmp — since generated code does not pass the kernel warning gauntlet.
+HL_DIR   := $(SRC_DIR)/highlight
+HL_OBJS  := $(OBJ_DIR)/highlight/highlight.o $(OBJ_DIR)/highlight/lua_keywords.o
+
 COBJS      := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CSOURCES))
 ASMOBJS    := $(patsubst $(SRC_DIR)/%.S,$(OBJ_DIR)/%.o,$(ASMSOURCES))
 VENDOR_OBJS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(VENDOR_CSOURCES))
-OBJS       := $(COBJS) $(ASMOBJS) $(VENDOR_OBJS) $(LUA_OBJS) $(LUA_ASM_OBJ)
-DEPS       := $(COBJS:.o=.d) $(VENDOR_OBJS:.o=.d) $(LUA_OBJS:.o=.d)
+OBJS       := $(COBJS) $(ASMOBJS) $(VENDOR_OBJS) $(LUA_OBJS) $(LUA_ASM_OBJ) $(HL_OBJS)
+DEPS       := $(COBJS:.o=.d) $(VENDOR_OBJS:.o=.d) $(LUA_OBJS:.o=.d) $(HL_OBJS:.o=.d)
 
 KERNEL := kernel.bin
 
@@ -127,6 +136,12 @@ $(OBJ_DIR)/printf/%.o: $(SRC_DIR)/printf/%.c | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w $(CPPFLAGS) -c -o $@ $<
 
+# Generated highlighter (ragel/gperf output): kernel flags, warnings off, with
+# the klibc <string.h> ahead of the gcc one (the gperf lookup calls memcmp).
+$(OBJ_DIR)/highlight/%.o: $(HL_DIR)/%.c | $(OBJ_DIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -w -I$(SRC_DIR)/lua/klibc $(CPPFLAGS) -c -o $@ $<
+
 # Embedded Lua: Lua include path (klibc stubs win for <string.h> etc.), no warns.
 $(OBJ_DIR)/lua/%.o: $(SRC_DIR)/lua/%.c | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
@@ -138,6 +153,23 @@ $(OBJ_DIR)/lua/%.o: $(SRC_DIR)/lua/%.S | $(OBJ_DIR)
 
 $(KERNEL): $(OBJS)
 	$(LD) $(LDFLAGS) -o $@ $^
+
+# Regenerate the committed highlighter sources from the Ragel grammar and gperf
+# keyword list. Not part of the normal build (the .c files are committed, like
+# build/scripts/logo.qoi): run it after editing highlight.rl / lua_keywords.gperf.
+# The tools live in the devenv; guarded so a checkout without them still builds.
+RAGEL ?= ragel
+GPERF ?= gperf
+.PHONY: highlight-gen
+highlight-gen:
+	@if command -v $(RAGEL) >/dev/null 2>&1; then \
+		echo "RAGEL  $(HL_DIR)/highlight.c"; \
+		$(RAGEL) -C -o $(HL_DIR)/highlight.c $(HL_DIR)/highlight.rl; \
+	else echo "ragel not found; keeping committed $(HL_DIR)/highlight.c"; fi
+	@if command -v $(GPERF) >/dev/null 2>&1; then \
+		echo "GPERF  $(HL_DIR)/lua_keywords.c"; \
+		$(GPERF) --output-file=$(HL_DIR)/lua_keywords.c $(HL_DIR)/lua_keywords.gperf; \
+	else echo "gperf not found; keeping committed $(HL_DIR)/lua_keywords.c"; fi
 
 # --- Userland + boot image --------------------------------------------------
 
@@ -252,6 +284,7 @@ test: boot.img $(DISK_IMG)
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" \
 		INPUT='run("hello.elf")' MARKER=LAB_OK tests/boot-smoke.sh
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/net-smoke.sh
+	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/udp-smoke.sh
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" \
 		INPUT='run("parallel.lua")' MARKER=PARALLEL_OK tests/boot-smoke.sh
 

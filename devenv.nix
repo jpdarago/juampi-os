@@ -16,6 +16,8 @@
     pkgs.mtools # mformat/mcopy/mmd build the FAT boot image without sudo
     pkgs.socat # QMP scripting for the keyboard test (tests/kbd-smoke.sh)
     pkgs.e2fsprogs # mke2fs builds the ext2 data disk (disk.img)
+    pkgs.ragel # lexer codegen for the shell syntax highlighter (src/highlight.rl)
+    pkgs.gperf # perfect-hash keyword table for the highlighter (lua_keywords.gperf)
   ];
 
   enterShell = ''
