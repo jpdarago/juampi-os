@@ -1,5 +1,13 @@
-juampi-os
-=========
+<p align="center">
+  <img src="assets/logo.png" alt="JP-OS logo" width="180">
+</p>
+
+<h1 align="center">juampi-os</h1>
+
+<p align="center">
+  <img src="assets/demo.gif" alt="juampi-os running the Boing Ball demo on the framebuffer" width="640"><br>
+  <em>The ring-0 Lua shell running <code>boing.lua</code> — the Amiga Boing Ball, drawn straight to the framebuffer.</em>
+</p>
 
 My kernel — originally the final project for *Organización del Computador II*
 (UBA - FCEyN), since ported to x86-64.
