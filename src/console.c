@@ -157,6 +157,16 @@ void console_hex(uint64_t v)
 void console_clear(void)
 {
     console_print("\033[2J\033[H");
+    // The ANSI clear only repaints the cells flanterm's own cache believes
+    // changed, so pixels drawn straight to the framebuffer — the raytracer via
+    // fb.canvas(), fb.rect/image, the blitted logo — bypass that cache and
+    // would survive the clear as stale color. Force flanterm to repaint every
+    // pixel from its background + character grid so the screen is truly wiped.
+    if (ft) {
+        spin_lock(&console_lock);
+        flanterm_full_refresh(ft);
+        spin_unlock(&console_lock);
+    }
 }
 
 // Blocking read of one byte from whichever input source has one first: the PS/2
