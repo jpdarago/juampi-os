@@ -26,6 +26,8 @@ int luaopen_mem(lua_State* L);    // shared buffers (lua_thread.c)
 int luaopen_net(lua_State* L);    // IPv4/ping stack (lua_net.c)
 // The unified launch/benchmark surface (lua_run.c): sets the run/bench globals.
 void lua_run_open(lua_State* L);
+// The edit() global: the full-screen editor (lua_edit.c -> src/editor.c).
+void lua_edit_open(lua_State* L);
 
 static lua_State* L;
 
@@ -87,7 +89,8 @@ void luashell_init(void)
         luaL_requiref(L, libs[i].name, libs[i].func, 1);
         lua_pop(L, 1);
     }
-    lua_run_open(L); // the run() and bench() globals
+    lua_run_open(L);  // the run() and bench() globals
+    lua_edit_open(L); // the edit() global (full-screen editor)
     lua_pushcfunction(L, l_clear);
     lua_setglobal(L, "clear");
 

@@ -101,6 +101,31 @@ void console_print(const char* s)
     spin_unlock(&console_lock);
 }
 
+// Write exactly `n` bytes to both sinks. Unlike console_print this takes a
+// length rather than a NUL terminator, so it can emit a whole pre-composed
+// frame (e.g. the full-screen editor) that may contain arbitrary bytes in one
+// call.
+void console_write(const char* s, size_t n)
+{
+    spin_lock(&console_lock);
+    for (size_t i = 0; i < n; i++) {
+        emit(s[i]);
+    }
+    spin_unlock(&console_lock);
+}
+
+// Character-cell dimensions of the framebuffer terminal. Falls back to a
+// conventional 80x25 when there is no framebuffer (serial-only early boot).
+void console_dimensions(size_t* cols, size_t* rows)
+{
+    if (ft) {
+        flanterm_get_dimensions(ft, cols, rows);
+    } else {
+        *cols = 80;
+        *rows = 25;
+    }
+}
+
 void console_dec(uint64_t v)
 {
     char buf[21];

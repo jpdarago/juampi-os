@@ -17,6 +17,10 @@ void console_init(struct limine_framebuffer* fb);
 void console_reinit(void* fb, uint64_t w, uint64_t h, uint64_t pitch);
 void console_putc(char c);
 void console_print(const char* s);
+// Write exactly `n` bytes (may contain any byte); used for full-screen frames.
+void console_write(const char* s, size_t n);
+// Character-cell dimensions of the framebuffer terminal (80x25 without an fb).
+void console_dimensions(size_t* cols, size_t* rows);
 void console_dec(uint64_t v);
 void console_hex(uint64_t v);
 // Clear the screen and home the cursor.

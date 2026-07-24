@@ -385,6 +385,8 @@ void shell_run(void)
             "  k.cpubrand()  k.freemem()  k.uptime()  k.ncores()  "
             "k.hexdump(addr)\n"
             "  run(name[,arg]) runs a .lua script or a native .elf binary.\n"
+            "  edit(name) opens the full-screen editor (^S save, ^X run, ^Q "
+            "quit).\n"
             "  bench(fn|name[,arg[,iters]]) -> total,per_call (Lua or "
             "native).\n"
             "  help() lists what's available, dump(t) inspects a table, "
