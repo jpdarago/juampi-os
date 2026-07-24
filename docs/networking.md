@@ -28,11 +28,16 @@ created: 2026-07-20
 > skipped** (static config; the host resolver isn't needed) — see §10.
 >
 > **What shipped vs. the original plan:** flat `src/` files (matching the repo's
-> convention) rather than a `src/net/` tree — `src/e1000.c`, `src/net.c` (Ethernet
-> + ARP + IPv4 + ICMP + UDP + TCP consolidated), `src/lua/lua_net.c`; plus
-> `PAGEF_UC` in paging, `pci_find`/`pci_bar`/`pci_enable_bus_master` helpers, a
-> `net_poll()` pump in `console_getch`, `-nic user,model=e1000` in `run`/`test`,
-> and **`-fno-strict-aliasing` in `CFLAGS`** (see §9 — the pseudo-header checksum
+> convention) rather than a `src/net/` tree. The stack is split by layer:
+> `src/e1000.c` (driver), `src/net.c` (core: Ethernet + ARP + IPv4 + ICMP + the
+> poll pump), `src/udp.c`, `src/tcp.c`, and `src/lua/lua_net.c`. The transport
+> modules plug into the core through `include/net_internal.h` (shared `ip_send`,
+> checksum, byte-order, ephemeral-port helpers) and are dispatched from
+> `ip_input`/`net_poll`; `<net.h>` includes `<udp.h>`/`<tcp.h>` so consumers get
+> the whole `net` surface from one include. Plus `PAGEF_UC` in paging,
+> `pci_find`/`pci_bar`/`pci_enable_bus_master` helpers, a `net_poll()` pump in
+> `console_getch`, `-nic user,model=e1000` in `run`/`test`, and
+> **`-fno-strict-aliasing` in `CFLAGS`** (see §9 — the pseudo-header checksum
 > miscompiled without it). No `pbuf` pool yet (static buffers + a per-TX-slot
 > bounce buffer).
 

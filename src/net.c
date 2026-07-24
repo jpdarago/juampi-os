@@ -8,29 +8,10 @@
 #include <e1000.h>
 #include <ktime.h>
 #include <utils.h>
+#include <net_internal.h>
 
 #define ETH_ARP 0x0806
 #define ETH_IP 0x0800
-#define IP_PROTO_ICMP 1
-#define IP_PROTO_TCP 6
-#define IP_PROTO_UDP 17
-
-static inline uint16_t htons(uint16_t x)
-{
-    return (uint16_t)__builtin_bswap16(x);
-}
-static inline uint16_t ntohs(uint16_t x)
-{
-    return (uint16_t)__builtin_bswap16(x);
-}
-static inline uint32_t htonl(uint32_t x)
-{
-    return __builtin_bswap32(x);
-}
-static inline uint32_t ntohl(uint32_t x)
-{
-    return __builtin_bswap32(x);
-}
 
 typedef struct __attribute__((packed)) {
     uint8_t dst[6];
@@ -71,31 +52,6 @@ typedef struct __attribute__((packed)) {
     uint16_t seq;
 } icmp_hdr;
 
-typedef struct __attribute__((packed)) {
-    uint16_t sport;
-    uint16_t dport;
-    uint16_t len; // header + payload
-    uint16_t csum;
-} udp_hdr;
-
-typedef struct __attribute__((packed)) {
-    uint16_t sport;
-    uint16_t dport;
-    uint32_t seq;
-    uint32_t ack;
-    uint8_t off;   // data offset: (header words) << 4
-    uint8_t flags; // TCP_FIN..TCP_ACK
-    uint16_t window;
-    uint16_t csum;
-    uint16_t urg;
-} tcp_hdr;
-
-#define TCP_FIN 0x01
-#define TCP_SYN 0x02
-#define TCP_RST 0x04
-#define TCP_PSH 0x08
-#define TCP_ACK 0x10
-
 #define ICMP_ECHO_REQUEST 8
 #define ICMP_ECHO_REPLY 0
 
@@ -104,6 +60,18 @@ static uint32_t my_ip, my_mask, my_gw;
 static uint8_t my_mac[6];
 static uint16_t ip_id_ctr = 1;
 static const uint8_t bcast_mac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+static uint16_t ephemeral_next = 49152; // shared UDP/TCP ephemeral port
+
+// Allocate the next ephemeral local port (49152..65535, wrapping) — one counter
+// shared by UDP and TCP.
+uint16_t net_next_ephemeral(void)
+{
+    uint16_t p = ephemeral_next++;
+    if (ephemeral_next == 0) {
+        ephemeral_next = 49152;
+    }
+    return p;
+}
 
 // --- small helpers ----------------------------------------------------------
 
@@ -134,7 +102,7 @@ static uint32_t bytes_to_ip(const uint8_t in[4])
 // RFC 1071 Internet checksum, split so callers that span several buffers (e.g.
 // UDP's pseudo-header + segment) can accumulate before folding. Endian-neutral:
 // computed and stored in the same byte order.
-static uint32_t csum_add(uint32_t sum, const void* data, uint32_t len)
+uint32_t csum_add(uint32_t sum, const void* data, uint32_t len)
 {
     const uint16_t* p = data;
     while (len > 1) {
@@ -147,7 +115,7 @@ static uint32_t csum_add(uint32_t sum, const void* data, uint32_t len)
     return sum;
 }
 
-static uint16_t csum_fold(uint32_t sum)
+uint16_t csum_fold(uint32_t sum)
 {
     while (sum >> 16) {
         sum = (sum & 0xFFFF) + (sum >> 16);
@@ -276,7 +244,7 @@ static bool arp_resolve(uint32_t ip, uint8_t out[6], uint32_t timeout_ms)
 
 // --- IPv4 output ------------------------------------------------------------
 
-static bool ip_send(uint32_t dst, uint8_t proto, const void* l4, uint16_t l4len)
+bool ip_send(uint32_t dst, uint8_t proto, const void* l4, uint16_t l4len)
 {
     uint32_t nexthop = ((dst & my_mask) == (my_ip & my_mask)) ? dst : my_gw;
     uint8_t dmac[6];
@@ -334,346 +302,6 @@ static void icmp_input(uint32_t src, const uint8_t* data, uint16_t len)
             ping_rtt_us = ktime_us() - ping_send_us;
             ping_got = true;
         }
-    }
-}
-
-// --- UDP + sockets ----------------------------------------------------------
-
-#define UDP_SOCKETS 8
-#define UDP_QUEUE 4
-#define UDP_MSG_MAX 1472 // max UDP payload for a non-fragmented IPv4/1500 frame
-
-typedef struct {
-    uint32_t src_ip;
-    uint16_t src_port;
-    uint16_t len;
-    uint8_t data[UDP_MSG_MAX];
-} udp_dgram;
-
-typedef struct {
-    bool in_use;
-    uint16_t local_port; // 0 = unbound
-    udp_dgram q[UDP_QUEUE];
-    uint8_t head, count; // ring of received datagrams
-} udp_socket;
-
-static udp_socket udp_socks[UDP_SOCKETS];
-static uint16_t ephemeral_next = 49152;
-
-// UDP checksum over the IPv4 pseudo-header + segment. A computed 0 is sent as
-// 0xFFFF, since 0 on the wire means "no checksum".
-static uint16_t udp_checksum(uint32_t src, uint32_t dst, const void* seg,
-                             uint16_t seglen)
-{
-    struct __attribute__((packed)) {
-        uint32_t src, dst;
-        uint8_t zero, proto;
-        uint16_t len;
-    } ph;
-    memset(&ph, 0, sizeof(ph));
-    ph.src = htonl(src);
-    ph.dst = htonl(dst);
-    ph.proto = IP_PROTO_UDP;
-    ph.len = htons(seglen);
-    uint32_t sum = csum_add(0, &ph, sizeof(ph));
-    sum = csum_add(sum, seg, seglen);
-    uint16_t c = csum_fold(sum);
-    return c ? c : 0xFFFF;
-}
-
-static bool udp_output(uint16_t sport, uint32_t dst_ip, uint16_t dport,
-                       const void* data, uint16_t len)
-{
-    static uint8_t seg[sizeof(udp_hdr) + UDP_MSG_MAX];
-    if (len > UDP_MSG_MAX) {
-        len = UDP_MSG_MAX;
-    }
-    uint16_t seglen = (uint16_t)(sizeof(udp_hdr) + len);
-    udp_hdr* u = (udp_hdr*)seg;
-    u->sport = htons(sport);
-    u->dport = htons(dport);
-    u->len = htons(seglen);
-    u->csum = 0;
-    memcpy(seg + sizeof(udp_hdr), data, len);
-    u->csum = udp_checksum(my_ip, dst_ip, seg, seglen);
-    return ip_send(dst_ip, IP_PROTO_UDP, seg, seglen);
-}
-
-static void udp_input(uint32_t src, const uint8_t* data, uint16_t len)
-{
-    if (len < sizeof(udp_hdr)) {
-        return;
-    }
-    const udp_hdr* u = (const udp_hdr*)data;
-    uint16_t ulen = ntohs(u->len);
-    if (ulen < sizeof(udp_hdr) || ulen > len) {
-        return;
-    }
-    uint16_t dport = ntohs(u->dport);
-    uint16_t plen = (uint16_t)(ulen - sizeof(udp_hdr));
-    const uint8_t* payload = data + sizeof(udp_hdr);
-
-    for (int i = 0; i < UDP_SOCKETS; i++) {
-        udp_socket* s = &udp_socks[i];
-        if (!s->in_use || s->local_port != dport) {
-            continue;
-        }
-        if (s->count >= UDP_QUEUE) {
-            return; // queue full — drop (UDP is lossy by design)
-        }
-        udp_dgram* d = &s->q[(s->head + s->count) % UDP_QUEUE];
-        d->src_ip = src;
-        d->src_port = ntohs(u->sport);
-        d->len = plen > UDP_MSG_MAX ? UDP_MSG_MAX : plen;
-        memcpy(d->data, payload, d->len);
-        s->count++;
-        return;
-    }
-    // No socket bound to this port: silently drop.
-}
-
-// --- TCP (active-open client) -----------------------------------------------
-
-#define TCP_CONNS 2
-#define TCP_MSS 536
-#define TCP_RXBUF 8192
-#define TCP_RTO_MS 400
-#define TCP_MAX_RETX 6
-
-enum tcp_state {
-    TCP_CLOSED,
-    TCP_LISTEN,   // passive open, awaiting a SYN
-    TCP_SYN_SENT, // active open, sent SYN
-    TCP_SYN_RCVD, // got a SYN, sent SYN-ACK, awaiting its ACK
-    TCP_ESTABLISHED,
-    TCP_FIN_WAIT, // we sent FIN, awaiting its ACK and the peer's FIN
-    TCP_DONE      // connection finished or reset; recv drains, then closed
-};
-
-typedef struct {
-    bool in_use;
-    enum tcp_state state;
-    uint32_t peer_ip;
-    uint16_t local_port, peer_port;
-    uint32_t snd_una, snd_nxt; // oldest unacked / next seq to send
-    uint32_t rcv_nxt;          // next in-order seq we expect
-    bool peer_fin;             // peer has sent FIN
-
-    uint8_t rx[TCP_RXBUF]; // in-order received data ring
-    uint32_t rx_head, rx_len;
-
-    // Single outstanding (retransmittable) segment — stop-and-wait.
-    uint8_t retx[sizeof(tcp_hdr) + TCP_MSS];
-    uint16_t retx_len;   // total segment length, 0 if nothing outstanding
-    uint32_t retx_seq;   // seq the segment ends at (what an ACK must reach)
-    uint64_t retx_at_ms; // last (re)send time
-    int retx_tries;
-} tcp_conn;
-
-static tcp_conn tcp_conns[TCP_CONNS];
-
-static bool seq_lt(uint32_t a, uint32_t b)
-{
-    return (int32_t)(a - b) < 0;
-}
-
-static uint16_t tcp_checksum(uint32_t src, uint32_t dst, const void* seg,
-                             uint16_t seglen)
-{
-    struct __attribute__((packed)) {
-        uint32_t src, dst;
-        uint8_t zero, proto;
-        uint16_t len;
-    } ph;
-    memset(&ph, 0, sizeof(ph));
-    ph.src = htonl(src);
-    ph.dst = htonl(dst);
-    ph.proto = IP_PROTO_TCP;
-    ph.len = htons(seglen);
-    uint32_t sum = csum_add(0, &ph, sizeof(ph));
-    sum = csum_add(sum, seg, seglen);
-    return csum_fold(sum);
-}
-
-// Build and send one segment. If it carries a SYN/FIN or data it is recorded as
-// the outstanding segment for retransmission (seq-consuming flags advance nxt).
-static bool tcp_emit(tcp_conn* c, uint8_t flags, const void* data, uint16_t len)
-{
-    if (len > TCP_MSS) {
-        len = TCP_MSS;
-    }
-    uint16_t seglen = (uint16_t)(sizeof(tcp_hdr) + len);
-    uint8_t seg[sizeof(tcp_hdr) + TCP_MSS];
-    tcp_hdr* t = (tcp_hdr*)seg;
-    memset(t, 0, sizeof(tcp_hdr));
-    t->sport = htons(c->local_port);
-    t->dport = htons(c->peer_port);
-    t->seq = htonl(c->snd_nxt);
-    t->ack = htonl(c->rcv_nxt);
-    t->off = (uint8_t)((sizeof(tcp_hdr) / 4) << 4);
-    t->flags = flags;
-    t->window = htons((uint16_t)(TCP_RXBUF - c->rx_len));
-    if (len) {
-        memcpy(seg + sizeof(tcp_hdr), data, len);
-    }
-    t->csum = tcp_checksum(my_ip, c->peer_ip, seg, seglen);
-
-    uint32_t consumed = len;
-    if (flags & (TCP_SYN | TCP_FIN)) {
-        consumed += 1; // SYN and FIN each occupy one sequence number
-    }
-    if (consumed) { // remember it for retransmission
-        memcpy(c->retx, seg, seglen);
-        c->retx_len = seglen;
-        c->retx_seq = c->snd_nxt + consumed;
-        c->retx_at_ms = ktime_ms();
-        c->retx_tries = 0;
-        c->snd_nxt += consumed;
-    }
-    return ip_send(c->peer_ip, IP_PROTO_TCP, seg, seglen);
-}
-
-// Bare ACK (carries no sequence space, never retransmitted).
-static void tcp_ack(tcp_conn* c)
-{
-    uint8_t seg[sizeof(tcp_hdr)];
-    tcp_hdr* t = (tcp_hdr*)seg;
-    memset(t, 0, sizeof(tcp_hdr));
-    t->sport = htons(c->local_port);
-    t->dport = htons(c->peer_port);
-    t->seq = htonl(c->snd_nxt);
-    t->ack = htonl(c->rcv_nxt);
-    t->off = (uint8_t)((sizeof(tcp_hdr) / 4) << 4);
-    t->flags = TCP_ACK;
-    t->window = htons((uint16_t)(TCP_RXBUF - c->rx_len));
-    t->csum = tcp_checksum(my_ip, c->peer_ip, seg, sizeof(seg));
-    ip_send(c->peer_ip, IP_PROTO_TCP, seg, sizeof(seg));
-}
-
-static tcp_conn* tcp_find(uint32_t src, uint16_t sport, uint16_t dport)
-{
-    for (int i = 0; i < TCP_CONNS; i++) {
-        tcp_conn* c = &tcp_conns[i];
-        if (c->in_use && c->peer_ip == src && c->peer_port == sport &&
-            c->local_port == dport) {
-            return c;
-        }
-    }
-    return NULL;
-}
-
-static void tcp_input(uint32_t src, const uint8_t* data, uint16_t len)
-{
-    if (len < sizeof(tcp_hdr)) {
-        return;
-    }
-    const tcp_hdr* t = (const tcp_hdr*)data;
-    uint32_t hlen = (uint32_t)(t->off >> 4) * 4;
-    if (hlen < sizeof(tcp_hdr) || hlen > len) {
-        return;
-    }
-    uint16_t sport = ntohs(t->sport), dport = ntohs(t->dport);
-    uint32_t seq = ntohl(t->seq);
-    uint32_t ack = ntohl(t->ack);
-    uint8_t flags = t->flags;
-    const uint8_t* payload = data + hlen;
-    uint16_t plen = (uint16_t)(len - hlen);
-
-    tcp_conn* c = tcp_find(src, sport, dport);
-    if (!c) {
-        // A SYN to a listening socket opens the connection (passive open).
-        if (flags & TCP_SYN) {
-            for (int i = 0; i < TCP_CONNS; i++) {
-                tcp_conn* l = &tcp_conns[i];
-                if (l->in_use && l->state == TCP_LISTEN &&
-                    l->local_port == dport) {
-                    l->peer_ip = src;
-                    l->peer_port = sport;
-                    l->rcv_nxt = seq + 1;
-                    l->snd_una = l->snd_nxt = (uint32_t)ktime_ns();
-                    l->state = TCP_SYN_RCVD;
-                    tcp_emit(l, TCP_SYN | TCP_ACK, NULL, 0);
-                    return;
-                }
-            }
-        }
-        return;
-    }
-
-    if (flags & TCP_RST) {
-        c->state = TCP_DONE;
-        c->retx_len = 0;
-        return;
-    }
-
-    // Clear the outstanding segment once its data is fully acknowledged.
-    if ((flags & TCP_ACK) && c->retx_len && !seq_lt(ack, c->retx_seq)) {
-        c->retx_len = 0;
-    }
-    if ((flags & TCP_ACK) && seq_lt(c->snd_una, ack)) {
-        c->snd_una = ack;
-    }
-
-    // Passive open completes when our SYN-ACK is acknowledged.
-    if (c->state == TCP_SYN_RCVD && (flags & TCP_ACK) && c->retx_len == 0) {
-        c->state = TCP_ESTABLISHED;
-    }
-
-    if (c->state == TCP_SYN_SENT) {
-        if ((flags & TCP_SYN) && (flags & TCP_ACK)) {
-            c->rcv_nxt = seq + 1;
-            c->state = TCP_ESTABLISHED;
-            tcp_ack(c);
-        }
-        return;
-    }
-
-    // In-order data: append to the receive ring and acknowledge.
-    if (plen && seq == c->rcv_nxt && c->rx_len + plen <= TCP_RXBUF) {
-        for (uint16_t i = 0; i < plen; i++) {
-            c->rx[(c->rx_head + c->rx_len + i) % TCP_RXBUF] = payload[i];
-        }
-        c->rx_len += plen;
-        c->rcv_nxt += plen;
-        tcp_ack(c);
-    } else if (plen) {
-        tcp_ack(c); // out of order or no room: re-ack what we have
-    }
-
-    if ((flags & TCP_FIN) && seq + plen == c->rcv_nxt) {
-        c->rcv_nxt += 1; // FIN occupies one sequence number
-        c->peer_fin = true;
-        tcp_ack(c);
-        if (c->state == TCP_FIN_WAIT) {
-            c->state = TCP_DONE;
-        }
-    }
-    if (c->state == TCP_FIN_WAIT && c->retx_len == 0 && c->peer_fin) {
-        c->state = TCP_DONE;
-    }
-}
-
-// Retransmit the outstanding segment if the RTO has elapsed; called from the
-// poll pump for every open connection.
-static void tcp_tick(void)
-{
-    uint64_t now = ktime_ms();
-    for (int i = 0; i < TCP_CONNS; i++) {
-        tcp_conn* c = &tcp_conns[i];
-        if (!c->in_use || c->retx_len == 0) {
-            continue;
-        }
-        if (now - c->retx_at_ms < TCP_RTO_MS) {
-            continue;
-        }
-        if (c->retx_tries >= TCP_MAX_RETX) {
-            c->state = TCP_DONE; // peer unreachable
-            c->retx_len = 0;
-            continue;
-        }
-        c->retx_tries++;
-        c->retx_at_ms = now;
-        ip_send(c->peer_ip, IP_PROTO_TCP, c->retx, c->retx_len);
     }
 }
 
@@ -782,251 +410,6 @@ bool net_ping(uint32_t dst, uint32_t timeout_ms, uint64_t* rtt_us)
         *rtt_us = ping_rtt_us;
     }
     return true;
-}
-
-static bool port_in_use(uint16_t port)
-{
-    for (int i = 0; i < UDP_SOCKETS; i++) {
-        if (udp_socks[i].in_use && udp_socks[i].local_port == port) {
-            return true;
-        }
-    }
-    return false;
-}
-
-int net_udp_open(void)
-{
-    for (int i = 0; i < UDP_SOCKETS; i++) {
-        if (!udp_socks[i].in_use) {
-            udp_socks[i].in_use = true;
-            udp_socks[i].local_port = 0;
-            udp_socks[i].head = 0;
-            udp_socks[i].count = 0;
-            return i;
-        }
-    }
-    return -1;
-}
-
-bool net_udp_bind(int s, uint16_t port)
-{
-    if (s < 0 || s >= UDP_SOCKETS || !udp_socks[s].in_use) {
-        return false;
-    }
-    if (port == 0) { // pick an ephemeral port
-        for (int tries = 0; tries < 16384; tries++) {
-            uint16_t p = ephemeral_next++;
-            if (ephemeral_next == 0) {
-                ephemeral_next = 49152;
-            }
-            if (!port_in_use(p)) {
-                port = p;
-                break;
-            }
-        }
-        if (port == 0) {
-            return false;
-        }
-    } else if (port_in_use(port)) {
-        return false;
-    }
-    udp_socks[s].local_port = port;
-    return true;
-}
-
-bool net_udp_sendto(int s, uint32_t dst_ip, uint16_t dport, const void* data,
-                    uint16_t len)
-{
-    if (s < 0 || s >= UDP_SOCKETS || !udp_socks[s].in_use || !ready) {
-        return false;
-    }
-    if (udp_socks[s].local_port == 0 && !net_udp_bind(s, 0)) {
-        return false; // auto-bind an ephemeral source port on first send
-    }
-    return udp_output(udp_socks[s].local_port, dst_ip, dport, data, len);
-}
-
-int net_udp_recvfrom(int s, uint32_t timeout_ms, void* buf, uint16_t cap,
-                     uint32_t* src_ip, uint16_t* src_port)
-{
-    if (s < 0 || s >= UDP_SOCKETS || !udp_socks[s].in_use) {
-        return -1;
-    }
-    uint64_t deadline = ktime_ms() + timeout_ms;
-    while (udp_socks[s].count == 0) {
-        net_poll();
-        if (ktime_ms() >= deadline) {
-            return -1;
-        }
-    }
-    udp_socket* sk = &udp_socks[s];
-    udp_dgram* d = &sk->q[sk->head];
-    uint16_t copy = d->len > cap ? cap : d->len;
-    memcpy(buf, d->data, copy);
-    if (src_ip) {
-        *src_ip = d->src_ip;
-    }
-    if (src_port) {
-        *src_port = d->src_port;
-    }
-    sk->head = (uint8_t)((sk->head + 1) % UDP_QUEUE);
-    sk->count--;
-    return d->len; // true datagram length (may exceed cap if truncated)
-}
-
-void net_udp_close(int s)
-{
-    if (s >= 0 && s < UDP_SOCKETS) {
-        udp_socks[s].in_use = false;
-    }
-}
-
-// --- TCP public API ---------------------------------------------------------
-
-int net_tcp_connect(uint32_t dst_ip, uint16_t port, uint32_t timeout_ms)
-{
-    if (!ready) {
-        return -1;
-    }
-    tcp_conn* c = NULL;
-    int id = -1;
-    for (int i = 0; i < TCP_CONNS; i++) {
-        if (!tcp_conns[i].in_use) {
-            c = &tcp_conns[i];
-            id = i;
-            break;
-        }
-    }
-    if (!c) {
-        return -1;
-    }
-    memset(c, 0, sizeof(*c));
-    c->in_use = true;
-    c->state = TCP_SYN_SENT;
-    c->peer_ip = dst_ip;
-    c->peer_port = port;
-    c->local_port = ephemeral_next++;
-    if (ephemeral_next == 0) {
-        ephemeral_next = 49152;
-    }
-    c->snd_una = c->snd_nxt = (uint32_t)ktime_ns();
-    tcp_emit(c, TCP_SYN, NULL, 0);
-
-    uint64_t deadline = ktime_ms() + timeout_ms;
-    while (c->state == TCP_SYN_SENT) {
-        net_poll();
-        if (c->state == TCP_DONE || ktime_ms() >= deadline) {
-            c->in_use = false;
-            return -1; // refused, unreachable, or timed out
-        }
-    }
-    return id;
-}
-
-int net_tcp_listen(uint16_t port)
-{
-    if (!ready) {
-        return -1;
-    }
-    for (int i = 0; i < TCP_CONNS; i++) {
-        if (!tcp_conns[i].in_use) {
-            tcp_conn* c = &tcp_conns[i];
-            memset(c, 0, sizeof(*c));
-            c->in_use = true;
-            c->state = TCP_LISTEN;
-            c->local_port = port;
-            return i;
-        }
-    }
-    return -1;
-}
-
-int net_tcp_accept(int id, uint32_t timeout_ms)
-{
-    if (id < 0 || id >= TCP_CONNS || !tcp_conns[id].in_use) {
-        return -1;
-    }
-    tcp_conn* c = &tcp_conns[id];
-    uint64_t deadline = ktime_ms() + timeout_ms;
-    while (c->state != TCP_ESTABLISHED) {
-        net_poll();
-        if (c->state == TCP_DONE || ktime_ms() >= deadline) {
-            return -1;
-        }
-    }
-    return id;
-}
-
-int net_tcp_send(int id, const void* data, uint32_t len)
-{
-    if (id < 0 || id >= TCP_CONNS || !tcp_conns[id].in_use) {
-        return -1;
-    }
-    tcp_conn* c = &tcp_conns[id];
-    const uint8_t* p = data;
-    uint32_t sent = 0;
-    while (sent < len) {
-        if (c->state != TCP_ESTABLISHED) {
-            return sent ? (int)sent : -1;
-        }
-        uint16_t chunk =
-                (uint16_t)((len - sent > TCP_MSS) ? TCP_MSS : (len - sent));
-        tcp_emit(c, TCP_ACK | TCP_PSH, p + sent, chunk);
-        // Stop-and-wait: block until this segment is acknowledged.
-        uint64_t deadline = ktime_ms() + (TCP_RTO_MS * (TCP_MAX_RETX + 2));
-        while (c->retx_len != 0) {
-            net_poll();
-            if (c->state == TCP_DONE || ktime_ms() >= deadline) {
-                return sent ? (int)sent : -1;
-            }
-        }
-        sent += chunk;
-    }
-    return (int)sent;
-}
-
-// Returns >0 bytes read, 0 at clean end-of-stream, or -1 on timeout.
-int net_tcp_recv(int id, void* buf, uint32_t cap, uint32_t timeout_ms)
-{
-    if (id < 0 || id >= TCP_CONNS || !tcp_conns[id].in_use) {
-        return -1;
-    }
-    tcp_conn* c = &tcp_conns[id];
-    uint64_t deadline = ktime_ms() + timeout_ms;
-    while (c->rx_len == 0) {
-        if (c->peer_fin || c->state == TCP_DONE) {
-            return 0; // no buffered data and the stream is finished
-        }
-        net_poll();
-        if (ktime_ms() >= deadline) {
-            return -1;
-        }
-    }
-    uint32_t n = c->rx_len < cap ? c->rx_len : cap;
-    uint8_t* out = buf;
-    for (uint32_t i = 0; i < n; i++) {
-        out[i] = c->rx[(c->rx_head + i) % TCP_RXBUF];
-    }
-    c->rx_head = (c->rx_head + n) % TCP_RXBUF;
-    c->rx_len -= n;
-    return (int)n;
-}
-
-void net_tcp_close(int id)
-{
-    if (id < 0 || id >= TCP_CONNS || !tcp_conns[id].in_use) {
-        return;
-    }
-    tcp_conn* c = &tcp_conns[id];
-    if (c->state == TCP_ESTABLISHED) {
-        tcp_emit(c, TCP_FIN | TCP_ACK, NULL, 0);
-        c->state = TCP_FIN_WAIT;
-        uint64_t deadline = ktime_ms() + 1000;
-        while (c->state == TCP_FIN_WAIT && ktime_ms() < deadline) {
-            net_poll();
-        }
-    }
-    c->in_use = false;
 }
 
 void net_config(uint32_t ip, uint32_t mask, uint32_t gateway)
