@@ -1,27 +1,130 @@
--- raytracer.lua: a tiny raytracer rendered across every core (an M8 + M9
--- showcase). Each core traces a horizontal band straight into the framebuffer
--- via fb.canvas(), so the image fills in band by band, in parallel. The scene
--- is three spheres on a checkered floor under a sky gradient, with hard shadows.
+-- raytracer.lua: a tiny recursive raytracer rendered across every core (an M8 +
+-- M9 showcase). Each core traces a horizontal band straight into the framebuffer
+-- via fb.canvas(), so the image fills in band by band, in parallel. The scene is
+-- three glossy spheres and a chrome mirror ball on a reflective checkered floor,
+-- under a sky gradient — with hard shadows, Phong specular highlights, and true
+-- recursive reflections (the mirror ball reflects the others, the floor reflects
+-- them all, and reflections-of-reflections resolve up to MAXDEPTH bounces).
 --   fb.setmode(1024, 768)   -- optional: crank the resolution first
 --   run("raytracer.lua")
 
 -- The render function is serialized to bytecode and run on each core, so it must
--- be self-contained (no upvalues) and take everything as arguments.
+-- be self-contained (no upvalues from module scope) and take everything as
+-- arguments. The nested trace() is fine: its upvalues resolve to render's own
+-- locals, which travel with the dumped prototype.
 local function render(cpu, canvas, W, H, pitch, nc, rs, gs, bs)
     local sqrt, floor, max = math.sqrt, math.floor, math.max
-    -- Spheres: {cx, cy, cz, radius, r, g, b}. The floor is the plane y = 0.
+    -- Spheres: {cx, cy, cz, radius, r, g, b, reflect, specular}. Floor is y = 0.
     local S = {
-        { -1.1, 1.0, -3.0, 1.0, 0.9, 0.2, 0.2 },
-        { 1.2, 1.0, -3.6, 1.0, 0.2, 0.45, 0.9 },
-        { 0.1, 0.6, -2.0, 0.6, 0.95, 0.8, 0.2 },
+        { -1.1, 1.0, -3.0, 1.0, 0.90, 0.20, 0.20, 0.25, 1 }, -- red, glossy
+        { 1.2, 1.0, -3.6, 1.0, 0.20, 0.45, 0.90, 0.30, 1 },  -- blue, glossy
+        { 0.1, 0.6, -2.0, 0.6, 0.95, 0.80, 0.20, 0.15, 1 },  -- yellow
+        { 2.7, 1.5, -5.2, 1.5, 0.16, 0.16, 0.20, 0.85, 1 },  -- chrome mirror
     }
     local ns = #S
+    local FLOOR_REFL = 0.35
+    local MAXDEPTH = 4
     local lx, ly, lz = 0.6, 0.9, 0.3 -- light direction
     local ll = sqrt(lx * lx + ly * ly + lz * lz)
     lx, ly, lz = lx / ll, ly / ll, lz / ll
+
+    -- Trace one ray from (ex,ey,ez) along (dx,dy,dz); return its colour,
+    -- recursing along the mirror-reflection ray for reflective surfaces.
+    local function trace(ex, ey, ez, dx, dy, dz, depth)
+        local best = 1e30
+        local nx, ny, nz, px, py, pz = 0, 0, 0, 0, 0, 0
+        local hr, hg, hb, refl, spec = 0, 0, 0, 0, 0
+
+        for i = 1, ns do
+            local s = S[i]
+            local ocx, ocy, ocz = ex - s[1], ey - s[2], ez - s[3]
+            local b = ocx * dx + ocy * dy + ocz * dz
+            local c = ocx * ocx + ocy * ocy + ocz * ocz - s[4] * s[4]
+            local disc = b * b - c
+            if disc > 0 then
+                local t = -b - sqrt(disc)
+                if t > 0.001 and t < best then
+                    best = t
+                    px, py, pz = ex + dx * t, ey + dy * t, ez + dz * t
+                    nx = (px - s[1]) / s[4]
+                    ny = (py - s[2]) / s[4]
+                    nz = (pz - s[3]) / s[4]
+                    hr, hg, hb, refl, spec = s[5], s[6], s[7], s[8], s[9]
+                end
+            end
+        end
+
+        if dy < -1e-4 then -- floor plane y = 0
+            local t = -ey / dy
+            if t > 0.001 and t < best then
+                best = t
+                px, py, pz = ex + dx * t, ey + dy * t, ez + dz * t
+                nx, ny, nz = 0, 1, 0
+                if (floor(px) + floor(pz)) & 1 == 0 then
+                    hr, hg, hb = 0.9, 0.9, 0.9
+                else
+                    hr, hg, hb = 0.20, 0.20, 0.28
+                end
+                refl, spec = FLOOR_REFL, 0
+            end
+        end
+
+        if best > 1e29 then -- sky gradient
+            local t = 0.5 * (dy + 1)
+            return 0.15 + 0.35 * t, 0.25 + 0.4 * t, 0.5 + 0.5 * t
+        end
+
+        -- Diffuse term with a hard shadow (occlusion toward the light).
+        local diff = max(0, nx * lx + ny * ly + nz * lz)
+        local shadow = 1.0
+        local sxo, syo, szo = px + nx * 0.01, py + ny * 0.01, pz + nz * 0.01
+        for i = 1, ns do
+            local s = S[i]
+            local ocx, ocy, ocz = sxo - s[1], syo - s[2], szo - s[3]
+            local b = ocx * lx + ocy * ly + ocz * lz
+            local c = ocx * ocx + ocy * ocy + ocz * ocz - s[4] * s[4]
+            local disc = b * b - c
+            if disc > 0 and (-b - sqrt(disc)) > 0.001 then
+                shadow = 0.25
+                break
+            end
+        end
+        local sh = 0.15 + diff * 0.85 * shadow
+        local cr, cg, cb = hr * sh, hg * sh, hb * sh
+
+        -- Phong specular highlight: reflect the light about the normal and dot
+        -- with the view ray; raise to a high power for a tight glossy spot.
+        if spec > 0 and shadow > 0.5 and diff > 0 then
+            local rlx = 2 * diff * nx - lx
+            local rly = 2 * diff * ny - ly
+            local rlz = 2 * diff * nz - lz
+            local sp = rlx * (-dx) + rly * (-dy) + rlz * (-dz)
+            if sp > 0 then
+                sp = sp * sp
+                sp = sp * sp
+                sp = sp * sp
+                sp = sp * sp
+                sp = sp * sp -- sp^32
+                sp = sp * 0.9 * spec
+                cr, cg, cb = cr + sp, cg + sp, cb + sp
+            end
+        end
+
+        -- Mirror reflection: shoot a secondary ray about the normal and blend.
+        if refl > 0 and depth > 0 then
+            local dn = dx * nx + dy * ny + dz * nz
+            local rx, ry, rz = dx - 2 * dn * nx, dy - 2 * dn * ny, dz - 2 * dn * nz
+            local rr, rg, rb = trace(px + nx * 0.001, py + ny * 0.001,
+                pz + nz * 0.001, rx, ry, rz, depth - 1)
+            cr = cr * (1 - refl) + rr * refl
+            cg = cg * (1 - refl) + rg * refl
+            cb = cb * (1 - refl) + rb * refl
+        end
+        return cr, cg, cb
+    end
+
     local ox, oy, oz = 0.0, 1.3, 1.0 -- camera
     local aspect = W / H
-
     local lo = (H // nc) * cpu
     local hi = (cpu == nc - 1) and H or (H // nc) * (cpu + 1)
 
@@ -33,63 +136,7 @@ local function render(cpu, canvas, W, H, pitch, nc, rs, gs, bs)
             local dl = sqrt(dx * dx + dy * dy + dz * dz)
             dx, dy, dz = dx / dl, dy / dl, dz / dl
 
-            local best, hr, hg, hb = 1e30, 0, 0, 0
-            local nx, ny, nz, px, py, pz = 0, 0, 0, 0, 0, 0
-            for i = 1, ns do
-                local s = S[i]
-                local ocx, ocy, ocz = ox - s[1], oy - s[2], oz - s[3]
-                local b = ocx * dx + ocy * dy + ocz * dz
-                local c = ocx * ocx + ocy * ocy + ocz * ocz - s[4] * s[4]
-                local disc = b * b - c
-                if disc > 0 then
-                    local t = -b - sqrt(disc)
-                    if t > 0.001 and t < best then
-                        best = t
-                        px, py, pz = ox + dx * t, oy + dy * t, oz + dz * t
-                        nx = (px - s[1]) / s[4]
-                        ny = (py - s[2]) / s[4]
-                        nz = (pz - s[3]) / s[4]
-                        hr, hg, hb = s[5], s[6], s[7]
-                    end
-                end
-            end
-            if dy < -1e-4 then
-                local t = -oy / dy
-                if t > 0.001 and t < best then
-                    best = t
-                    px, py, pz = ox + dx * t, oy + dy * t, oz + dz * t
-                    nx, ny, nz = 0, 1, 0
-                    if (floor(px) + floor(pz)) & 1 == 0 then
-                        hr, hg, hb = 0.9, 0.9, 0.9
-                    else
-                        hr, hg, hb = 0.25, 0.25, 0.32
-                    end
-                end
-            end
-
-            local cr, cg, cb
-            if best < 1e29 then
-                local diff = max(0, nx * lx + ny * ly + nz * lz)
-                local shadow = 1.0
-                local sxo, syo, szo = px + nx * 0.01, py + ny * 0.01,
-                    pz + nz * 0.01
-                for i = 1, ns do
-                    local s = S[i]
-                    local ocx, ocy, ocz = sxo - s[1], syo - s[2], szo - s[3]
-                    local b = ocx * lx + ocy * ly + ocz * lz
-                    local c = ocx * ocx + ocy * ocy + ocz * ocz - s[4] * s[4]
-                    local disc = b * b - c
-                    if disc > 0 and (-b - sqrt(disc)) > 0.001 then
-                        shadow = 0.25
-                        break
-                    end
-                end
-                local sh = 0.15 + diff * 0.85 * shadow
-                cr, cg, cb = hr * sh, hg * sh, hb * sh
-            else
-                local t = 0.5 * (dy + 1)
-                cr, cg, cb = 0.15 + 0.35 * t, 0.25 + 0.4 * t, 0.5 + 0.5 * t
-            end
+            local cr, cg, cb = trace(ox, oy, oz, dx, dy, dz, MAXDEPTH)
 
             local ri = floor(max(0, cr) * 255)
             local gi = floor(max(0, cg) * 255)
