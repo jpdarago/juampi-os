@@ -37,7 +37,7 @@ CFLAGS := -O2 -std=c11 -Werror -Wall -Wextra \
 	-Wformat=2 -Wwrite-strings -Wstrict-prototypes \
 	-Wredundant-decls -Wnested-externs -Wmissing-include-dirs \
 	-Wjump-misses-init -Wlogical-op \
-	-nostdlib -fno-builtin -nostartfiles \
+	-nostdlib -fno-builtin -nostartfiles -fno-strict-aliasing \
 	-nodefaultlibs -fno-stack-protector -I$(INCLUDE_DIR) \
 	-mno-mmx -mno-3dnow \
 	-mno-red-zone -mcmodel=kernel -fno-pic -fno-pie \
