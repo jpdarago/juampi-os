@@ -285,6 +285,7 @@ test: boot.img $(DISK_IMG)
 		INPUT='run("hello.elf")' MARKER=LAB_OK tests/boot-smoke.sh
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/net-smoke.sh
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/udp-smoke.sh
+	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/tcp-smoke.sh
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" \
 		INPUT='run("parallel.lua")' MARKER=PARALLEL_OK tests/boot-smoke.sh
 

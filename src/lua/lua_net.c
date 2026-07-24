@@ -8,6 +8,7 @@
 #include "lauxlib.h"
 
 #define UDP_MT "juampi.udpsock"
+#define TCP_MT "juampi.tcpconn"
 
 static const char hexd[] = "0123456789abcdef";
 
@@ -196,10 +197,129 @@ static const luaL_Reg udp_methods[] = {
         {NULL, NULL},
 };
 
+// --- TCP client -------------------------------------------------------------
+// net.connect(ip, port) performs the handshake and returns a connection object.
+
+static int* check_tcp(lua_State* L)
+{
+    return (int*)luaL_checkudata(L, 1, TCP_MT);
+}
+
+// net.connect(ip, port [, timeout_ms=5000]) -> conn | nil, err
+static int l_connect(lua_State* L)
+{
+    uint32_t dst;
+    if (!net_aton(luaL_checkstring(L, 1), &dst)) {
+        return luaL_error(L, "connect: expected a dotted-quad IP");
+    }
+    lua_Integer port = luaL_checkinteger(L, 2);
+    lua_Integer timeout = luaL_optinteger(L, 3, 5000);
+    int id = net_tcp_connect(dst, (uint16_t)port, (uint32_t)timeout);
+    if (id < 0) {
+        lua_pushnil(L);
+        lua_pushstring(L, "connect failed");
+        return 2;
+    }
+    int* ud = (int*)lua_newuserdatauv(L, sizeof(int), 0);
+    *ud = id;
+    luaL_setmetatable(L, TCP_MT);
+    return 1;
+}
+
+// net.listen(port) -> listener | nil,err  (a connection object in LISTEN state)
+static int l_listen(lua_State* L)
+{
+    lua_Integer port = luaL_checkinteger(L, 1);
+    if (port < 1 || port > 65535) {
+        return luaL_error(L, "listen: port out of range");
+    }
+    int id = net_tcp_listen((uint16_t)port);
+    if (id < 0) {
+        lua_pushnil(L);
+        lua_pushstring(L, "listen failed");
+        return 2;
+    }
+    int* ud = (int*)lua_newuserdatauv(L, sizeof(int), 0);
+    *ud = id;
+    luaL_setmetatable(L, TCP_MT);
+    return 1;
+}
+
+// listener:accept([timeout_ms=20000]) -> true | nil,err. On success the same
+// object is now a connected socket (single connection per listener).
+static int l_tcp_accept(lua_State* L)
+{
+    int* ud = check_tcp(L);
+    lua_Integer timeout = luaL_optinteger(L, 2, 20000);
+    if (*ud < 0 || net_tcp_accept(*ud, (uint32_t)timeout) < 0) {
+        lua_pushnil(L);
+        lua_pushstring(L, "accept timeout");
+        return 2;
+    }
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+// conn:send(data) -> bytes | nil,err
+static int l_tcp_send(lua_State* L)
+{
+    int* ud = check_tcp(L);
+    size_t len;
+    const char* data = luaL_checklstring(L, 2, &len);
+    int n = (*ud < 0) ? -1 : net_tcp_send(*ud, data, (uint32_t)len);
+    if (n < 0) {
+        lua_pushnil(L);
+        lua_pushstring(L, "send failed");
+        return 2;
+    }
+    lua_pushinteger(L, n);
+    return 1;
+}
+
+// conn:recv([cap=4096 [, timeout_ms=5000]]) -> data | nil, "closed"|"timeout"
+static int l_tcp_recv(lua_State* L)
+{
+    int* ud = check_tcp(L);
+    lua_Integer cap = luaL_optinteger(L, 2, 4096);
+    lua_Integer timeout = luaL_optinteger(L, 3, 5000);
+    static uint8_t buf[4096];
+    if (cap < 1) {
+        cap = 1;
+    }
+    if (cap > (lua_Integer)sizeof(buf)) {
+        cap = sizeof(buf);
+    }
+    int n = (*ud < 0)
+                    ? -1
+                    : net_tcp_recv(*ud, buf, (uint32_t)cap, (uint32_t)timeout);
+    if (n > 0) {
+        lua_pushlstring(L, (const char*)buf, (size_t)n);
+        return 1;
+    }
+    lua_pushnil(L);
+    lua_pushstring(L, n == 0 ? "closed" : "timeout");
+    return 2;
+}
+
+static int l_tcp_close(lua_State* L)
+{
+    int* ud = check_tcp(L);
+    if (*ud >= 0) {
+        net_tcp_close(*ud);
+        *ud = -1;
+    }
+    return 0;
+}
+
+static const luaL_Reg tcp_methods[] = {
+        {"accept", l_tcp_accept}, {"send", l_tcp_send}, {"recv", l_tcp_recv},
+        {"close", l_tcp_close},   {NULL, NULL},
+};
+
 static const luaL_Reg netlib[] = {
-        {"ready", l_ready},   {"ip", l_ip},     {"mac", l_mac},
-        {"config", l_config}, {"ping", l_ping}, {"udp", l_udp},
-        {NULL, NULL},
+        {"ready", l_ready},     {"ip", l_ip},         {"mac", l_mac},
+        {"config", l_config},   {"ping", l_ping},     {"udp", l_udp},
+        {"connect", l_connect}, {"listen", l_listen}, {NULL, NULL},
 };
 
 // Register a metatable for an object type: a method table under __index and a
@@ -220,6 +340,7 @@ static void register_obj(lua_State* L, const char* mt, const luaL_Reg* methods,
 int luaopen_net(lua_State* L)
 {
     register_obj(L, UDP_MT, udp_methods, l_udp_close);
+    register_obj(L, TCP_MT, tcp_methods, l_tcp_close);
     luaL_newlib(L, netlib);
     return 1;
 }

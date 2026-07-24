@@ -15,19 +15,26 @@ created: 2026-07-20
 > names with DNS, and expose a `net.*` socket library to Lua — all testable under
 > QEMU with **zero host privileges**.
 
-> [!success] Status — **vertical slice landed (M10)**. The "ping" path is
-> implemented and tested: e1000 driver → Ethernet → ARP → IPv4 → ICMP, static
-> config, exposed to Lua as `net.ready/ip/mac/config/ping`. `net.ping("10.0.2.2")`
-> round-trips the SLIRP gateway (~0.1–0.9 ms); `tests/net-smoke.sh` gates it. The
-> rest of this note (UDP/sockets/DHCP/DNS/TCP) is still the forward design.
+> [!success] Status — **ICMP + UDP + TCP landed (M10)**. Implemented and tested
+> end to end: e1000 driver → Ethernet → ARP → IPv4 → {ICMP, UDP, TCP}, static
+> config, exposed to Lua as `net.*`:
+> - **ping** — `net.ping("10.0.2.2")` round-trips the SLIRP gateway (~0.1–0.9 ms).
+> - **UDP sockets** — `net.udp()` → `bind`/`sendto`/`recvfrom`/`close`.
+> - **TCP** — client `net.connect(ip, port)` (verified with an HTTP GET) *and*
+>   server `net.listen(port)` + `:accept()`, then `send`/`recv`/`close`.
+>   Stop-and-wait with retransmit; one connection per handle.
+>
+> Gated by `tests/{net,udp,tcp}-smoke.sh` in `make test`. **DHCP/DNS deliberately
+> skipped** (static config; the host resolver isn't needed) — see §10.
 >
 > **What shipped vs. the original plan:** flat `src/` files (matching the repo's
 > convention) rather than a `src/net/` tree — `src/e1000.c`, `src/net.c` (Ethernet
-> + ARP + IPv4 + ICMP consolidated), `src/lua/lua_net.c`; plus `PAGEF_UC` in
-> paging, `pci_find`/`pci_bar`/`pci_enable_bus_master` helpers, a `net_poll()` pump
-> in `console_getch`, and `-nic user,model=e1000` in `run`/`test`. No `pbuf` pool
-> yet (static frame buffers + a per-TX-slot bounce buffer); split into per-layer
-> files when UDP lands.
+> + ARP + IPv4 + ICMP + UDP + TCP consolidated), `src/lua/lua_net.c`; plus
+> `PAGEF_UC` in paging, `pci_find`/`pci_bar`/`pci_enable_bus_master` helpers, a
+> `net_poll()` pump in `console_getch`, `-nic user,model=e1000` in `run`/`test`,
+> and **`-fno-strict-aliasing` in `CFLAGS`** (see §9 — the pseudo-header checksum
+> miscompiled without it). No `pbuf` pool yet (static buffers + a per-TX-slot
+> bounce buffer).
 
 > [!info] Foundation. The [[x86-64-port]] gave us paging + HHDM + PCI + interrupts;
 > [[lua-shell]] gave us the shell and the polled-SMP execution model this stack
@@ -513,14 +520,23 @@ print(s:recvfrom(2000))
 | ----- | ----------- | ------ |
 | **0 ✅** | e1000 up: PCI probe, BAR map, RX/TX rings, raw TX/RX | **done** — card up, MAC/link, DMA rings working |
 | **1 ✅** | Ethernet + ARP + IPv4 + ICMP | **done** — `net.ping("10.0.2.2")` replies (~0.1–0.9 ms), answers pings too; `tests/net-smoke.sh` in `make test` |
-| **2** | UDP + sockets + DHCP + DNS *(v1 ships here)* | `net-smoke.sh`: DHCP `10.0.2.15`, DNS resolves, UDP round-trip; added to CI |
-| **3** | TCP (handshake, 1 connection, RTO, active connect) — one-shot HTTP GET | *scoped separately; ≈ size of 0–2 combined* |
+| **2 ✅** | UDP + sockets *(DHCP/DNS dropped — static config)* | **done** — `net.udp()` bind/sendto/recvfrom; `tests/udp-smoke.sh` (hostfwd loopback round-trip) |
+| **3 ✅** | TCP: handshake, retransmit, client **and** server | **done** — `net.connect` (HTTP GET verified) + `net.listen`/`:accept`; stop-and-wait; `tests/tcp-smoke.sh` |
 | **4** | Optional: interrupt-driven RX, virtio-net, `net.stat()` introspection | — |
 
 ---
 
 ## 9. Risks & gotchas
 
+- [x] **Strict aliasing (bit us).** Building the IPv4 pseudo-header as a
+      field-by-field `struct` and then summing it through a `uint16_t*` is a
+      strict-aliasing violation; at `-O2` GCC miscompiled it, so every UDP/TCP
+      checksum went out wrong and SLIRP silently dropped the segments (the TCP
+      handshake would `SYN → SYN-ACK →` *nothing*). ICMP was fine because it never
+      type-puns a just-written struct. The whole stack casts packet buffers to
+      header structs, so the fix is **`-fno-strict-aliasing` in `CFLAGS`** (what
+      Linux/BSD do). Reproduces on the host: same bytes give `abcb` at `-O2` vs the
+      correct `b394` with the flag.
 - [ ] **Bus mastering** must be enabled or the card silently never DMAs (§3.1).
 - [ ] **MMIO must be `UC`** or doorbell writes get cached and lost (§5.2).
 - [ ] **Endianness** everywhere at the wire boundary — wrap every multi-byte
