@@ -35,6 +35,18 @@ local function render(cpu, canvas, W, H, pitch, nc, rs, gs, bs)
     local ll = sqrt(lx * lx + ly * ly + lz * lz)
     lx, ly, lz = lx / ll, ly / ll, lz / ll
 
+    -- Flatten the fields the hot intersection loop touches into parallel arrays:
+    -- single-index access (vs S[i][k]) and radius² precomputed once instead of
+    -- per ray. The scene table above stays the readable source of truth; these
+    -- derive from it and give bit-identical results.
+    local cx, cy, cz, rad, r2, opaque = {}, {}, {}, {}, {}, {}
+    for i = 1, ns do
+        local s = S[i]
+        cx[i], cy[i], cz[i], rad[i] = s[1], s[2], s[3], s[4]
+        r2[i] = s[4] * s[4]
+        opaque[i] = s[10] == 0
+    end
+
     -- Reflect ray d about normal n (both normalized).
     local function reflect(dx, dy, dz, nx, ny, nz)
         local k = 2 * (dx * nx + dy * ny + dz * nz)
@@ -49,10 +61,9 @@ local function render(cpu, canvas, W, H, pitch, nc, rs, gs, bs)
         local hr, hg, hb, refl, spec, ior = 0, 0, 0, 0, 0, 0
 
         for i = 1, ns do
-            local s = S[i]
-            local ocx, ocy, ocz = ex - s[1], ey - s[2], ez - s[3]
+            local ocx, ocy, ocz = ex - cx[i], ey - cy[i], ez - cz[i]
             local b = ocx * dx + ocy * dy + ocz * dz
-            local c = ocx * ocx + ocy * ocy + ocz * ocz - s[4] * s[4]
+            local c = ocx * ocx + ocy * ocy + ocz * ocz - r2[i]
             local disc = b * b - c
             if disc > 0 then
                 local sd = sqrt(disc)
@@ -61,9 +72,9 @@ local function render(cpu, canvas, W, H, pitch, nc, rs, gs, bs)
                 if t > 0.001 and t < best then
                     best = t
                     px, py, pz = ex + dx * t, ey + dy * t, ez + dz * t
-                    nx = (px - s[1]) / s[4]
-                    ny = (py - s[2]) / s[4]
-                    nz = (pz - s[3]) / s[4]
+                    local rd = rad[i]
+                    nx, ny, nz = (px - cx[i]) / rd, (py - cy[i]) / rd, (pz - cz[i]) / rd
+                    local s = S[i]
                     hr, hg, hb, refl, spec, ior = s[5], s[6], s[7], s[8], s[9], s[10]
                 end
             end
@@ -132,11 +143,10 @@ local function render(cpu, canvas, W, H, pitch, nc, rs, gs, bs)
         local shadow = 1.0
         local sxo, syo, szo = px + nx * 0.01, py + ny * 0.01, pz + nz * 0.01
         for i = 1, ns do
-            local s = S[i]
-            if s[10] == 0 then
-                local ocx, ocy, ocz = sxo - s[1], syo - s[2], szo - s[3]
+            if opaque[i] then
+                local ocx, ocy, ocz = sxo - cx[i], syo - cy[i], szo - cz[i]
                 local b = ocx * lx + ocy * ly + ocz * lz
-                local c = ocx * ocx + ocy * ocy + ocz * ocz - s[4] * s[4]
+                local c = ocx * ocx + ocy * ocy + ocz * ocz - r2[i]
                 local disc = b * b - c
                 if disc > 0 and (-b - sqrt(disc)) > 0.001 then
                     shadow = 0.25
@@ -182,14 +192,18 @@ local function render(cpu, canvas, W, H, pitch, nc, rs, gs, bs)
     local lo = (H // nc) * cpu
     local hi = (cpu == nc - 1) and H or (H // nc) * (cpu + 1)
     local inv = 1.0 / nsamp
+    -- Flatten the AA offsets, and resolve the canvas writer once instead of
+    -- re-looking-up the :u32 method through the metatable for every pixel.
+    local sjx, sjy = {}, {}
+    for i = 1, nsamp do sjx[i], sjy[i] = SAMPLES[i][1], SAMPLES[i][2] end
+    local u32 = canvas.u32
 
     for y = lo, hi - 1 do
         for x = 0, W - 1 do
             local cr, cg, cb = 0, 0, 0
             for si = 1, nsamp do
-                local jx, jy = SAMPLES[si][1], SAMPLES[si][2]
-                local sx = (2 * (x + jx) / W - 1) * aspect
-                local sy = 1 - 2 * (y + jy) / H
+                local sx = (2 * (x + sjx[si]) / W - 1) * aspect
+                local sy = 1 - 2 * (y + sjy[si]) / H
                 local dx, dy, dz = sx, sy, -1.0
                 local dl = sqrt(dx * dx + dy * dy + dz * dz)
                 dx, dy, dz = dx / dl, dy / dl, dz / dl
@@ -204,7 +218,7 @@ local function render(cpu, canvas, W, H, pitch, nc, rs, gs, bs)
             if ri > 255 then ri = 255 end
             if gi > 255 then gi = 255 end
             if bi > 255 then bi = 255 end
-            canvas:u32(y * pitch + x * 4, (ri << rs) | (gi << gs) | (bi << bs))
+            u32(canvas, y * pitch + x * 4, (ri << rs) | (gi << gs) | (bi << bs))
         end
     end
     return hi - lo
