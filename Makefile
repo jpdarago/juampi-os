@@ -220,7 +220,10 @@ logo: $(PNG2QOI) $(LOGO_SRC) | $(OBJ_DIR)
 # -fcf-protection=none stops gcc emitting a .note.gnu.property (CET) section,
 # which on some toolchains gets an LMA overlapping .text under -Ttext (CI).
 LAB_DIR    := $(BUILD_DIR)/lab
-LAB_SRCS   := $(wildcard $(LAB_DIR)/*.c)
+# raytracer.c is a native lab program shipped on the ext2 disk instead of as a
+# Limine module (see the data-disk section), so it is excluded here — modules
+# resolve before the disk in run(), and would shadow the on-disk copy.
+LAB_SRCS   := $(filter-out $(LAB_DIR)/raytracer.c,$(wildcard $(LAB_DIR)/*.c))
 LAB_ELVES  := $(patsubst $(LAB_DIR)/%.c,$(LAB_DIR)/%.elf,$(LAB_SRCS))
 LAB_CFLAGS := -O2 -std=c11 -ffreestanding -nostdlib -fno-pic -fno-pie \
 	-mno-red-zone -mno-mmx -mno-3dnow -fno-stack-protector \
@@ -251,11 +254,22 @@ boot.img: $(KERNEL) $(MODULES) $(BUILD_DIR)/limine.conf $(BUILD_DIR)/mkboot.sh
 # read-only reader in src/ext2.c supports. Drop files into build/disk/ to ship
 # them on the disk.
 DISK_DIR    := $(BUILD_DIR)/disk
-DISK_FILES  := $(shell find $(DISK_DIR) -type f 2>/dev/null)
+# The raytracer is compiled straight into the disk tree (a native ring-0 lab
+# program; see build/lab/raytracer.c). It is excluded from the plain file list so
+# it is always the freshly built binary, and added as an explicit prerequisite.
+DISK_RAYTRACER := $(DISK_DIR)/raytracer.elf
+DISK_FILES  := $(filter-out $(DISK_RAYTRACER),$(shell find $(DISK_DIR) -type f 2>/dev/null))
 DISK_IMG    := disk.img
 DISK_BLOCKS ?= 8192   # 1 KiB blocks -> 8 MiB image
 
-$(DISK_IMG): $(DISK_FILES)
+# Build the native raytracer into the disk tree with the lab flags/ABI (entry
+# `bench`, linked at 0x400000), so run("raytracer.elf") loads it from ext2.
+$(DISK_RAYTRACER): $(LAB_DIR)/raytracer.c $(INCLUDE_DIR)/lab.h
+	$(CC) $(LAB_CFLAGS) -c -o $(@:.elf=.o) $<
+	$(LD) -melf_x86_64 -e bench -Ttext 0x400000 -o $@ $(@:.elf=.o)
+	rm -f $(@:.elf=.o)
+
+$(DISK_IMG): $(DISK_FILES) $(DISK_RAYTRACER)
 	mke2fs -q -F -t ext2 -b 1024 -O ^resize_inode,^dir_index,^ext_attr \
 		-d $(DISK_DIR) $@ $(DISK_BLOCKS)
 

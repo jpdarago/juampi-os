@@ -29,6 +29,16 @@ typedef struct lab_api {
     void (*run_on)(unsigned index, // dispatch fn(arg) to core `index`...
                    void (*fn)(void*), void* arg);
     void (*join)(unsigned index); // ...then wait for it to finish
+    // Framebuffer, for native programs that draw (a raytracer, say). All zero
+    // when headless. Pixels are 32bpp; pack them with the fb_shifts() layout
+    // and store at fb() + y*fb_pitch() + x*4. fb_pitch() is in bytes and may
+    // exceed width*4. Broadens the "sterile lab" beyond pure compute — the
+    // framebuffer is the one piece of hardware a native binary can touch.
+    void* (*fb)(void);               // live framebuffer base, NULL if headless
+    unsigned long (*fb_width)(void); // in pixels
+    unsigned long (*fb_height)(void);
+    unsigned long (*fb_pitch)(void); // bytes per scanline
+    void (*fb_shifts)(unsigned char* r, unsigned char* g, unsigned char* b);
 } lab_api;
 
 typedef long (*lab_entry)(const lab_api* api, long arg);

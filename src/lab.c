@@ -4,6 +4,7 @@
 #include <console.h>
 #include <ktime.h>
 #include <smp.h>
+#include <gfx.h>
 
 // The kernel side of the "sterile lab": load a native ELF64 benchmark and call
 // it directly in ring 0, handing it a table of helper callbacks (lab_api).
@@ -40,6 +41,26 @@ static void lab_join(unsigned index)
 {
     smp_join(index);
 }
+static void* lab_fb(void)
+{
+    return gfx_framebuffer(NULL, NULL);
+}
+static unsigned long lab_fb_width(void)
+{
+    return gfx_width();
+}
+static unsigned long lab_fb_height(void)
+{
+    return gfx_height();
+}
+static unsigned long lab_fb_pitch(void)
+{
+    return gfx_pitch();
+}
+static void lab_fb_shifts(unsigned char* r, unsigned char* g, unsigned char* b)
+{
+    gfx_shifts(r, g, b);
+}
 
 static const lab_api api = {
         .alloc = lab_alloc,
@@ -50,6 +71,11 @@ static const lab_api api = {
         .ncores = lab_ncores,
         .run_on = lab_run_on,
         .join = lab_join,
+        .fb = lab_fb,
+        .fb_width = lab_fb_width,
+        .fb_height = lab_fb_height,
+        .fb_pitch = lab_fb_pitch,
+        .fb_shifts = lab_fb_shifts,
 };
 
 // Load `image` for ring-0 execution and return its entry, or NULL if it is not
