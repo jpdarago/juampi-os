@@ -70,8 +70,10 @@ local DESC = {
     pci = "PCI configuration space",
     thread = "parallel Lua across CPU cores",
     mem = "shared-memory buffers",
+    net = "IPv4 networking: DHCP, DNS (net.resolve), ping, UDP/TCP sockets",
+    http = "HTTP/1.1 client: http.get(url) -> status, body",
 }
-local LIBS = { "k", "fb", "fs", "disk", "pci", "thread", "mem" }
+local LIBS = { "k", "fb", "fs", "disk", "pci", "thread", "mem", "net", "http" }
 
 local function fn_names(t)
     local ns = {}
@@ -108,10 +110,12 @@ function help(topic)
     end
     print("juampiOS Lua shell. Available:")
     print("  run(name[,arg])   run a .lua script or a native .elf binary")
+    print("  run()             list what you can run")
+    print("  edit(name)        full-screen editor (^S save, ^X run, ^Q quit)")
     print("  bench(t[,arg[,n]]) time a function/script/binary -> total,per_call")
     print("  dump(v) / pp(v)   pretty-print a value or table")
     print("  clear()           clear the screen;  up/down arrows recall history")
-    print("  help(lib)         details for a library, e.g. help(fb)")
+    print("  help(lib)         details for a library, e.g. help(fb) or help(net)")
     print("  libraries:")
     for _, n in ipairs(LIBS) do
         print(string.format("    %-7s %s", n, DESC[n] or ""))

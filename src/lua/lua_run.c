@@ -12,6 +12,9 @@
 #include <ext2.h>
 #include <memory.h>
 #include <ktime.h>
+#include <console.h>
+#include <str.h>
+#include <utils.h> // memcpy
 
 #include <printf/printf.h>
 #include <stdint.h>
@@ -69,11 +72,108 @@ static uint64_t time_lua_callable(lua_State* L, int idx, long arg,
     return rdtsc() - start;
 }
 
+// --- run() with no argument: list the runnable artifacts -------------------
+// The same sources run() resolves from: Limine modules + the ext2 search dirs
+// (/, /scripts, /lab). Deduped, boot-only files hidden, sorted.
+
+#define RUN_MAX 128
+#define RUN_NAMELEN 64
+struct runlist {
+    char names[RUN_MAX][RUN_NAMELEN];
+    int n;
+};
+
+// The last path segment (after the final '/'), or the whole view if none.
+static str path_base(str p)
+{
+    for (size_t i = p.len; i > 0; i--) {
+        if (p.data[i - 1] == '/') {
+            return str_span(p.data + i, p.len - i);
+        }
+    }
+    return p;
+}
+
+// Record a runnable name: a .lua/.elf basename, minus boot infra and duplicates.
+static void runlist_add(struct runlist* rl, str name)
+{
+    if (!str_has_suffix(name, S(".lua")) && !str_has_suffix(name, S(".elf"))) {
+        return;
+    }
+    if (str_eq(name, S("prelude.lua")) || str_eq(name, S("init.lua"))) {
+        return; // auto-loaded at boot, not something you run by hand
+    }
+    for (int i = 0; i < rl->n; i++) {
+        if (str_eq(str_from(rl->names[i]), name)) {
+            return; // e.g. a module also present on the disk
+        }
+    }
+    if (rl->n < RUN_MAX) {
+        str_copy(rl->names[rl->n], RUN_NAMELEN, name);
+        rl->n++;
+    }
+}
+
+static void runlist_emit(void* ctx, const char* name, uint32_t inode,
+                         uint8_t type)
+{
+    (void)inode;
+    (void)type;
+    runlist_add((struct runlist*)ctx, str_from(name));
+}
+
+static bool name_less(const char* a, const char* b)
+{
+    for (size_t i = 0;; i++) {
+        unsigned char ca = (unsigned char)a[i], cb = (unsigned char)b[i];
+        if (ca != cb) {
+            return ca < cb;
+        }
+        if (ca == 0) {
+            return false;
+        }
+    }
+}
+
+static int l_run_list(void)
+{
+    struct runlist rl = {.n = 0};
+    for (size_t i = 0; i < kmodule_count(); i++) {
+        runlist_add(&rl, path_base(str_from(kmodule_path(i))));
+    }
+    ext2_list("/", runlist_emit, &rl);
+    ext2_list("/scripts", runlist_emit, &rl);
+    ext2_list("/lab", runlist_emit, &rl);
+
+    for (int i = 1; i < rl.n; i++) { // insertion sort (small n)
+        char key[RUN_NAMELEN];
+        memcpy(key, rl.names[i], RUN_NAMELEN);
+        int j = i - 1;
+        while (j >= 0 && name_less(key, rl.names[j])) {
+            memcpy(rl.names[j + 1], rl.names[j], RUN_NAMELEN);
+            j--;
+        }
+        memcpy(rl.names[j + 1], key, RUN_NAMELEN);
+    }
+
+    console_print("runnable with run(\"name\"):\n");
+    for (int i = 0; i < rl.n; i++) {
+        console_print("  ");
+        console_print(rl.names[i]);
+        console_print("\n");
+    }
+    return 0;
+}
+
 // run(name [,arg]): dispatch by artifact type. An ELF is loaded and called in
 // ring 0 (returning its result); anything else is loaded and executed as a Lua
 // chunk (receiving `arg` as a vararg, returning its own values as before).
+// With no argument, list what can be run.
 static int l_run(lua_State* L)
 {
+    if (lua_isnoneornil(L, 1)) {
+        return l_run_list();
+    }
     const char* name = luaL_checkstring(L, 1);
     size_t size = 0;
     void* owned = NULL;
