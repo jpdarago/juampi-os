@@ -24,6 +24,7 @@
 #include <parallel.h>
 #include <acpi.h>
 #include <net.h>
+#include <tls.h>
 
 #include <printf/printf.h>
 
@@ -358,6 +359,10 @@ void kmain(void)
     // --- Networking: bring up the e1000 NIC and a minimal IPv4 stack
     // --- (Ethernet/ARP/IPv4/ICMP), exposed to Lua as `net` (net.ping).
     net_init();
+
+    // --- TLS: sanity-check the vendored BearSSL build (crypto runs freestanding).
+    console_print("juampiOS: bearssl ");
+    console_print(tls_selftest() ? "OK\n" : "FAILED\n");
 
     // --- Milestone 8: SMP. Bring up the application processors, then prove ---
     // real parallel execution: partition a big integer sum across all cores

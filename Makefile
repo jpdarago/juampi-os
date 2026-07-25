@@ -39,6 +39,7 @@ CFLAGS := -O2 -std=c11 -Werror -Wall -Wextra \
 	-Wjump-misses-init -Wlogical-op \
 	-nostdlib -fno-builtin -nostartfiles -fno-strict-aliasing \
 	-nodefaultlibs -fno-stack-protector -I$(INCLUDE_DIR) \
+	-I$(SRC_DIR)/bearssl/inc \
 	-mno-mmx -mno-3dnow \
 	-mno-red-zone -mcmodel=kernel -fno-pic -fno-pie \
 	-fno-omit-frame-pointer \
@@ -90,11 +91,20 @@ HL_OBJS  := $(OBJ_DIR)/highlight/highlight.o $(OBJ_DIR)/highlight/lua_keywords.o
 # like the other vendored code; the SSE4.2 fast path is #ifdef'd off in our build.
 HTTP_OBJS := $(OBJ_DIR)/http/picohttpparser.o
 
+# Vendored BearSSL (src/bearssl/): the TLS library for HTTPS. Its whole src/ tree
+# compiles freestanding (no malloc, no OS deps); built verbatim (-w) with its own
+# includes + the klibc <string.h>. sysrng.c (the /dev/urandom seeder) was dropped
+# — entropy is injected from RDRAND. Objects mirror the source tree under obj/.
+BEARSSL_DIR  := $(SRC_DIR)/bearssl
+BEARSSL_SRCS := $(shell find $(BEARSSL_DIR)/src -name '*.c' 2>/dev/null)
+BEARSSL_OBJS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(BEARSSL_SRCS))
+BEARSSL_INC  := -I$(BEARSSL_DIR)/inc -I$(BEARSSL_DIR)/src -I$(SRC_DIR)/lua/klibc
+
 COBJS      := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CSOURCES))
 ASMOBJS    := $(patsubst $(SRC_DIR)/%.S,$(OBJ_DIR)/%.o,$(ASMSOURCES))
 VENDOR_OBJS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(VENDOR_CSOURCES))
-OBJS       := $(COBJS) $(ASMOBJS) $(VENDOR_OBJS) $(LUA_OBJS) $(LUA_ASM_OBJ) $(HL_OBJS) $(HTTP_OBJS)
-DEPS       := $(COBJS:.o=.d) $(VENDOR_OBJS:.o=.d) $(LUA_OBJS:.o=.d) $(HL_OBJS:.o=.d) $(HTTP_OBJS:.o=.d)
+OBJS       := $(COBJS) $(ASMOBJS) $(VENDOR_OBJS) $(LUA_OBJS) $(LUA_ASM_OBJ) $(HL_OBJS) $(HTTP_OBJS) $(BEARSSL_OBJS)
+DEPS       := $(COBJS:.o=.d) $(VENDOR_OBJS:.o=.d) $(LUA_OBJS:.o=.d) $(HL_OBJS:.o=.d) $(HTTP_OBJS:.o=.d) $(BEARSSL_OBJS:.o=.d)
 
 KERNEL := kernel.bin
 
@@ -151,6 +161,11 @@ $(OBJ_DIR)/highlight/%.o: $(HL_DIR)/%.c | $(OBJ_DIR)
 $(OBJ_DIR)/http/%.o: $(SRC_DIR)/http/%.c | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w -I$(SRC_DIR)/lua/klibc $(CPPFLAGS) -c -o $@ $<
+
+# Vendored BearSSL: verbatim (-w) with its own includes; objects mirror the tree.
+$(OBJ_DIR)/bearssl/%.o: $(SRC_DIR)/bearssl/%.c | $(OBJ_DIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -w $(BEARSSL_INC) $(CPPFLAGS) -c -o $@ $<
 
 # Embedded Lua: Lua include path (klibc stubs win for <string.h> etc.), no warns.
 $(OBJ_DIR)/lua/%.o: $(SRC_DIR)/lua/%.c | $(OBJ_DIR)
