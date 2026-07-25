@@ -25,11 +25,21 @@ static uint8_t r_shift, g_shift, b_shift;
 // go straight to the framebuffer, as before.
 static uint32_t* back;
 
-// Start of scanline y in the current draw target: the back buffer if one is
-// active, otherwise the hardware framebuffer. Pixels within a row are
-// contiguous in both, so callers index [x] off the returned pointer.
+// Off-screen render target (a Lua canvas, gfx_target). When set, all drawing
+// goes to this tightly packed width*height buffer instead of the screen/back
+// buffer, with the module geometry swapped to the canvas so clipping matches.
+// The saved screen geometry is restored by gfx_target_reset.
+static uint32_t* target;
+static uint64_t save_w, save_h, save_pitch;
+
+// Start of scanline y in the current draw target: an off-screen canvas if one
+// is bound, else the back buffer if double-buffering, else the hardware
+// framebuffer. Rows are contiguous in all three, so callers index [x] off it.
 static inline uint32_t* row_of(uint64_t y)
 {
+    if (target != NULL) {
+        return target + y * width; // width == canvas width while targeted
+    }
     if (back != NULL) {
         return back + y * width;
     }
@@ -342,6 +352,67 @@ void gfx_snapshot_free(void)
     if (snap != NULL) {
         heap_free(heap_default(), snap);
         snap = NULL;
+    }
+}
+
+// --- Off-screen render target + raw blit (Lua canvas windows) ---------------
+
+void gfx_target(uint32_t* buf, uint64_t w, uint64_t h)
+{
+    if (fb == NULL || buf == NULL) {
+        return;
+    }
+    save_w = width;
+    save_h = height;
+    save_pitch = pitch;
+    target = buf;
+    width = w;
+    height = h;
+    pitch = w * 4;
+}
+
+void gfx_target_reset(void)
+{
+    if (target == NULL) {
+        return;
+    }
+    target = NULL;
+    width = save_w;
+    height = save_h;
+    pitch = save_pitch;
+}
+
+// Copy a native-layout width*height buffer into the current target at (x, y),
+// clipped to the current clip rect and the screen. Unlike gfx_blit this is a
+// straight pixel copy — no re-pack, no alpha keying — for painting a canvas
+// window whose pixels are already in framebuffer layout.
+void gfx_image(int64_t x, int64_t y, int64_t w, int64_t h, const uint32_t* buf)
+{
+    if (fb == NULL) {
+        return;
+    }
+    int64_t x0 = x < cl_x0 ? cl_x0 : x;
+    int64_t y0 = y < cl_y0 ? cl_y0 : y;
+    int64_t x1 = x + w > cl_x1 ? cl_x1 : x + w;
+    int64_t y1 = y + h > cl_y1 ? cl_y1 : y + h;
+    if (x0 < 0) {
+        x0 = 0;
+    }
+    if (y0 < 0) {
+        y0 = 0;
+    }
+    if (x1 > (int64_t)width) {
+        x1 = (int64_t)width;
+    }
+    if (y1 > (int64_t)height) {
+        y1 = (int64_t)height;
+    }
+    for (int64_t yy = y0; yy < y1; yy++) {
+        uint32_t* row = row_of((uint64_t)yy);
+        const uint32_t* src = buf + (uint64_t)(yy - y) * (uint64_t)w;
+        for (int64_t xx = x0; xx < x1; xx++) {
+            row[xx] = src[xx - x];
+        }
     }
 }
 

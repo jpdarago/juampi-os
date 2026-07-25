@@ -224,32 +224,37 @@ local function render(cpu, canvas, W, H, pitch, nc, rs, gs, bs)
     return hi - lo
 end
 
--- Wrapped so the windowed desktop suspends its compositor while the render owns
--- the raw framebuffer (ui.fullscreen); runs directly when there is no desktop.
-local function __render()
-if fb.width() == 0 then
+-- Render the scene into `canvas` (an fb.canvas() or a ui.canvas() buffer) at
+-- W*H with the given pitch/shifts, spread across every core; print timing.
+local function raytrace_into(canvas, W, H, pitch, rs, gs, bs)
+    local nc = thread.cores()
+    local t0 = k.ns()
+    local rows = thread.parallel(render, canvas, W, H, pitch, nc, rs, gs, bs)
+    local ms = (k.ns() - t0) / 1e6
+    local total = 0
+    for _, r in ipairs(rows) do total = total + r end
+    print(string.format("raytraced %dx%d on %d cores in %.0f ms", W, H, nc, ms))
+    print("RAYTRACER_OK")
+end
+
+local mode = ...
+
+if ui and ui.available and ui.available() and mode ~= "full" then
+    -- Windowed (default): render once into an off-screen canvas at a moderate
+    -- size, then show it in a window that coexists with the shell.
+    local W, H = 512, 384
+    local cv = ui.canvas(W, H)
+    local buf, pitch, rs, gs, bs = cv:mem()
+    raytrace_into(buf, W, H, pitch, rs, gs, bs)
+    ui.open("Raytracer", function() cv:show() end)
+elseif fb.width() == 0 then
     print("raytracer: no framebuffer")
-    return
-end
-
-local W, H = fb.width(), fb.height()
-local canvas = fb.canvas()
-local pitch = fb.pitch()
-local nc = thread.cores()
-local rs, gs, bs = fb.shifts()
-
-local t0 = k.ns()
-local rows = thread.parallel(render, canvas, W, H, pitch, nc, rs, gs, bs)
-local ms = (k.ns() - t0) / 1e6
-
-local total = 0
-for _, r in ipairs(rows) do total = total + r end
-print(string.format("raytraced %dx%d on %d cores in %.0f ms", W, H, nc, ms))
-print("RAYTRACER_OK")
-end
-
-if ui and ui.fullscreen then
-    ui.fullscreen(__render)
 else
-    __render()
+    -- Fullscreen showcase at the full display resolution: run("raytracer.lua",
+    -- "full"), or the only path when there is no desktop.
+    local function full()
+        raytrace_into(fb.canvas(), fb.width(), fb.height(), fb.pitch(),
+            fb.shifts())
+    end
+    if ui and ui.fullscreen then ui.fullscreen(full) else full() end
 end

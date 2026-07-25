@@ -112,6 +112,31 @@ mu_Context* ui_current(void)
 
 // --- rendering --------------------------------------------------------------
 
+// A custom microui command: blit a native-layout pixel buffer (a Lua canvas)
+// into a window. Pushed by ui_image(), handled in render().
+#define CMD_IMAGE (MU_COMMAND_MAX + 1)
+typedef struct {
+    mu_BaseCommand base;
+    const uint32_t* buf;
+    int w, h;
+    mu_Rect rect;
+} ImageCommand;
+
+void ui_image(mu_Context* ctx, const uint32_t* buf, int w, int h)
+{
+    mu_Container* cnt = mu_get_current_container(ctx);
+    if (cnt == NULL) {
+        return;
+    }
+    mu_Rect b = cnt->body;
+    ImageCommand* c = (ImageCommand*)mu_push_command(ctx, CMD_IMAGE,
+                                                     sizeof(ImageCommand));
+    c->buf = buf;
+    c->w = w;
+    c->h = h;
+    c->rect = mu_rect(b.x, b.y, w, h);
+}
+
 static uint32_t rgb(mu_Color c)
 {
     return ((uint32_t)c.r << 16) | ((uint32_t)c.g << 8) | (uint32_t)c.b;
@@ -165,6 +190,11 @@ static void render(mu_Context* ctx)
         case MU_COMMAND_CLIP: {
             mu_Rect r = cmd->clip.rect;
             gfx_clip(r.x, r.y, r.w, r.h);
+            break;
+        }
+        case CMD_IMAGE: {
+            ImageCommand* ic = (ImageCommand*)cmd;
+            gfx_image(ic->rect.x, ic->rect.y, ic->w, ic->h, ic->buf);
             break;
         }
         default:

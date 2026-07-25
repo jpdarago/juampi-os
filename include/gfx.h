@@ -49,6 +49,15 @@ void gfx_snapshot(void);
 void gfx_restore(void);
 void gfx_snapshot_free(void);
 
+// Redirect all drawing to an off-screen native-layout w*h buffer (a Lua
+// canvas): gfx_* then draw into `buf`, and gfx_width/height/pitch report the
+// canvas, so a demo renders into a window instead of the screen.
+// gfx_target_reset restores the screen geometry. gfx_image blits such a buffer
+// back into the current target (1:1, clip-aware) to paint the canvas window.
+void gfx_target(uint32_t* buf, uint64_t w, uint64_t h);
+void gfx_target_reset(void);
+void gfx_image(int64_t x, int64_t y, int64_t w, int64_t h, const uint32_t* buf);
+
 // Blit a width*height array of 0xAARRGGBB pixels with its top-left at (x, y).
 // Fully transparent pixels (alpha 0) are skipped, so images with a cut-out
 // background compose onto whatever is already on screen; any other alpha is

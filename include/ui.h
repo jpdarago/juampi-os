@@ -2,6 +2,7 @@
 #define __UI_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 // Graphical UI layer: renders the vendored microui (src/microui/) over the
 // shell framebuffer and drives it with the PS/2 mouse + keyboard. Popups run as
@@ -41,6 +42,11 @@ struct mu_Context* ui_current(void);
 // window and the flip) to build non-modal windows. lua_ui.c uses this to render
 // windows opened with ui.open(). Pass NULL to detach.
 void ui_set_window_hook(void (*fn)(struct mu_Context*));
+
+// Blit a native-layout w*h pixel buffer (a Lua canvas) into the current
+// window's body, 1:1. Valid only inside a window build callback. See ui.canvas
+// / cv:show.
+void ui_image(struct mu_Context* ctx, const uint32_t* buf, int w, int h);
 
 // Native convenience popups (used by the Lua `ui` library and help()).
 void ui_message(const char* title, const char* body); // scrollable text window

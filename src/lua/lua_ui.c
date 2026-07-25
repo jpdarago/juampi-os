@@ -13,11 +13,16 @@
 #include <ui.h>
 #include <gfx.h>
 #include <console.h>
+#include <memory.h>
 
 #include "lua.h"
 #include "lauxlib.h"
 
 #include "../microui/microui.h"
+
+// Expose a raw buffer as a Lua `mem` view (defined in lua_thread.c, also used by
+// fb.canvas). Lets a canvas feed thread.parallel for the raytracer.
+void mem_push_view(lua_State* L, void* ptr, size_t size);
 
 // The active microui context, or a Lua error if a widget is used outside a frame
 // (i.e. outside the function passed to ui.window).
@@ -340,6 +345,94 @@ static int l_fullscreen(lua_State* L)
     return 0;
 }
 
+// --- canvas: an off-screen pixel buffer shown in a window -------------------
+// ui.canvas(w,h) -> cv. Draw into it with cv:draw(fn) (fb.* redirected) or
+// cv:mem() (raw, for thread.parallel), then cv:show() inside a window build fn.
+
+#define CANVAS_MT "juampi.canvas"
+typedef struct {
+    uint32_t* buf;
+    int w, h;
+} LuaCanvas;
+
+static int l_canvas(lua_State* L)
+{
+    int w = (int)luaL_checkinteger(L, 1);
+    int h = (int)luaL_checkinteger(L, 2);
+    if (w < 1 || h < 1 || w > 4096 || h > 4096) {
+        return luaL_error(L, "ui.canvas: bad size");
+    }
+    LuaCanvas* cv = (LuaCanvas*)lua_newuserdatauv(L, sizeof(LuaCanvas), 0);
+    cv->w = w;
+    cv->h = h;
+    cv->buf = new (&heap_default()->base, uint32_t, (ptrdiff_t)w * h);
+    luaL_setmetatable(L, CANVAS_MT);
+    return 1;
+}
+
+static LuaCanvas* check_canvas(lua_State* L)
+{
+    return (LuaCanvas*)luaL_checkudata(L, 1, CANVAS_MT);
+}
+
+static int l_canvas_gc(lua_State* L)
+{
+    LuaCanvas* cv = (LuaCanvas*)luaL_checkudata(L, 1, CANVAS_MT);
+    if (cv->buf != NULL) {
+        heap_free(heap_default(), cv->buf);
+        cv->buf = NULL;
+    }
+    return 0;
+}
+
+// cv:mem() -> memview, pitch, rshift, gshift, bshift (for raw/parallel drawing).
+static int l_canvas_mem(lua_State* L)
+{
+    LuaCanvas* cv = check_canvas(L);
+    mem_push_view(L, cv->buf, (size_t)cv->w * (size_t)cv->h * 4);
+    lua_pushinteger(L, cv->w * 4);
+    uint8_t rs, gs, bs;
+    gfx_shifts(&rs, &gs, &bs);
+    lua_pushinteger(L, rs);
+    lua_pushinteger(L, gs);
+    lua_pushinteger(L, bs);
+    return 5;
+}
+
+// cv:draw(fn) — run fn with gfx (fb.*) redirected into the canvas.
+static int l_canvas_draw(lua_State* L)
+{
+    LuaCanvas* cv = check_canvas(L);
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    gfx_target(cv->buf, (uint64_t)cv->w, (uint64_t)cv->h);
+    lua_pushvalue(L, 2);
+    int st = lua_pcall(L, 0, 0, 0);
+    gfx_target_reset();
+    if (st != LUA_OK) {
+        return lua_error(L);
+    }
+    return 0;
+}
+
+// cv:show() — blit the canvas into the current window body (build fn only).
+static int l_canvas_show(lua_State* L)
+{
+    LuaCanvas* cv = check_canvas(L);
+    mu_Context* ctx = ui_current();
+    if (ctx == NULL) {
+        return luaL_error(L, "cv:show() called outside a window");
+    }
+    ui_image(ctx, cv->buf, cv->w, cv->h);
+    return 0;
+}
+
+static const luaL_Reg canvas_methods[] = {
+        {"mem", l_canvas_mem},
+        {"draw", l_canvas_draw},
+        {"show", l_canvas_show},
+        {NULL, NULL},
+};
+
 static const luaL_Reg uilib[] = {
         {"window", l_window},           {"open", l_open},
         {"close", l_close},             {"label", l_label},
@@ -349,7 +442,7 @@ static const luaL_Reg uilib[] = {
         {"slider", l_slider},           {"row", l_row},
         {"popup", l_popup},             {"alert", l_alert},
         {"confirm", l_confirm},         {"available", l_available},
-        {"fullscreen", l_fullscreen},
+        {"fullscreen", l_fullscreen},   {"canvas", l_canvas},
         {NULL, NULL},
 };
 
@@ -357,5 +450,14 @@ int luaopen_ui(lua_State* L)
 {
     luaL_newlib(L, uilib);
     ui_set_window_hook(build_windows); // desktop renders ui.open() windows
+
+    // Canvas metatable: __gc frees the buffer, __index holds the methods.
+    luaL_newmetatable(L, CANVAS_MT);
+    lua_pushcfunction(L, l_canvas_gc);
+    lua_setfield(L, -2, "__gc");
+    luaL_newlib(L, canvas_methods);
+    lua_setfield(L, -2, "__index");
+    lua_pop(L, 1);
+
     return 1;
 }

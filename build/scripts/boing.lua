@@ -1,33 +1,33 @@
 -- boing.lua: the Amiga "Boing Ball" — a red/white checkered sphere whose spin
--- axis is tilted to the side, turning about that axis as it bounces around the
--- classic magenta grid room. Unlike a flat checker scroll, the pattern is mapped
--- onto a real sphere: columns curve toward the poles and wrap around the back,
--- so it reads as a globe rotating, not a texture sliding.
+-- axis is tilted to the side, bouncing around the classic magenta grid room.
+-- The pattern is mapped onto a real sphere (columns curve toward the poles and
+-- wrap around the back), so it reads as a globe rotating, not a texture sliding.
 --
--- The trick that keeps it fast in the ring-0 interpreter: every visible pixel's
--- spherical coordinates and shading are constant frame to frame (only the spin
--- angle changes), so they are computed once up front. Each frame then just looks
--- up each pixel's longitude, adds the spin, picks red or white, and emits
--- run-length spans via fb.rect. A sampler/stress test for fb + double buffering.
--- Run with run("boing.lua"); it plays for a few seconds then returns.
-
--- Wrapped so the windowed desktop suspends its compositor while the demo owns
--- the raw framebuffer (ui.fullscreen); runs directly when there is no desktop.
-local function __demo()
-if fb.width() == 0 then
-    print("boing.lua: no framebuffer available")
-    return
-end
-
-local W, H = fb.width(), fb.height()
-local R = math.min(W, H) // 7          -- ball radius
-local RED, WHITE = 0xd42020, 0xe8e8e8
-local BG, GRID = 0x101018, 0x582c8c    -- dark wall, magenta grid
-local NLON, NLAT = 16, 9               -- checker divisions (longitude, latitude)
-local TILT = 0.42                      -- spin-axis lean, radians (~24 deg)
+-- On the windowed desktop it animates inside a "Boing Ball" window (one physics
+-- step + redraw per desktop frame, drawn into an off-screen ui.canvas that the
+-- compositor blits); with no desktop it plays full-screen for a few seconds.
 
 local floor, sqrt, sin, cos = math.floor, math.sqrt, math.sin, math.cos
 local atan, min, max = math.atan, math.min, math.max
+
+local RED, WHITE = 0xd42020, 0xe8e8e8
+local BG, GRID = 0x101018, 0x582c8c -- dark wall, magenta grid
+local NLON, NLAT = 16, 9            -- checker divisions (longitude, latitude)
+local TILT = 0.42                   -- spin-axis lean, radians (~24 deg)
+
+-- Render into a fixed-size canvas on the desktop, else the whole framebuffer.
+local windowed = ui and ui.available and ui.available()
+local W, H
+if windowed then
+    W, H = 520, 400
+else
+    if fb.width() == 0 then
+        print("boing.lua: no framebuffer available")
+        return
+    end
+    W, H = fb.width(), fb.height()
+end
+local R = min(W, H) // 7 -- ball radius
 
 -- Shade an RGB colour by factor f in [0,1].
 local function shade(rgb, f)
@@ -38,11 +38,10 @@ local function shade(rgb, f)
 end
 
 -- Precompute, for every pixel of the ball, its longitude on the sphere, the
--- parity of its latitude band, and the two possible shaded colours (red/white).
--- The spin axis is tilted by TILT in the screen plane, so the whole checker
--- leans over; per-pixel arrays are indexed by row.
+-- parity of its latitude band, and the two possible shaded colours. The spin
+-- axis is tilted by TILT in the screen plane, so the whole checker leans over.
 local sT, cT = sin(TILT), cos(TILT)
-local Lx, Ly, Lz = -0.5, -0.62, 0.6    -- light direction
+local Lx, Ly, Lz = -0.5, -0.62, 0.6 -- light direction
 local Llen = sqrt(Lx * Lx + Ly * Ly + Lz * Lz)
 Lx, Ly, Lz = Lx / Llen, Ly / Llen, Lz / Llen
 local KLON = NLON / (2 * math.pi)
@@ -58,12 +57,9 @@ for dy = -R, R do
         local nx = dx / R
         local s = 1 - nx * nx - ny * ny
         local nz = (s > 0) and sqrt(s) or 0
-        -- Tilted spin axis a = (sinT, cosT, 0): latitude from n . a, longitude
-        -- around a (with the view z as the other reference).
         local sinlat = nx * sT + ny * cT
         local lon = atan(nz, nx * cT - ny * sT)
         local lat_band = floor((sinlat + 1) * 0.5 * NLAT)
-        -- Lambert shading from the fixed surface normal.
         local d = nx * Lx + ny * Ly + nz * Lz
         local f = 0.30 + 0.70 * max(0, d)
         idx = idx + 1
@@ -112,44 +108,50 @@ local function oval(cx, cy, rx, ry, rgb)
     end
 end
 
+-- Mutable physics state, advanced one step per frame.
 local bx, by = W // 3, H // 3
-local vx, vy = 5, 4                     -- constant velocity (like the real Boing)
-local phi = 0                          -- spin angle
-local spin = 0.13                      -- spin per frame; reverses on a side wall
+local vx, vy = 4, 3 -- velocity
+local phi = 0       -- spin angle
+local spin = 0.10   -- spin per frame; reverses on a side wall
 
-fb.buffer(true)
-local stop = k.ns() + 14000000000 -- run ~14 seconds regardless of frame rate
-while k.ns() < stop do
-    local t = k.ns()
-    -- Backdrop: wall + grid.
+-- Draw one frame (backdrop + physics step + shadow + ball) into the current
+-- draw target (the canvas when windowed, the framebuffer otherwise).
+local function frame()
     fb.clear(BG)
     for gx = 0, W, 48 do fb.line(gx, 0, gx, H - 1, GRID) end
     for gy = 0, H, 48 do fb.line(0, gy, W - 1, gy, GRID) end
-    -- Physics: bounce inside the box; the spin reverses when it hits a side.
     bx, by = bx + vx, by + vy
     if bx < R then
         bx, vx, spin = R, -vx, -spin
     elseif bx > W - R then
         bx, vx, spin = W - R, -vx, -spin
     end
-    if by < R then by, vy = R, -vy elseif by > H - R then by, vy = H - R, -vy end
-    -- Shadow on the floor, then the ball.
+    if by < R then
+        by, vy = R, -vy
+    elseif by > H - R then
+        by, vy = H - R, -vy
+    end
     oval(bx, H - 14, R, R // 5, 0x0a0a12)
     draw_ball(bx, by, phi)
     phi = phi + spin
-    fb.flip()
-    -- Pace to ~40 fps. The per-pixel recolour makes frames heavier than the old
-    -- checker-scroll version; if a frame runs long, this simply does not wait.
-    local nxt = t + 25000000
-    while k.ns() < nxt do end
-end
-fb.buffer(false)
-
-print("boing.lua: done")
 end
 
-if ui and ui.fullscreen then
-    ui.fullscreen(__demo)
+if windowed then
+    local cv = ui.canvas(W, H)
+    ui.open("Boing Ball", function()
+        cv:draw(frame)
+        cv:show()
+    end)
 else
-    __demo()
+    fb.buffer(true)
+    local stop = k.ns() + 14000000000 -- ~14 seconds
+    while k.ns() < stop do
+        local t = k.ns()
+        frame()
+        fb.flip()
+        local nxt = t + 25000000 -- pace to ~40 fps
+        while k.ns() < nxt do end
+    end
+    fb.buffer(false)
+    print("boing.lua: done")
 end
