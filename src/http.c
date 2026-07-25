@@ -7,6 +7,7 @@
 
 #include <http.h>
 #include <net.h>
+#include <str.h>
 #include <utils.h> // memset
 
 #include <printf/printf.h> // snprintf (kernel provides the standard name)
@@ -16,39 +17,25 @@
 
 #include "http/picohttpparser.h"
 
-static char lower(char c)
+// Case-insensitive: does header `h`'s name equal `name`?
+static bool hdr_name_is(const struct phr_header* h, str name)
 {
-    return (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c;
-}
-
-// Case-insensitive: does header `h`'s name equal the NUL-terminated `name`?
-static bool hdr_name_is(const struct phr_header* h, const char* name)
-{
-    size_t i = 0;
-    for (; i < h->name_len && name[i]; i++) {
-        if (lower(h->name[i]) != lower(name[i])) {
-            return false;
-        }
-    }
-    return i == h->name_len && name[i] == '\0';
+    return str_eq_ci(str_span(h->name, h->name_len), name);
 }
 
 // Case-insensitive substring search of `needle` in header `h`'s value.
-static bool hdr_value_has(const struct phr_header* h, const char* needle)
+static bool hdr_value_has(const struct phr_header* h, str needle)
 {
-    size_t nl = 0;
-    while (needle[nl]) {
-        nl++;
+    if (needle.len == 0 || h->value_len < needle.len) {
+        return needle.len == 0;
     }
-    if (nl == 0 || h->value_len < nl) {
-        return nl == 0;
-    }
-    for (size_t i = 0; i + nl <= h->value_len; i++) {
+    for (size_t i = 0; i + needle.len <= h->value_len; i++) {
         size_t j = 0;
-        while (j < nl && lower(h->value[i + j]) == lower(needle[j])) {
+        while (j < needle.len &&
+               to_lower(h->value[i + j]) == to_lower(needle.data[j])) {
             j++;
         }
-        if (j == nl) {
+        if (j == needle.len) {
             return true;
         }
     }
@@ -64,37 +51,38 @@ int http_get(allocator* a, const char* url, char** out_body, int* out_len)
         *out_len = 0;
     }
 
-    // Require an http:// scheme.
-    const char* pre = "http://";
-    const char* p = url;
-    for (int i = 0; i < 7; i++) {
-        if (p[i] != pre[i]) {
-            return -1;
-        }
-    }
-    p += 7;
-
-    // host[:port]
-    char host[256];
-    int hn = 0;
-    while (*p && *p != ':' && *p != '/' && hn < (int)sizeof(host) - 1) {
-        host[hn++] = *p++;
-    }
-    host[hn] = '\0';
-    if (hn == 0) {
+    // Parse http://<authority>/<path> into host, port, and path.
+    str u = str_from(url);
+    if (!str_has_prefix(u, S("http://"))) {
         return -1;
     }
+    u = str_trim_prefix(u, S("http://"));
+
+    // Authority is everything up to the first '/'; the rest (kept off the '/')
+    // becomes the request path with the slash restored.
+    str authority, rest;
+    str_cut_ch(u, '/', &authority,
+               &rest); // on no '/', authority = u, rest = ""
+    char path[512];
+    path[0] = '/';
+    str_copy(path + 1, sizeof path - 1, rest);
+
+    // Authority is host[:port].
+    str host_v, port_v;
     uint16_t port = 80;
-    if (*p == ':') {
-        p++;
-        int v = 0;
-        while (*p >= '0' && *p <= '9') {
-            v = v * 10 + (*p - '0');
-            p++;
+    if (str_cut_ch(authority, ':', &host_v, &port_v)) {
+        uint32_t pv;
+        if (str_to_u32(port_v, &pv)) {
+            port = (uint16_t)pv;
         }
-        port = (uint16_t)v;
+    } else {
+        host_v = authority;
     }
-    const char* path = (*p == '/') ? p : "/";
+    if (host_v.len == 0) {
+        return -1;
+    }
+    char host[256];
+    str_copy(host, sizeof host, host_v);
 
     uint32_t host_ip;
     if (!net_resolve(host, 4000, &host_ip)) {
@@ -154,8 +142,8 @@ int http_get(allocator* a, const char* url, char** out_body, int* out_len)
     // (HTTP/1.1's default framing — used by example.com and most servers).
     bool chunked = false;
     for (size_t i = 0; i < nheaders; i++) {
-        if (hdr_name_is(&headers[i], "transfer-encoding") &&
-            hdr_value_has(&headers[i], "chunked")) {
+        if (hdr_name_is(&headers[i], S("transfer-encoding")) &&
+            hdr_value_has(&headers[i], S("chunked"))) {
             chunked = true;
             break;
         }
