@@ -36,9 +36,11 @@ char to_upper(char c);
 bool str_eq(str a, str b);
 bool str_eq_ci(str a, str b); // case-insensitive
 bool str_has_prefix(str s, str prefix);
+bool str_has_suffix(str s, str suffix);
 
-// Drop `prefix` from the front of `s` if present, else return `s` unchanged.
+// Drop `prefix`/`suffix` from `s` if present, else return `s` unchanged.
 str str_trim_prefix(str s, str prefix);
+str str_trim_suffix(str s, str suffix);
 
 // Split `s` around the first occurrence of the separator, like Go's
 // strings.Cut: on a match, *before/*after get the two sides (excluding the

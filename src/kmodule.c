@@ -1,5 +1,6 @@
 #include <kmodule.h>
 #include <limine.h>
+#include <str.h>
 
 #include <stdbool.h>
 
@@ -33,36 +34,11 @@ const void* kmodule_data(size_t i, size_t* size)
     }
     return f->address;
 }
-
-static size_t slen(const char* s)
-{
-    size_t n = 0;
-    while (s[n]) {
-        n++;
-    }
-    return n;
-}
-
-// True if `s` ends with `suffix`.
-static bool ends_with(const char* s, const char* suffix)
-{
-    size_t ls = slen(s), lf = slen(suffix);
-    if (lf > ls) {
-        return false;
-    }
-    s += ls - lf;
-    for (size_t i = 0; i < lf; i++) {
-        if (s[i] != suffix[i]) {
-            return false;
-        }
-    }
-    return true;
-}
-
 const void* kmodule_find(const char* name, size_t* size)
 {
     for (size_t i = 0; i < kmodule_count(); i++) {
-        if (ends_with(resp()->modules[i]->path, name)) {
+        if (str_has_suffix(str_from(resp()->modules[i]->path),
+                           str_from(name))) {
             return kmodule_data(i, size);
         }
     }

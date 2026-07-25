@@ -60,11 +60,33 @@ bool str_has_prefix(str s, str prefix)
     return true;
 }
 
+bool str_has_suffix(str s, str suffix)
+{
+    if (s.len < suffix.len) {
+        return false;
+    }
+    size_t off = s.len - suffix.len;
+    for (size_t i = 0; i < suffix.len; i++) {
+        if (s.data[off + i] != suffix.data[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
 str str_trim_prefix(str s, str prefix)
 {
     if (str_has_prefix(s, prefix)) {
         s.data += prefix.len;
         s.len -= prefix.len;
+    }
+    return s;
+}
+
+str str_trim_suffix(str s, str suffix)
+{
+    if (str_has_suffix(s, suffix)) {
+        s.len -= suffix.len;
     }
     return s;
 }

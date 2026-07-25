@@ -2,6 +2,7 @@
 #include <ata.h>
 #include <memory.h>
 #include <utils.h>
+#include <str.h>
 
 // ext2 read + write. On-disk layout is little-endian and x86-64 is too, so the
 // packed structs below map straight onto the bytes read from disk. Writes are
@@ -272,22 +273,12 @@ struct lookup {
     uint32_t found; // resolved inode, 0 until matched
 };
 
-static bool str_eq(const char* a, const char* b, uint32_t n)
-{
-    for (uint32_t i = 0; i < n; i++) {
-        if (a[i] != b[i]) {
-            return false;
-        }
-    }
-    return true;
-}
-
 static bool match_entry(void* ctx, uint32_t ino, uint8_t type, const char* name,
                         uint32_t namelen)
 {
     (void)type;
     struct lookup* l = ctx;
-    if (namelen == l->namelen && str_eq(name, l->name, namelen)) {
+    if (str_eq(str_span(name, namelen), str_span(l->name, l->namelen))) {
         l->found = ino;
         return true;
     }
@@ -793,8 +784,8 @@ static bool dir_remove(struct inode* dir, const char* name, uint32_t namelen)
             if (de->rec_len < 8) {
                 break;
             }
-            if (de->inode != 0 && de->name_len == namelen &&
-                str_eq(de->name, name, namelen)) {
+            if (de->inode != 0 && str_eq(str_span(de->name, de->name_len),
+                                         str_span(name, namelen))) {
                 if (have_prev) {
                     ((struct dirent*)(block + prev))->rec_len += de->rec_len;
                 } else {

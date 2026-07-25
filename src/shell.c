@@ -8,6 +8,7 @@
 #include <kmodule.h>
 #include <memory.h>
 #include <highlight.h>
+#include <str.h>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -53,15 +54,6 @@ static char history[HIST_MAX][LINE_MAX];
 static int hist_count; // number of stored entries (<= HIST_MAX)
 static int hist_next;  // ring index of the next slot to write
 
-static bool str_eq(const char* a, const char* b)
-{
-    while (*a && *a == *b) {
-        a++;
-        b++;
-    }
-    return *a == *b;
-}
-
 static void hist_add(const char* line)
 {
     if (line[0] == '\0') {
@@ -69,7 +61,7 @@ static void hist_add(const char* line)
     }
     if (hist_count > 0) {
         int last = (hist_next - 1 + HIST_MAX) % HIST_MAX;
-        if (str_eq(history[last], line)) {
+        if (str_eq(str_from(history[last]), str_from(line))) {
             return; // collapse immediate duplicates
         }
     }
@@ -291,7 +283,8 @@ static void shell_read_line(const char* prompt, char* buf, size_t max)
             }
             // A ";5" (Ctrl) or ";3" (Alt) parameter turns an arrow into word
             // motion, e.g. Ctrl-Right arrives as ESC [ 1 ; 5 C.
-            bool word = str_eq(params, "1;5") || str_eq(params, "1;3");
+            str p = str_from(params);
+            bool word = str_eq(p, S("1;5")) || str_eq(p, S("1;3"));
             switch (fin) {
             case 'A': // up: older history
                 if (hist_count > 0) {
@@ -335,13 +328,13 @@ static void shell_read_line(const char* prompt, char* buf, size_t max)
                 redraw(prompt, buf, n, cur);
                 break;
             case '~': // numbered nav: 1/7 home, 4/8 end, 3 delete-at-cursor
-                if (str_eq(params, "1") || str_eq(params, "7")) {
+                if (str_eq(p, S("1")) || str_eq(p, S("7"))) {
                     cur = 0;
                     redraw(prompt, buf, n, cur);
-                } else if (str_eq(params, "4") || str_eq(params, "8")) {
+                } else if (str_eq(p, S("4")) || str_eq(p, S("8"))) {
                     cur = n;
                     redraw(prompt, buf, n, cur);
-                } else if (str_eq(params, "3")) {
+                } else if (str_eq(p, S("3"))) {
                     if (cur < n) {
                         for (size_t i = cur; i + 1 < n; i++) {
                             buf[i] = buf[i + 1];

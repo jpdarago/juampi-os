@@ -8,6 +8,7 @@
 #include <e1000.h>
 #include <ktime.h>
 #include <utils.h>
+#include <str.h>
 #include <net_internal.h>
 
 #define ETH_ARP 0x0806
@@ -454,32 +455,27 @@ bool net_ready(void)
 
 bool net_aton(const char* s, uint32_t* out_ip)
 {
-    uint32_t parts[4] = {0, 0, 0, 0};
-    int idx = 0;
-    bool any = false;
-    for (const char* p = s;; p++) {
-        if (*p >= '0' && *p <= '9') {
-            parts[idx] = parts[idx] * 10 + (uint32_t)(*p - '0');
-            if (parts[idx] > 255) {
-                return false;
+    str rest = str_from(s);
+    uint32_t ip = 0;
+    for (int i = 0; i < 4; i++) {
+        str octet;
+        if (i < 3) {
+            if (!str_cut_ch(rest, '.', &octet, &rest)) {
+                return false; // fewer than 4 dotted parts
             }
-            any = true;
-        } else if (*p == '.') {
-            if (!any || idx == 3) {
-                return false;
-            }
-            idx++;
-            any = false;
-        } else if (*p == '\0') {
-            break;
         } else {
+            octet = rest; // last part is whatever remains (must be dot-free)
+        }
+        uint32_t v;
+        // 1..3 digits, all numeric, 0..255 — the length cap also rules out
+        // overflow before str_to_u32 runs.
+        if (octet.len == 0 || octet.len > 3 || !str_to_u32(octet, &v) ||
+            v > 255) {
             return false;
         }
+        ip = (ip << 8) | v;
     }
-    if (idx != 3 || !any) {
-        return false;
-    }
-    *out_ip = (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3];
+    *out_ip = ip;
     return true;
 }
 

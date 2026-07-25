@@ -5,6 +5,7 @@
 
 #include <dns.h>
 #include <net.h>
+#include <str.h>
 
 #include <stddef.h> // NULL
 
@@ -27,22 +28,16 @@ static int build_query(uint8_t* q, uint16_t id, const char* host)
     q[5] = 0x01; // qdcount = 1
     q[6] = q[7] = q[8] = q[9] = q[10] = q[11] = 0;
     int o = 12;
-    const char* p = host;
-    while (*p) {
-        int len = 0;
-        while (p[len] && p[len] != '.') {
-            len++;
-        }
-        if (len == 0 || len > 63 || o + 1 + len > 500) {
+    str rest = str_from(host);
+    while (rest.len > 0) {
+        str label;
+        str_cut_ch(rest, '.', &label, &rest); // no '.': label = rest, rest = ""
+        if (label.len == 0 || label.len > 63 || o + 1 + (int)label.len > 500) {
             return -1;
         }
-        q[o++] = (uint8_t)len;
-        for (int i = 0; i < len; i++) {
-            q[o++] = (uint8_t)p[i];
-        }
-        p += len;
-        if (*p == '.') {
-            p++;
+        q[o++] = (uint8_t)label.len;
+        for (size_t i = 0; i < label.len; i++) {
+            q[o++] = (uint8_t)label.data[i];
         }
     }
     q[o++] = 0;    // root label
