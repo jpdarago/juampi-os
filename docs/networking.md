@@ -15,17 +15,23 @@ created: 2026-07-20
 > names with DNS, and expose a `net.*` socket library to Lua — all testable under
 > QEMU with **zero host privileges**.
 
-> [!success] Status — **ICMP + UDP + TCP landed (M10)**. Implemented and tested
-> end to end: e1000 driver → Ethernet → ARP → IPv4 → {ICMP, UDP, TCP}, static
-> config, exposed to Lua as `net.*`:
+> [!success] Status — **ICMP + UDP + TCP + DHCP + DNS + HTTP landed (M10–M11)**.
+> End to end: e1000 driver → Ethernet → ARP → IPv4 → {ICMP, UDP, TCP}, dynamic
+> config, and application protocols, exposed to Lua as `net.*` / `http.*`:
 > - **ping** — `net.ping("10.0.2.2")` round-trips the SLIRP gateway (~0.1–0.9 ms).
 > - **UDP sockets** — `net.udp()` → `bind`/`sendto`/`recvfrom`/`close`.
-> - **TCP** — client `net.connect(ip, port)` (verified with an HTTP GET) *and*
->   server `net.listen(port)` + `:accept()`, then `send`/`recv`/`close`.
->   Stop-and-wait with retransmit; one connection per handle.
+> - **TCP** — client `net.connect(ip, port)` *and* server `net.listen(port)` +
+>   `:accept()`, then `send`/`recv`/`close`. Stop-and-wait with retransmit.
+> - **DHCP** — a DORA client (`src/dhcp.c`) runs at boot, leasing the address,
+>   gateway, and DNS server (static 10.0.2.15 fallback). Also `net.dhcp()`.
+> - **DNS** — `net.resolve("example.com")` (A records over UDP, with a public
+>   8.8.8.8 fallback when the DHCP resolver can't be reached).
+> - **HTTP** — `http.get("http://host[:port]/path")` → status, body (vendored
+>   picohttpparser; reads to EOF and de-chunks).
 >
-> Gated by `tests/{net,udp,tcp}-smoke.sh` in `make test`. **DHCP/DNS deliberately
-> skipped** (static config; the host resolver isn't needed) — see §10.
+> Gated by `tests/{net,udp,tcp}-smoke.sh` in `make test`; DHCP runs on every
+> boot, and DNS/HTTP are verified against real hosts through SLIRP's NAT.
+> **HTTPS via BearSSL is the next round** (small curated CA trust set).
 >
 > **What shipped vs. the original plan:** flat `src/` files (matching the repo's
 > convention) rather than a `src/net/` tree. The stack is split by layer:
