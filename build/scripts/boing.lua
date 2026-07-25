@@ -110,12 +110,13 @@ local function oval(cx, cy, rx, ry, rgb)
 end
 
 local bx, by = W // 3, H // 3
-local vx, vy = 7, 5                     -- constant velocity (like the real Boing)
+local vx, vy = 5, 4                     -- constant velocity (like the real Boing)
 local phi = 0                          -- spin angle
-local spin = 0.16                      -- spin per frame; reverses on a side wall
+local spin = 0.13                      -- spin per frame; reverses on a side wall
 
 fb.buffer(true)
-for _ = 1, 420 do
+local stop = k.ns() + 14000000000 -- run ~14 seconds regardless of frame rate
+while k.ns() < stop do
     local t = k.ns()
     -- Backdrop: wall + grid.
     fb.clear(BG)
