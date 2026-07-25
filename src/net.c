@@ -244,14 +244,12 @@ static bool arp_resolve(uint32_t ip, uint8_t out[6], uint32_t timeout_ms)
 
 // --- IPv4 output ------------------------------------------------------------
 
-bool ip_send(uint32_t dst, uint8_t proto, const void* l4, uint16_t l4len)
+// Build one IPv4 datagram (src/dst in host byte order) and hand it to eth_send
+// with the given L2 destination. Shared by the unicast (ARP-resolved) and
+// broadcast paths.
+static bool ip_emit(const uint8_t dmac[6], uint32_t src, uint32_t dst,
+                    uint8_t proto, const void* l4, uint16_t l4len)
 {
-    uint32_t nexthop = ((dst & my_mask) == (my_ip & my_mask)) ? dst : my_gw;
-    uint8_t dmac[6];
-    if (!arp_resolve(nexthop, dmac, 1000)) {
-        return false;
-    }
-
     static uint8_t pkt[1600];
     ip_hdr* ip = (ip_hdr*)pkt;
     ip->ver_ihl = 0x45;
@@ -262,11 +260,28 @@ bool ip_send(uint32_t dst, uint8_t proto, const void* l4, uint16_t l4len)
     ip->ttl = 64;
     ip->proto = proto;
     ip->csum = 0;
-    ip->src = htonl(my_ip);
+    ip->src = htonl(src);
     ip->dst = htonl(dst);
     ip->csum = inet_csum(ip, sizeof(ip_hdr));
     memcpy(pkt + sizeof(ip_hdr), l4, l4len);
     return eth_send(dmac, ETH_IP, pkt, (uint16_t)(sizeof(ip_hdr) + l4len));
+}
+
+bool ip_send(uint32_t dst, uint8_t proto, const void* l4, uint16_t l4len)
+{
+    uint32_t nexthop = ((dst & my_mask) == (my_ip & my_mask)) ? dst : my_gw;
+    uint8_t dmac[6];
+    if (!arp_resolve(nexthop, dmac, 1000)) {
+        return false;
+    }
+    return ip_emit(dmac, my_ip, dst, proto, l4, l4len);
+}
+
+// Broadcast an IPv4 datagram to 255.255.255.255 with the given source (0.0.0.0
+// during DHCP, before a lease exists) — straight to the broadcast MAC, no ARP.
+bool ip_send_bcast(uint32_t src, uint8_t proto, const void* l4, uint16_t l4len)
+{
+    return ip_emit(bcast_mac, src, 0xFFFFFFFFu, proto, l4, l4len);
 }
 
 // --- ICMP -------------------------------------------------------------------
@@ -321,8 +336,9 @@ static void ip_input(const uint8_t* data, uint16_t len)
         return;
     }
     uint32_t dst = ntohl(ip->dst);
-    if (dst != my_ip) {
-        return; // not for us (we don't accept broadcast IP yet)
+    if (dst != my_ip && dst != 0xFFFFFFFFu) {
+        return; // not for us (accept our unicast + limited broadcast, e.g.
+                // DHCP)
     }
     uint16_t tot = ntohs(ip->tot_len);
     if (tot > len || tot < ihl) {
@@ -493,10 +509,15 @@ void net_init(void)
         return;
     }
     e1000_mac(my_mac);
-    // QEMU user-mode networking defaults: 10.0.2.15/24 via 10.0.2.2.
-    net_config((10u << 24) | (0u << 16) | (2u << 8) | 15u, 0xFFFFFF00u,
-               (10u << 24) | (0u << 16) | (2u << 8) | 2u);
-    ready = true;
+    ready = true; // the poll pump + UDP must work during the DHCP exchange
+
+    // Prefer a DHCP lease; fall back to QEMU user-mode defaults (10.0.2.15/24
+    // via 10.0.2.2) if no server answers.
+    if (!net_dhcp(4000)) {
+        net_config((10u << 24) | (0u << 16) | (2u << 8) | 15u, 0xFFFFFF00u,
+                   (10u << 24) | (0u << 16) | (2u << 8) | 2u);
+        console_print("juampiOS: net DHCP failed, static 10.0.2.15\n");
+    }
 
     static const char hexd[] = "0123456789abcdef";
     char macs[18];

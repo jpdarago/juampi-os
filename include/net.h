@@ -41,4 +41,8 @@ void net_ntoa(uint32_t ip, char* buf); // buf must hold >= 16 bytes
 #include <udp.h>
 #include <tcp.h>
 
+// Configuration + application helpers built on the transports.
+#include <dhcp.h> // DHCP client (net_dhcp, net_dns_server)
+#include <dns.h>  // hostname resolver (net_resolve)
+
 #endif

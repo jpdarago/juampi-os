@@ -40,6 +40,11 @@ uint16_t csum_fold(uint32_t sum);
 // wire. Defined in net.c.
 bool ip_send(uint32_t dst, uint8_t proto, const void* l4, uint16_t l4len);
 
+// Broadcast an L4 payload to 255.255.255.255 with source `src` (0.0.0.0 before
+// a lease). No ARP; goes straight to the broadcast MAC. Used by the DHCP
+// client. Defined in net.c.
+bool ip_send_bcast(uint32_t src, uint8_t proto, const void* l4, uint16_t l4len);
+
 // (Our IPv4 address for pseudo-header checksums comes from net_ip() in net.h.)
 
 // Allocate the next ephemeral local port (49152..65535, wrapping). Defined in

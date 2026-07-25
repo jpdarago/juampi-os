@@ -89,6 +89,43 @@ static int l_ping(lua_State* L)
     return 1;
 }
 
+// net.resolve(host [, timeout_ms=4000]) -> "a.b.c.d" | nil,err
+static int l_resolve(lua_State* L)
+{
+    const char* host = luaL_checkstring(L, 1);
+    lua_Integer timeout = luaL_optinteger(L, 2, 4000);
+    if (timeout < 1) {
+        timeout = 1;
+    }
+    uint32_t ip;
+    if (!net_resolve(host, (uint32_t)timeout, &ip)) {
+        lua_pushnil(L);
+        lua_pushfstring(L, "could not resolve %s", host);
+        return 2;
+    }
+    char buf[16];
+    net_ntoa(ip, buf);
+    lua_pushstring(L, buf);
+    return 1;
+}
+
+// net.dhcp([timeout_ms=4000]) -> "a.b.c.d" (leased address) | nil
+static int l_dhcp(lua_State* L)
+{
+    lua_Integer timeout = luaL_optinteger(L, 1, 4000);
+    if (timeout < 1) {
+        timeout = 1;
+    }
+    if (!net_dhcp((uint32_t)timeout)) {
+        lua_pushnil(L);
+        return 1;
+    }
+    char buf[16];
+    net_ntoa(net_ip(), buf);
+    lua_pushstring(L, buf);
+    return 1;
+}
+
 // --- UDP sockets ------------------------------------------------------------
 // net.udp() returns a socket object; the handle is stored in a userdata so a
 // __gc can release it if the script drops the reference without closing.
@@ -319,7 +356,8 @@ static const luaL_Reg tcp_methods[] = {
 static const luaL_Reg netlib[] = {
         {"ready", l_ready},     {"ip", l_ip},         {"mac", l_mac},
         {"config", l_config},   {"ping", l_ping},     {"udp", l_udp},
-        {"connect", l_connect}, {"listen", l_listen}, {NULL, NULL},
+        {"connect", l_connect}, {"listen", l_listen}, {"resolve", l_resolve},
+        {"dhcp", l_dhcp},       {NULL, NULL},
 };
 
 // Register a metatable for an object type: a method table under __index and a
