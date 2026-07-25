@@ -7,6 +7,7 @@
 
 #include <http.h>
 #include <net.h>
+#include <tls.h>
 #include <str.h>
 #include <utils.h> // memset
 
@@ -51,12 +52,18 @@ int http_get(allocator* a, const char* url, char** out_body, int* out_len)
         *out_len = 0;
     }
 
-    // Parse http://<authority>/<path> into host, port, and path.
+    // Parse [http|https]://<authority>/<path> into host, port, and path.
     str u = str_from(url);
-    if (!str_has_prefix(u, S("http://"))) {
+    bool https;
+    if (str_has_prefix(u, S("https://"))) {
+        https = true;
+        u = str_trim_prefix(u, S("https://"));
+    } else if (str_has_prefix(u, S("http://"))) {
+        https = false;
+        u = str_trim_prefix(u, S("http://"));
+    } else {
         return -1;
     }
-    u = str_trim_prefix(u, S("http://"));
 
     // Authority is everything up to the first '/'; the rest (kept off the '/')
     // becomes the request path with the slash restored.
@@ -69,7 +76,7 @@ int http_get(allocator* a, const char* url, char** out_body, int* out_len)
 
     // Authority is host[:port].
     str host_v, port_v;
-    uint16_t port = 80;
+    uint16_t port = https ? 443 : 80;
     if (str_cut_ch(authority, ':', &host_v, &port_v)) {
         uint32_t pv;
         if (str_to_u32(port_v, &pv)) {
@@ -88,9 +95,20 @@ int http_get(allocator* a, const char* url, char** out_body, int* out_len)
     if (!net_resolve(host, 4000, &host_ip)) {
         return -2;
     }
-    int conn = net_tcp_connect(host_ip, port, 5000);
-    if (conn < 0) {
-        return -3;
+    // Transport: TLS for https:// (validated against the curated CA set), plain
+    // TCP otherwise. Both are driven through the same send/recv below.
+    tls_conn* tls = NULL;
+    int conn = -1;
+    if (https) {
+        tls = tls_connect(a, host_ip, port, host);
+        if (tls == NULL) {
+            return -3;
+        }
+    } else {
+        conn = net_tcp_connect(host_ip, port, 5000);
+        if (conn < 0) {
+            return -3;
+        }
     }
 
     char req[600];
@@ -101,7 +119,17 @@ int http_get(allocator* a, const char* url, char** out_body, int* out_len)
                       "Accept: */*\r\n"
                       "Connection: close\r\n\r\n",
                       path, host);
-    net_tcp_send(conn, req, (uint32_t)rn);
+    int sent = https ? tls_send(tls, req, rn)
+                     : net_tcp_send(conn, req, (uint32_t)rn);
+    if (sent < 0) {
+        // e.g. the TLS handshake or certificate validation failed.
+        if (https) {
+            tls_close(tls);
+        } else {
+            net_tcp_close(conn);
+        }
+        return -3;
+    }
 
     // Response buffer comes from the caller's allocator (no static state), so
     // concurrent callers with their own arenas/heaps don't collide.
@@ -110,14 +138,19 @@ int http_get(allocator* a, const char* url, char** out_body, int* out_len)
     // Read until the server closes (EOF) or we run out of buffer.
     int total = 0;
     while (total < HTTP_RECV_MAX) {
-        int r = net_tcp_recv(conn, recvbuf + total,
-                             (uint32_t)(HTTP_RECV_MAX - total), 8000);
+        int r = https ? tls_recv(tls, recvbuf + total, HTTP_RECV_MAX - total)
+                      : net_tcp_recv(conn, recvbuf + total,
+                                     (uint32_t)(HTTP_RECV_MAX - total), 8000);
         if (r <= 0) {
-            break; // 0 = clean EOF, -1 = timeout
+            break; // 0 = clean EOF, -1 = timeout/error
         }
         total += r;
     }
-    net_tcp_close(conn);
+    if (https) {
+        tls_close(tls);
+    } else {
+        net_tcp_close(conn);
+    }
     if (total <= 0) {
         return -4;
     }

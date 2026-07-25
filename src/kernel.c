@@ -360,7 +360,8 @@ void kmain(void)
     // --- (Ethernet/ARP/IPv4/ICMP), exposed to Lua as `net` (net.ping).
     net_init();
 
-    // --- TLS: sanity-check the vendored BearSSL build (crypto runs freestanding).
+    // --- TLS: sanity-check the vendored BearSSL build (crypto runs
+    // freestanding).
     console_print("juampiOS: bearssl ");
     console_print(tls_selftest() ? "OK\n" : "FAILED\n");
 

@@ -14,10 +14,10 @@ static int l_get(lua_State* L)
     const char* url = luaL_checkstring(L, 1);
 
     // Per-call scratch carved from the kernel heap and wrapped in an arena for
-    // http_get's response buffer — nothing static, so this stays reentrant / safe
-    // if the caller ever runs off the BSP. Freed once the body is copied into a
-    // Lua string. The slack covers the arena's own alignment rounding.
-    ptrdiff_t sz = HTTP_RECV_MAX + 4096;
+    // http_get's response buffer (and, for https, the ~tens-of-KB BearSSL TLS
+    // context) — nothing static, so this stays reentrant / safe if the caller
+    // ever runs off the BSP. Freed once the body is copied into a Lua string.
+    ptrdiff_t sz = HTTP_RECV_MAX + 128 * 1024;
     void* mem = alloc(&heap_default()->base, sz, 16, 1);
     arena scratch = arena_init(mem, sz);
 

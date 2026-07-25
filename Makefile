@@ -167,6 +167,11 @@ $(OBJ_DIR)/bearssl/%.o: $(SRC_DIR)/bearssl/%.c | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w $(BEARSSL_INC) $(CPPFLAGS) -c -o $@ $<
 
+# Generated TLS trust-anchor table: -w (its initialisers cast away const). An
+# explicit target so it overrides the generic src/%.o gauntlet rule.
+$(OBJ_DIR)/tls_trust_anchors.o: $(SRC_DIR)/tls_trust_anchors.c | $(OBJ_DIR)
+	$(CC) $(CFLAGS) -w $(CPPFLAGS) -c -o $@ $<
+
 # Embedded Lua: Lua include path (klibc stubs win for <string.h> etc.), no warns.
 $(OBJ_DIR)/lua/%.o: $(SRC_DIR)/lua/%.c | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
