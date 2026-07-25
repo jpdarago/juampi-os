@@ -26,6 +26,6 @@ int net_udp_recvfrom(int sock, uint32_t timeout_ms, void* buf, uint16_t cap,
                      uint32_t* src_ip, uint16_t* src_port);
 
 // Receive entry point, dispatched from ip_input() in net.c. Internal.
-void udp_input(uint32_t src, const uint8_t* data, uint16_t len);
+void udp_input(uint32_t src_ip, const uint8_t* data, uint16_t len);
 
 #endif

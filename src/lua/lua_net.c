@@ -57,13 +57,13 @@ static int l_mac(lua_State* L)
 // net.config(ip, mask, gateway) — all dotted-quad strings.
 static int l_config(lua_State* L)
 {
-    uint32_t ip, mask, gw;
+    uint32_t ip, mask, gateway_ip;
     if (!net_aton(luaL_checkstring(L, 1), &ip) ||
         !net_aton(luaL_checkstring(L, 2), &mask) ||
-        !net_aton(luaL_checkstring(L, 3), &gw)) {
+        !net_aton(luaL_checkstring(L, 3), &gateway_ip)) {
         return luaL_error(L, "net.config: bad address");
     }
-    net_config(ip, mask, gw);
+    net_config(ip, mask, gateway_ip);
     lua_pushboolean(L, 1);
     return 1;
 }
@@ -76,12 +76,12 @@ static int l_ping(lua_State* L)
     if (timeout < 1) {
         timeout = 1;
     }
-    uint32_t dst;
-    if (!net_aton(host, &dst)) {
+    uint32_t dst_ip;
+    if (!net_aton(host, &dst_ip)) {
         return luaL_error(L, "net.ping: expected a dotted-quad IP");
     }
     uint64_t rtt_us = 0;
-    if (!net_ping(dst, (uint32_t)timeout, &rtt_us)) {
+    if (!net_ping(dst_ip, (uint32_t)timeout, &rtt_us)) {
         lua_pushnil(L);
         return 1;
     }
@@ -171,15 +171,15 @@ static int l_udp_bind(lua_State* L)
 static int l_udp_sendto(lua_State* L)
 {
     int* ud = check_udp(L);
-    uint32_t dst;
-    if (!net_aton(luaL_checkstring(L, 2), &dst)) {
+    uint32_t dst_ip;
+    if (!net_aton(luaL_checkstring(L, 2), &dst_ip)) {
         return luaL_error(L, "sendto: expected a dotted-quad IP");
     }
     lua_Integer port = luaL_checkinteger(L, 3);
     size_t len;
     const char* data = luaL_checklstring(L, 4, &len);
     if (*ud < 0 ||
-        !net_udp_sendto(*ud, dst, (uint16_t)port, data, (uint16_t)len)) {
+        !net_udp_sendto(*ud, dst_ip, (uint16_t)port, data, (uint16_t)len)) {
         lua_pushnil(L);
         lua_pushstring(L, "send failed");
         return 2;
@@ -245,13 +245,13 @@ static int* check_tcp(lua_State* L)
 // net.connect(ip, port [, timeout_ms=5000]) -> conn | nil, err
 static int l_connect(lua_State* L)
 {
-    uint32_t dst;
-    if (!net_aton(luaL_checkstring(L, 1), &dst)) {
+    uint32_t dst_ip;
+    if (!net_aton(luaL_checkstring(L, 1), &dst_ip)) {
         return luaL_error(L, "connect: expected a dotted-quad IP");
     }
     lua_Integer port = luaL_checkinteger(L, 2);
     lua_Integer timeout = luaL_optinteger(L, 3, 5000);
-    int id = net_tcp_connect(dst, (uint16_t)port, (uint32_t)timeout);
+    int id = net_tcp_connect(dst_ip, (uint16_t)port, (uint32_t)timeout);
     if (id < 0) {
         lua_pushnil(L);
         lua_pushstring(L, "connect failed");

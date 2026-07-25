@@ -203,21 +203,22 @@ bool net_dhcp(uint32_t timeout_ms)
         return false;
     }
 
-    uint32_t yi = 0, mask = 0, gw = 0, dns = 0, sid = 0;
+    uint32_t lease_ip = 0, mask = 0, gateway_ip = 0, dns_ip = 0, server_ip = 0;
     bool ok = exchange(sock, mac, xid, DHCP_DISCOVER, DHCP_OFFER, 0, 0, slot,
-                       &yi, &mask, &gw, &dns, &sid);
+                       &lease_ip, &mask, &gateway_ip, &dns_ip, &server_ip);
     if (ok) {
-        uint32_t ayi = 0, amask = 0, agw = 0, adns = 0, asid = 0;
-        ok = exchange(sock, mac, xid, DHCP_REQUEST, DHCP_ACK, yi, sid, slot,
-                      &ayi, &amask, &agw, &adns, &asid);
+        uint32_t ack_ip = 0, ack_mask = 0, ack_gw = 0, ack_dns = 0, ack_sid = 0;
+        ok = exchange(sock, mac, xid, DHCP_REQUEST, DHCP_ACK, lease_ip,
+                      server_ip, slot, &ack_ip, &ack_mask, &ack_gw, &ack_dns,
+                      &ack_sid);
         if (ok) {
-            yi = ayi;
-            if (amask)
-                mask = amask;
-            if (agw)
-                gw = agw;
-            if (adns)
-                dns = adns;
+            lease_ip = ack_ip;
+            if (ack_mask)
+                mask = ack_mask;
+            if (ack_gw)
+                gateway_ip = ack_gw;
+            if (ack_dns)
+                dns_ip = ack_dns;
         }
     }
     net_udp_close(sock);
@@ -228,12 +229,12 @@ bool net_dhcp(uint32_t timeout_ms)
     if (mask == 0) {
         mask = 0xFFFFFF00u;
     }
-    net_config(yi, mask, gw);
-    g_dns = dns;
+    net_config(lease_ip, mask, gateway_ip);
+    g_dns = dns_ip;
 
     char ips[16], gws[16], dnss[16];
-    net_ntoa(yi, ips);
-    net_ntoa(gw, gws);
+    net_ntoa(lease_ip, ips);
+    net_ntoa(gateway_ip, gws);
     net_ntoa(net_dns_server(), dnss);
     console_print("juampiOS: net DHCP lease ");
     console_print(ips);

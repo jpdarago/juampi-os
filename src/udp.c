@@ -41,7 +41,7 @@ static udp_socket udp_socks[UDP_SOCKETS];
 
 // UDP checksum over the IPv4 pseudo-header + segment. A computed 0 is sent as
 // 0xFFFF, since 0 on the wire means "no checksum".
-static uint16_t udp_checksum(uint32_t src, uint32_t dst, const void* seg,
+static uint16_t udp_checksum(uint32_t src_ip, uint32_t dst_ip, const void* seg,
                              uint16_t seglen)
 {
     struct __attribute__((packed)) {
@@ -50,8 +50,8 @@ static uint16_t udp_checksum(uint32_t src, uint32_t dst, const void* seg,
         uint16_t len;
     } ph;
     memset(&ph, 0, sizeof(ph));
-    ph.src = htonl(src);
-    ph.dst = htonl(dst);
+    ph.src = htonl(src_ip);
+    ph.dst = htonl(dst_ip);
     ph.proto = IP_PROTO_UDP;
     ph.len = htons(seglen);
     uint32_t sum = csum_add(0, &ph, sizeof(ph));
@@ -78,7 +78,7 @@ static bool udp_output(uint16_t sport, uint32_t dst_ip, uint16_t dport,
     return ip_send(dst_ip, IP_PROTO_UDP, seg, seglen);
 }
 
-void udp_input(uint32_t src, const uint8_t* data, uint16_t len)
+void udp_input(uint32_t src_ip, const uint8_t* data, uint16_t len)
 {
     if (len < sizeof(udp_hdr)) {
         return;
@@ -101,7 +101,7 @@ void udp_input(uint32_t src, const uint8_t* data, uint16_t len)
             return; // queue full — drop (UDP is lossy by design)
         }
         udp_dgram* d = &s->q[(s->head + s->count) % UDP_QUEUE];
-        d->src_ip = src;
+        d->src_ip = src_ip;
         d->src_port = ntohs(u->sport);
         d->len = plen > UDP_MSG_MAX ? UDP_MSG_MAX : plen;
         memcpy(d->data, payload, d->len);

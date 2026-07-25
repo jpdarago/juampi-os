@@ -29,7 +29,7 @@ int net_tcp_recv(int conn, void* buf, uint32_t cap, uint32_t timeout_ms);
 void net_tcp_close(int conn);
 
 // Dispatched from ip_input() and net_poll() in net.c. Internal.
-void tcp_input(uint32_t src, const uint8_t* data, uint16_t len);
+void tcp_input(uint32_t src_ip, const uint8_t* data, uint16_t len);
 void tcp_tick(void);
 
 #endif

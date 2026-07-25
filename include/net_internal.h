@@ -35,15 +35,16 @@ static inline uint32_t ntohl(uint32_t x)
 uint32_t csum_add(uint32_t sum, const void* data, uint32_t len);
 uint16_t csum_fold(uint32_t sum);
 
-// Send an L4 payload as one IPv4 datagram to `dst` (host byte order), resolving
-// the next hop via ARP. Returns false if unreachable or not confirmed on the
-// wire. Defined in net.c.
-bool ip_send(uint32_t dst, uint8_t proto, const void* l4, uint16_t l4len);
+// Send an L4 payload as one IPv4 datagram to `dst_ip` (host byte order),
+// resolving the next hop via ARP. Returns false if unreachable or not confirmed
+// on the wire. Defined in net.c.
+bool ip_send(uint32_t dst_ip, uint8_t proto, const void* l4, uint16_t l4len);
 
-// Broadcast an L4 payload to 255.255.255.255 with source `src` (0.0.0.0 before
-// a lease). No ARP; goes straight to the broadcast MAC. Used by the DHCP
+// Broadcast an L4 payload to 255.255.255.255 with source `src_ip` (0.0.0.0
+// before a lease). No ARP; goes straight to the broadcast MAC. Used by the DHCP
 // client. Defined in net.c.
-bool ip_send_bcast(uint32_t src, uint8_t proto, const void* l4, uint16_t l4len);
+bool ip_send_bcast(uint32_t src_ip, uint8_t proto, const void* l4,
+                   uint16_t l4len);
 
 // (Our IPv4 address for pseudo-header checksums comes from net_ip() in net.h.)
 

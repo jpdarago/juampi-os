@@ -177,7 +177,7 @@ static bool eth_send(const uint8_t dst[6], uint16_t ethertype, const void* l3,
     return e1000_tx(frame, (uint16_t)(sizeof(eth_hdr) + l3len));
 }
 
-static void arp_send_request(uint32_t target)
+static void arp_send_request(uint32_t target_ip)
 {
     arp_pkt a;
     a.htype = htons(1);
@@ -188,7 +188,7 @@ static void arp_send_request(uint32_t target)
     memcpy(a.sha, my_mac, 6);
     ip_to_bytes(my_ip, a.spa);
     memset(a.tha, 0, 6);
-    ip_to_bytes(target, a.tpa);
+    ip_to_bytes(target_ip, a.tpa);
     eth_send(bcast_mac, ETH_ARP, &a, sizeof(a));
 }
 
@@ -201,11 +201,11 @@ static void arp_input(const uint8_t* data, uint16_t len)
     if (ntohs(a->ptype) != ETH_IP || a->plen != 4) {
         return;
     }
-    uint32_t spa = bytes_to_ip(a->spa);
-    uint32_t tpa = bytes_to_ip(a->tpa);
-    arp_insert(spa, a->sha); // learn the sender either way
+    uint32_t sender_ip = bytes_to_ip(a->spa);
+    uint32_t target_ip = bytes_to_ip(a->tpa);
+    arp_insert(sender_ip, a->sha); // learn the sender either way
 
-    if (ntohs(a->oper) == 1 && tpa == my_ip) { // request for us -> reply
+    if (ntohs(a->oper) == 1 && target_ip == my_ip) { // request for us -> reply
         arp_pkt r;
         r.htype = htons(1);
         r.ptype = htons(ETH_IP);
@@ -215,7 +215,7 @@ static void arp_input(const uint8_t* data, uint16_t len)
         memcpy(r.sha, my_mac, 6);
         ip_to_bytes(my_ip, r.spa);
         memcpy(r.tha, a->sha, 6);
-        ip_to_bytes(spa, r.tpa);
+        ip_to_bytes(sender_ip, r.tpa);
         eth_send(a->sha, ETH_ARP, &r, sizeof(r));
     }
 }
@@ -244,10 +244,10 @@ static bool arp_resolve(uint32_t ip, uint8_t out[6], uint32_t timeout_ms)
 
 // --- IPv4 output ------------------------------------------------------------
 
-// Build one IPv4 datagram (src/dst in host byte order) and hand it to eth_send
-// with the given L2 destination. Shared by the unicast (ARP-resolved) and
-// broadcast paths.
-static bool ip_emit(const uint8_t dmac[6], uint32_t src, uint32_t dst,
+// Build one IPv4 datagram (src_ip/dst_ip in host byte order) and hand it to
+// eth_send with the given L2 destination. Shared by the unicast (ARP-resolved)
+// and broadcast paths.
+static bool ip_emit(const uint8_t dmac[6], uint32_t src_ip, uint32_t dst_ip,
                     uint8_t proto, const void* l4, uint16_t l4len)
 {
     static uint8_t pkt[1600];
@@ -260,28 +260,30 @@ static bool ip_emit(const uint8_t dmac[6], uint32_t src, uint32_t dst,
     ip->ttl = 64;
     ip->proto = proto;
     ip->csum = 0;
-    ip->src = htonl(src);
-    ip->dst = htonl(dst);
+    ip->src = htonl(src_ip);
+    ip->dst = htonl(dst_ip);
     ip->csum = inet_csum(ip, sizeof(ip_hdr));
     memcpy(pkt + sizeof(ip_hdr), l4, l4len);
     return eth_send(dmac, ETH_IP, pkt, (uint16_t)(sizeof(ip_hdr) + l4len));
 }
 
-bool ip_send(uint32_t dst, uint8_t proto, const void* l4, uint16_t l4len)
+bool ip_send(uint32_t dst_ip, uint8_t proto, const void* l4, uint16_t l4len)
 {
-    uint32_t nexthop = ((dst & my_mask) == (my_ip & my_mask)) ? dst : my_gw;
+    uint32_t nexthop_ip =
+            ((dst_ip & my_mask) == (my_ip & my_mask)) ? dst_ip : my_gw;
     uint8_t dmac[6];
-    if (!arp_resolve(nexthop, dmac, 1000)) {
+    if (!arp_resolve(nexthop_ip, dmac, 1000)) {
         return false;
     }
-    return ip_emit(dmac, my_ip, dst, proto, l4, l4len);
+    return ip_emit(dmac, my_ip, dst_ip, proto, l4, l4len);
 }
 
 // Broadcast an IPv4 datagram to 255.255.255.255 with the given source (0.0.0.0
 // during DHCP, before a lease exists) — straight to the broadcast MAC, no ARP.
-bool ip_send_bcast(uint32_t src, uint8_t proto, const void* l4, uint16_t l4len)
+bool ip_send_bcast(uint32_t src_ip, uint8_t proto, const void* l4,
+                   uint16_t l4len)
 {
-    return ip_emit(bcast_mac, src, 0xFFFFFFFFu, proto, l4, l4len);
+    return ip_emit(bcast_mac, src_ip, 0xFFFFFFFFu, proto, l4, l4len);
 }
 
 // --- ICMP -------------------------------------------------------------------
@@ -293,7 +295,7 @@ static uint16_t ping_seq;
 static uint64_t ping_send_us;
 static uint64_t ping_rtt_us;
 
-static void icmp_input(uint32_t src, const uint8_t* data, uint16_t len)
+static void icmp_input(uint32_t src_ip, const uint8_t* data, uint16_t len)
 {
     if (len < sizeof(icmp_hdr)) {
         return;
@@ -311,7 +313,7 @@ static void icmp_input(uint32_t src, const uint8_t* data, uint16_t len)
         r->type = ICMP_ECHO_REPLY;
         r->csum = 0;
         r->csum = inet_csum(rep, len);
-        ip_send(src, IP_PROTO_ICMP, rep, len);
+        ip_send(src_ip, IP_PROTO_ICMP, rep, len);
     } else if (ic->type == ICMP_ECHO_REPLY) {
         if (ntohs(ic->id) == PING_ID && ntohs(ic->seq) == ping_seq) {
             ping_rtt_us = ktime_us() - ping_send_us;
@@ -335,8 +337,8 @@ static void ip_input(const uint8_t* data, uint16_t len)
     if (ihl < sizeof(ip_hdr) || ihl > len) {
         return;
     }
-    uint32_t dst = ntohl(ip->dst);
-    if (dst != my_ip && dst != 0xFFFFFFFFu) {
+    uint32_t dst_ip = ntohl(ip->dst);
+    if (dst_ip != my_ip && dst_ip != 0xFFFFFFFFu) {
         return; // not for us (accept our unicast + limited broadcast, e.g.
                 // DHCP)
     }
@@ -390,7 +392,7 @@ void net_poll(void)
 
 // --- public API -------------------------------------------------------------
 
-bool net_ping(uint32_t dst, uint32_t timeout_ms, uint64_t* rtt_us)
+bool net_ping(uint32_t dst_ip, uint32_t timeout_ms, uint64_t* rtt_us)
 {
     if (!ready) {
         return false;
@@ -411,7 +413,7 @@ bool net_ping(uint32_t dst, uint32_t timeout_ms, uint64_t* rtt_us)
     }
     ic->csum = inet_csum(l4, sizeof(l4));
 
-    if (!ip_send(dst, IP_PROTO_ICMP, l4, sizeof(l4))) {
+    if (!ip_send(dst_ip, IP_PROTO_ICMP, l4, sizeof(l4))) {
         return false;
     }
 
@@ -428,11 +430,11 @@ bool net_ping(uint32_t dst, uint32_t timeout_ms, uint64_t* rtt_us)
     return true;
 }
 
-void net_config(uint32_t ip, uint32_t mask, uint32_t gateway)
+void net_config(uint32_t ip, uint32_t mask, uint32_t gateway_ip)
 {
     my_ip = ip;
     my_mask = mask;
-    my_gw = gateway;
+    my_gw = gateway_ip;
 }
 
 uint32_t net_ip(void)
@@ -450,7 +452,7 @@ bool net_ready(void)
     return ready;
 }
 
-bool net_aton(const char* s, uint32_t* out)
+bool net_aton(const char* s, uint32_t* out_ip)
 {
     uint32_t parts[4] = {0, 0, 0, 0};
     int idx = 0;
@@ -477,7 +479,7 @@ bool net_aton(const char* s, uint32_t* out)
     if (idx != 3 || !any) {
         return false;
     }
-    *out = (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3];
+    *out_ip = (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3];
     return true;
 }
 

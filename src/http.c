@@ -2,7 +2,8 @@
 // opens a TCP connection, sends a GET with Connection: close, reads the whole
 // response to EOF, and parses the status line + headers with the vendored
 // picohttpparser. The body is bounded by the server closing the connection;
-// Transfer-Encoding: chunked bodies are de-chunked in place (phr_decode_chunked).
+// Transfer-Encoding: chunked bodies are de-chunked in place
+// (phr_decode_chunked).
 
 #include <http.h>
 #include <net.h>
@@ -97,11 +98,11 @@ int http_get(const char* url, char* body, int cap, int* body_len)
     }
     const char* path = (*p == '/') ? p : "/";
 
-    uint32_t ip;
-    if (!net_resolve(host, 4000, &ip)) {
+    uint32_t host_ip;
+    if (!net_resolve(host, 4000, &host_ip)) {
         return -2;
     }
-    int conn = net_tcp_connect(ip, port, 5000);
+    int conn = net_tcp_connect(host_ip, port, 5000);
     if (conn < 0) {
         return -3;
     }

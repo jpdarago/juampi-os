@@ -74,7 +74,7 @@ static bool seq_lt(uint32_t a, uint32_t b)
     return (int32_t)(a - b) < 0;
 }
 
-static uint16_t tcp_checksum(uint32_t src, uint32_t dst, const void* seg,
+static uint16_t tcp_checksum(uint32_t src_ip, uint32_t dst_ip, const void* seg,
                              uint16_t seglen)
 {
     struct __attribute__((packed)) {
@@ -83,8 +83,8 @@ static uint16_t tcp_checksum(uint32_t src, uint32_t dst, const void* seg,
         uint16_t len;
     } ph;
     memset(&ph, 0, sizeof(ph));
-    ph.src = htonl(src);
-    ph.dst = htonl(dst);
+    ph.src = htonl(src_ip);
+    ph.dst = htonl(dst_ip);
     ph.proto = IP_PROTO_TCP;
     ph.len = htons(seglen);
     uint32_t sum = csum_add(0, &ph, sizeof(ph));
@@ -147,11 +147,11 @@ static void tcp_ack(tcp_conn* c)
     ip_send(c->peer_ip, IP_PROTO_TCP, seg, sizeof(seg));
 }
 
-static tcp_conn* tcp_find(uint32_t src, uint16_t sport, uint16_t dport)
+static tcp_conn* tcp_find(uint32_t src_ip, uint16_t sport, uint16_t dport)
 {
     for (int i = 0; i < TCP_CONNS; i++) {
         tcp_conn* c = &tcp_conns[i];
-        if (c->in_use && c->peer_ip == src && c->peer_port == sport &&
+        if (c->in_use && c->peer_ip == src_ip && c->peer_port == sport &&
             c->local_port == dport) {
             return c;
         }
@@ -159,7 +159,7 @@ static tcp_conn* tcp_find(uint32_t src, uint16_t sport, uint16_t dport)
     return NULL;
 }
 
-void tcp_input(uint32_t src, const uint8_t* data, uint16_t len)
+void tcp_input(uint32_t src_ip, const uint8_t* data, uint16_t len)
 {
     if (len < sizeof(tcp_hdr)) {
         return;
@@ -176,7 +176,7 @@ void tcp_input(uint32_t src, const uint8_t* data, uint16_t len)
     const uint8_t* payload = data + hlen;
     uint16_t plen = (uint16_t)(len - hlen);
 
-    tcp_conn* c = tcp_find(src, sport, dport);
+    tcp_conn* c = tcp_find(src_ip, sport, dport);
     if (!c) {
         // A SYN to a listening socket opens the connection (passive open).
         if (flags & TCP_SYN) {
@@ -184,7 +184,7 @@ void tcp_input(uint32_t src, const uint8_t* data, uint16_t len)
                 tcp_conn* l = &tcp_conns[i];
                 if (l->in_use && l->state == TCP_LISTEN &&
                     l->local_port == dport) {
-                    l->peer_ip = src;
+                    l->peer_ip = src_ip;
                     l->peer_port = sport;
                     l->rcv_nxt = seq + 1;
                     l->snd_una = l->snd_nxt = (uint32_t)ktime_ns();

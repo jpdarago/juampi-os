@@ -69,7 +69,8 @@ static int skip_name(const uint8_t* m, int len, int o)
     return -1;
 }
 
-static bool parse_answer(const uint8_t* m, int len, uint16_t id, uint32_t* out)
+static bool parse_answer(const uint8_t* m, int len, uint16_t id,
+                         uint32_t* out_ip)
 {
     if (len < 12 || (((uint16_t)m[0] << 8) | m[1]) != id) {
         return false;
@@ -99,8 +100,8 @@ static bool parse_answer(const uint8_t* m, int len, uint16_t id, uint32_t* out)
             return false;
         }
         if (type == 1 && rdlen == 4) { // A record
-            *out = ((uint32_t)m[o] << 24) | ((uint32_t)m[o + 1] << 16) |
-                   ((uint32_t)m[o + 2] << 8) | (uint32_t)m[o + 3];
+            *out_ip = ((uint32_t)m[o] << 24) | ((uint32_t)m[o + 1] << 16) |
+                      ((uint32_t)m[o + 2] << 8) | (uint32_t)m[o + 3];
             return true;
         }
         o += rdlen;
@@ -129,7 +130,7 @@ bool net_resolve(const char* host, uint32_t timeout_ms, uint32_t* out_ip)
     // via the gateway). QEMU's user-mode forwarder (10.0.2.3) relays to the
     // host's resolver, which isn't always reachable; the public fallback keeps
     // resolution working either way.
-    const uint32_t servers[2] = {
+    const uint32_t server_ips[2] = {
             net_dns_server(),
             (8u << 24) | (8u << 16) | (8u << 8) | 8u,
     };
@@ -140,7 +141,7 @@ bool net_resolve(const char* host, uint32_t timeout_ms, uint32_t* out_ip)
     bool ok = false;
     for (int s = 0; s < 2 && !ok; s++) {
         for (int attempt = 0; attempt < 2 && !ok; attempt++) {
-            if (!net_udp_sendto(sock, servers[s], 53, q, (uint16_t)qlen)) {
+            if (!net_udp_sendto(sock, server_ips[s], 53, q, (uint16_t)qlen)) {
                 break; // e.g. ARP failed for this server; try the next
             }
             uint8_t r[512];
