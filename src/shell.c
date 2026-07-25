@@ -389,6 +389,8 @@ void shell_run(void)
             "quit).\n"
             "  bench(fn|name[,arg[,iters]]) -> total,per_call (Lua or "
             "native).\n"
+            "  net.resolve(host), net.ping(ip), http.get(\"http://...\") -> "
+            "status,body.\n"
             "  help() lists what's available, dump(t) inspects a table, "
             "clear() clears\n"
             "  the screen, and up/down arrows recall history.\n");

@@ -24,6 +24,7 @@ int luaopen_fs(lua_State* L);
 int luaopen_thread(lua_State* L); // parallel Lua (lua_thread.c)
 int luaopen_mem(lua_State* L);    // shared buffers (lua_thread.c)
 int luaopen_net(lua_State* L);    // IPv4/ping stack (lua_net.c)
+int luaopen_http(lua_State* L);   // HTTP/1.1 client (lua_http.c)
 // The unified launch/benchmark surface (lua_run.c): sets the run/bench globals.
 void lua_run_open(lua_State* L);
 // The edit() global: the full-screen editor (lua_edit.c -> src/editor.c).
@@ -83,7 +84,8 @@ void luashell_init(void)
             {"fs", luaopen_fs},         // read-only ext2 filesystem
             {"thread", luaopen_thread}, // parallel Lua across cores
             {"mem", luaopen_mem},       // shared-memory buffers
-            {"net", luaopen_net},       // IPv4 stack + ping
+            {"net", luaopen_net},   // IPv4 stack + ping + DHCP/DNS
+            {"http", luaopen_http}, // HTTP/1.1 client
     };
     for (unsigned i = 0; i < sizeof(libs) / sizeof(libs[0]); i++) {
         luaL_requiref(L, libs[i].name, libs[i].func, 1);

@@ -85,11 +85,16 @@ LUA_INC      := -I$(SRC_DIR)/lua/klibc -Iinclude/lua
 HL_DIR   := $(SRC_DIR)/highlight
 HL_OBJS  := $(OBJ_DIR)/highlight/highlight.o $(OBJ_DIR)/highlight/lua_keywords.o
 
+# Vendored picohttpparser (src/http/): the HTTP response parser used by src/http.c.
+# Compiled verbatim (-w) with the klibc <string.h>/<assert.h> on the include path,
+# like the other vendored code; the SSE4.2 fast path is #ifdef'd off in our build.
+HTTP_OBJS := $(OBJ_DIR)/http/picohttpparser.o
+
 COBJS      := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CSOURCES))
 ASMOBJS    := $(patsubst $(SRC_DIR)/%.S,$(OBJ_DIR)/%.o,$(ASMSOURCES))
 VENDOR_OBJS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(VENDOR_CSOURCES))
-OBJS       := $(COBJS) $(ASMOBJS) $(VENDOR_OBJS) $(LUA_OBJS) $(LUA_ASM_OBJ) $(HL_OBJS)
-DEPS       := $(COBJS:.o=.d) $(VENDOR_OBJS:.o=.d) $(LUA_OBJS:.o=.d) $(HL_OBJS:.o=.d)
+OBJS       := $(COBJS) $(ASMOBJS) $(VENDOR_OBJS) $(LUA_OBJS) $(LUA_ASM_OBJ) $(HL_OBJS) $(HTTP_OBJS)
+DEPS       := $(COBJS:.o=.d) $(VENDOR_OBJS:.o=.d) $(LUA_OBJS:.o=.d) $(HL_OBJS:.o=.d) $(HTTP_OBJS:.o=.d)
 
 KERNEL := kernel.bin
 
@@ -139,6 +144,11 @@ $(OBJ_DIR)/printf/%.o: $(SRC_DIR)/printf/%.c | $(OBJ_DIR)
 # Generated highlighter (ragel/gperf output): kernel flags, warnings off, with
 # the klibc <string.h> ahead of the gcc one (the gperf lookup calls memcmp).
 $(OBJ_DIR)/highlight/%.o: $(HL_DIR)/%.c | $(OBJ_DIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -w -I$(SRC_DIR)/lua/klibc $(CPPFLAGS) -c -o $@ $<
+
+# Vendored picohttpparser: same treatment (verbatim, klibc headers).
+$(OBJ_DIR)/http/%.o: $(SRC_DIR)/http/%.c | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w -I$(SRC_DIR)/lua/klibc $(CPPFLAGS) -c -o $@ $<
 
