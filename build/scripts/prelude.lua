@@ -129,9 +129,10 @@ local function has_ui()
     return ui ~= nil and ui.available ~= nil and ui.available()
 end
 
--- The graphical reference browser: overview + keybindings + a node per library.
+-- The graphical reference browser: a non-modal window that coexists with the
+-- shell (overview + keybindings + a node per library).
 local function browser()
-    ui.window("juampiOS - Help & Reference", function()
+    ui.open("juampiOS - Help & Reference", function()
         if ui.header("Overview") then
             ui.text(OVERVIEW)
         end

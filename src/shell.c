@@ -9,6 +9,7 @@
 #include <memory.h>
 #include <highlight.h>
 #include <str.h>
+#include <ui.h>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -370,6 +371,15 @@ static void shell_read_line(const char* prompt, char* buf, size_t max)
 void shell_run(void)
 {
     static char line[LINE_MAX];
+
+    // With a framebuffer, run the windowed desktop shell (the REPL lives in a
+    // terminal window). Never returns. Headless (serial/CI) falls through to
+    // the classic line-oriented REPL below.
+    if (gfx_available()) {
+        ui_desktop_run();
+        return;
+    }
+
     luashell_init();
     logo_load();
     console_print(

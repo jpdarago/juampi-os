@@ -13,6 +13,18 @@ struct mu_Context;
 // True when a framebuffer + microui context are available (the UI needs one).
 bool ui_available(void);
 
+// Run the persistent windowed desktop: the shell lives in a terminal window,
+// help/tool windows coexist alongside it. Never returns. No-op (so the caller
+// falls back to the classic text REPL) when there is no framebuffer.
+void ui_desktop_run(void);
+
+// Bracket a full-screen activity (the text editor, a framebuffer demo) that
+// must own the raw screen: begin suspends the desktop compositor (output
+// reverts to the flanterm console); end resumes it. No-ops without a
+// framebuffer.
+void ui_fullscreen_begin(void);
+void ui_fullscreen_end(void);
+
 // Per-frame build callback: called once each frame between mu_begin/mu_end to
 // populate the UI (open windows, emit widgets). Return false to close the loop.
 typedef bool (*ui_frame_fn)(struct mu_Context* ctx, void* ud);
@@ -24,6 +36,11 @@ void ui_run(ui_frame_fn build, void* ud);
 // The microui context while a frame is building, else NULL. The Lua widget
 // wrappers (lua_ui.c) operate on this.
 struct mu_Context* ui_current(void);
+
+// Register a callback the desktop loop invokes each frame (between the terminal
+// window and the flip) to build non-modal windows. lua_ui.c uses this to render
+// windows opened with ui.open(). Pass NULL to detach.
+void ui_set_window_hook(void (*fn)(struct mu_Context*));
 
 // Native convenience popups (used by the Lua `ui` library and help()).
 void ui_message(const char* title, const char* body); // scrollable text window

@@ -68,11 +68,25 @@ void console_reinit(void* fb, uint64_t w, uint64_t h, uint64_t pitch)
 // unlocked emit() below is the single writer the locked wrappers call.
 static spinlock console_lock;
 
+// Optional extra sink (the windowed terminal's scrollback). Receives the raw
+// character stream — including the SGR escapes from the highlighter — before
+// the CRLF expansion the real terminals need. Set only on the BSP by the
+// desktop shell; NULL otherwise.
+static void (*extra_sink)(char);
+
+void console_set_sink(void (*fn)(char))
+{
+    extra_sink = fn;
+}
+
 // Write one character to both sinks. Not locked — callers hold console_lock.
 // Both sinks are real terminals: '\n' is a pure line feed, so newlines are
 // expanded to CRLF for each.
 static void emit(char c)
 {
+    if (extra_sink) {
+        extra_sink(c);
+    }
     if (c == '\n') {
         serial_putc('\r');
         if (ft) {

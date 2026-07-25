@@ -224,6 +224,9 @@ local function render(cpu, canvas, W, H, pitch, nc, rs, gs, bs)
     return hi - lo
 end
 
+-- Wrapped so the windowed desktop suspends its compositor while the render owns
+-- the raw framebuffer (ui.fullscreen); runs directly when there is no desktop.
+local function __render()
 if fb.width() == 0 then
     print("raytracer: no framebuffer")
     return
@@ -243,3 +246,10 @@ local total = 0
 for _, r in ipairs(rows) do total = total + r end
 print(string.format("raytraced %dx%d on %d cores in %.0f ms", W, H, nc, ms))
 print("RAYTRACER_OK")
+end
+
+if ui and ui.fullscreen then
+    ui.fullscreen(__render)
+else
+    __render()
+end

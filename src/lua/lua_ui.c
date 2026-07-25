@@ -12,6 +12,7 @@
 
 #include <ui.h>
 #include <gfx.h>
+#include <console.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -77,6 +78,123 @@ static int l_window(lua_State* L)
         return lua_error(L); // re-raise the message the build function left
     }
     return 0;
+}
+
+// --- non-modal desktop windows: ui.open(title, fn) / ui.close(id) -----------
+// Registered windows persist on the desktop and coexist with the shell; the
+// desktop loop calls build_windows() each frame (via ui_set_window_hook).
+
+#define MAXW 8
+static struct {
+    bool used;
+    lua_State* L;
+    int ref; // registry ref to the build function
+    int id;
+    char title[64];
+} deskw[MAXW];
+static int desk_gid = 1;
+
+static void copy_title(char* dst, const char* s)
+{
+    int i = 0;
+    for (; s[i] && i < 63; i++) {
+        dst[i] = s[i];
+    }
+    dst[i] = '\0';
+}
+
+static bool title_eq(const char* a, const char* b)
+{
+    int i = 0;
+    while (a[i] && a[i] == b[i]) {
+        i++;
+    }
+    return a[i] == b[i];
+}
+
+static int l_open(lua_State* L)
+{
+    const char* title = luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    if (!ui_available()) {
+        lua_pushnil(L);
+        lua_pushstring(L, "ui: no framebuffer");
+        return 2;
+    }
+    // De-dupe by title: re-opening refreshes the existing window's builder.
+    for (int i = 0; i < MAXW; i++) {
+        if (deskw[i].used && title_eq(deskw[i].title, title)) {
+            luaL_unref(L, LUA_REGISTRYINDEX, deskw[i].ref);
+            lua_pushvalue(L, 2);
+            deskw[i].ref = luaL_ref(L, LUA_REGISTRYINDEX);
+            deskw[i].L = L;
+            lua_pushinteger(L, deskw[i].id);
+            return 1;
+        }
+    }
+    for (int i = 0; i < MAXW; i++) {
+        if (!deskw[i].used) {
+            deskw[i].used = true;
+            deskw[i].L = L;
+            copy_title(deskw[i].title, title);
+            lua_pushvalue(L, 2);
+            deskw[i].ref = luaL_ref(L, LUA_REGISTRYINDEX);
+            deskw[i].id = desk_gid++;
+            lua_pushinteger(L, deskw[i].id);
+            return 1;
+        }
+    }
+    lua_pushnil(L);
+    lua_pushstring(L, "ui: too many open windows");
+    return 2;
+}
+
+static int l_close(lua_State* L)
+{
+    int id = (int)luaL_checkinteger(L, 1);
+    for (int i = 0; i < MAXW; i++) {
+        if (deskw[i].used && deskw[i].id == id) {
+            luaL_unref(deskw[i].L, LUA_REGISTRYINDEX, deskw[i].ref);
+            deskw[i].used = false;
+            break;
+        }
+    }
+    return 0;
+}
+
+// Invoked by the desktop loop each frame to render the registered windows.
+static void build_windows(mu_Context* ctx)
+{
+    int W = (int)gfx_width();
+    int H = (int)gfx_height();
+    for (int i = 0; i < MAXW; i++) {
+        if (!deskw[i].used) {
+            continue;
+        }
+        int ww = W / 2;
+        int wh = H * 3 / 5;
+        int x = W - ww - 40 - 30 * i;
+        int y = 60 + 30 * i;
+        if (x < 40) {
+            x = 40;
+        }
+        if (!mu_begin_window(ctx, deskw[i].title, mu_rect(x, y, ww, wh))) {
+            // Closed via the titlebar [x]: drop it.
+            luaL_unref(deskw[i].L, LUA_REGISTRYINDEX, deskw[i].ref);
+            deskw[i].used = false;
+            continue;
+        }
+        lua_rawgeti(deskw[i].L, LUA_REGISTRYINDEX, deskw[i].ref);
+        if (lua_pcall(deskw[i].L, 0, 0, 0) != LUA_OK) {
+            console_print("ui window error: ");
+            console_print(lua_tostring(deskw[i].L, -1));
+            console_print("\n");
+            lua_pop(deskw[i].L, 1);
+            luaL_unref(deskw[i].L, LUA_REGISTRYINDEX, deskw[i].ref);
+            deskw[i].used = false;
+        }
+        mu_end_window(ctx);
+    }
 }
 
 // --- widgets (valid only inside a ui.window build function) ------------------
@@ -195,19 +313,49 @@ static int l_available(lua_State* L)
     return 1;
 }
 
+// ui.fullscreen(fn): run fn with the desktop suspended, so it can draw to the
+// raw framebuffer / use the text console (raytracer, boing, etc.). Without a
+// desktop it just calls fn.
+static int l_fullscreen(lua_State* L)
+{
+    luaL_checktype(L, 1, LUA_TFUNCTION);
+    if (!ui_available()) {
+        lua_pushvalue(L, 1);
+        lua_call(L, 0, 0);
+        return 0;
+    }
+    ui_fullscreen_begin();
+    lua_pushvalue(L, 1);
+    int st = lua_pcall(L, 0, 0, 0);
+    if (st == LUA_OK) {
+        // Hold the drawn screen until the user dismisses it, else the desktop
+        // would repaint over it the moment we return.
+        console_print("\n[press a key to return to the desktop]");
+        console_getch();
+    }
+    ui_fullscreen_end();
+    if (st != LUA_OK) {
+        return lua_error(L);
+    }
+    return 0;
+}
+
 static const luaL_Reg uilib[] = {
-        {"window", l_window},         {"label", l_label},
-        {"text", l_text},             {"button", l_button},
-        {"header", l_header},         {"treenode", l_treenode},
+        {"window", l_window},           {"open", l_open},
+        {"close", l_close},             {"label", l_label},
+        {"text", l_text},               {"button", l_button},
+        {"header", l_header},           {"treenode", l_treenode},
         {"endtreenode", l_endtreenode}, {"checkbox", l_checkbox},
-        {"slider", l_slider},         {"row", l_row},
-        {"popup", l_popup},           {"alert", l_alert},
-        {"confirm", l_confirm},       {"available", l_available},
+        {"slider", l_slider},           {"row", l_row},
+        {"popup", l_popup},             {"alert", l_alert},
+        {"confirm", l_confirm},         {"available", l_available},
+        {"fullscreen", l_fullscreen},
         {NULL, NULL},
 };
 
 int luaopen_ui(lua_State* L)
 {
     luaL_newlib(L, uilib);
+    ui_set_window_hook(build_windows); // desktop renders ui.open() windows
     return 1;
 }

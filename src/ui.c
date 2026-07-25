@@ -13,6 +13,11 @@
 #include <keyboard.h>
 #include <serial.h>
 #include <memory.h>
+#include <term.h>
+#include <console.h>
+#include <luashell.h>
+#include <fault.h>
+#include <net.h>
 
 #include <stdint.h>
 #include <stddef.h>
@@ -235,10 +240,10 @@ static void feed_byte(mu_Context* ctx, int c, bool* want_close)
     }
 }
 
-static bool pump_input(mu_Context* ctx)
+// Integrate accumulated mouse movement into the cursor and feed microui the
+// motion + button edges. Shared by the modal and desktop loops.
+static void feed_mouse(mu_Context* ctx)
 {
-    bool want_close = false;
-
     int dx = 0, dy = 0;
     uint8_t btn = 0;
     mouse_poll(&dx, &dy, &btn);
@@ -269,7 +274,14 @@ static bool pump_input(mu_Context* ctx)
         }
     }
     prev_btn = btn;
+}
 
+// Modal pump: mouse to microui, keyboard to microui's text/key input. Returns
+// true if a bare Esc asked to close the modal.
+static bool pump_input(mu_Context* ctx)
+{
+    bool want_close = false;
+    feed_mouse(ctx);
     int c;
     while ((c = keyboard_poll()) >= 0) {
         feed_byte(ctx, c, &want_close);
@@ -412,4 +424,107 @@ bool ui_confirm(const char* title, const char* body)
     struct confirm_ud c = {title, body, false, false};
     ui_run(confirm_frame, &c);
     return c.result;
+}
+
+// --- desktop (persistent windowed shell) ------------------------------------
+
+#define DESKTOP_BG 0x2e4a5e
+
+// The Lua layer (lua_ui.c) registers a hook that builds the non-modal windows
+// (help, tool windows) each frame; kept behind a pointer so ui.c stays
+// Lua-agnostic.
+static void (*window_hook)(mu_Context*);
+
+void ui_set_window_hook(void (*fn)(mu_Context*))
+{
+    window_hook = fn;
+}
+
+static void desktop_windows(mu_Context* ctx)
+{
+    if (window_hook != NULL) {
+        window_hook(ctx);
+    }
+}
+
+// Suspend the desktop compositor so a full-screen activity (the text editor, a
+// framebuffer demo) can own the raw screen: detach the terminal sink (output
+// goes back to flanterm), stop double-buffering, and wipe the screen. Resume
+// restores buffering + the sink; the desktop loop repaints on the next frame.
+void ui_fullscreen_begin(void)
+{
+    if (!gfx_available()) {
+        return;
+    }
+    console_set_sink(NULL);
+    gfx_buffer(false);
+    console_clear();
+}
+
+void ui_fullscreen_end(void)
+{
+    if (!gfx_available()) {
+        return;
+    }
+    gfx_buffer(true);
+    console_set_sink(term_write);
+}
+
+void ui_desktop_run(void)
+{
+    if (!gfx_available()) {
+        return; // headless: caller falls back to the classic text REPL
+    }
+    mu_Context* ctx = ui_ctx();
+    term_init();
+    console_set_sink(term_write); // shell output now lands in the terminal grid
+    luashell_init();              // prelude/init.lua greetings land in the grid
+    console_print("juampiOS desktop - a Lua 5.4 shell in a window.\n"
+                  "  help() opens the reference;  drag windows by the title "
+                  "bar.\n\n");
+
+    gfx_buffer(true);
+    cur_x = (int)gfx_width() / 2;
+    cur_y = (int)gfx_height() / 2;
+    prev_btn = 0;
+
+    // A CPU fault while evaluating a line longjmps here: reset the interpreter
+    // and keep the desktop running (mirrors the classic shell's recovery).
+    if (setjmp(fault_env) != 0) {
+        __asm__ __volatile__("sti");
+        console_print("\n[recovered from fault: vector ");
+        console_dec(fault_vector);
+        console_print(", rip ");
+        console_hex(fault_rip);
+        console_print(" - interpreter reset]\n");
+        luashell_init();
+    }
+
+    for (;;) {
+        feed_mouse(ctx);
+        int c;
+        while ((c = keyboard_poll()) >= 0) {
+            term_key(c);
+        }
+        while ((c = serial_poll()) >= 0) {
+            term_key(c);
+        }
+
+        mu_begin(ctx);
+        in_frame = true;
+        term_build(ctx);
+        desktop_windows(ctx);
+        in_frame = false;
+        mu_end(ctx);
+
+        gfx_clip_reset();
+        gfx_fill(0, 0, (int)gfx_width(), (int)gfx_height(), DESKTOP_BG);
+        render(ctx);
+        gfx_clip_reset();
+        draw_cursor(cur_x, cur_y);
+        gfx_flip();
+
+        net_poll(); // keep the network stack live between keystrokes
+        __asm__ __volatile__("hlt");
+    }
 }

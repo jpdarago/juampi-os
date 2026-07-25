@@ -6,6 +6,7 @@
 #include <editor.h>
 #include <ext2.h>
 #include <memory.h>
+#include <ui.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -14,7 +15,11 @@
 static int l_edit(lua_State* L)
 {
     const char* path = luaL_checkstring(L, 1);
+    // The editor draws a full-screen text frame, so on the windowed desktop it
+    // takes over the raw screen; the desktop resumes when it exits.
+    ui_fullscreen_begin();
     int action = editor_run(path);
+    ui_fullscreen_end();
     if (action != EDITOR_RUN) {
         return 0;
     }

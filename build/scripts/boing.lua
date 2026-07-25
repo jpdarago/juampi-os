@@ -11,6 +11,9 @@
 -- run-length spans via fb.rect. A sampler/stress test for fb + double buffering.
 -- Run with run("boing.lua"); it plays for a few seconds then returns.
 
+-- Wrapped so the windowed desktop suspends its compositor while the demo owns
+-- the raw framebuffer (ui.fullscreen); runs directly when there is no desktop.
+local function __demo()
 if fb.width() == 0 then
     print("boing.lua: no framebuffer available")
     return
@@ -143,3 +146,10 @@ end
 fb.buffer(false)
 
 print("boing.lua: done")
+end
+
+if ui and ui.fullscreen then
+    ui.fullscreen(__demo)
+else
+    __demo()
+end
