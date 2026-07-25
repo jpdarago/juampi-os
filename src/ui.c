@@ -1,0 +1,415 @@
+// Graphical UI layer (see ui.h): a renderer + input pump that drive the
+// vendored microui over the shell framebuffer. Popups run as a modal loop
+// mirroring the full-screen editor (src/editor.c): each frame we pump the PS/2
+// mouse/keyboard into microui, let a build callback emit the UI, render
+// microui's command list through the clip-aware gfx primitives, draw the
+// cursor, and flip. The shell text underneath is snapshotted once and repainted
+// every frame, so windows float over the live REPL and it is restored intact on
+// close.
+
+#include <ui.h>
+#include <gfx.h>
+#include <mouse.h>
+#include <keyboard.h>
+#include <serial.h>
+#include <memory.h>
+
+#include <stdint.h>
+#include <stddef.h>
+
+#include "microui/microui.h"
+
+#define GLYPH_W 8
+#define GLYPH_H 16
+
+static size_t ui_strlen(const char* s)
+{
+    size_t n = 0;
+    while (s[n] != '\0') {
+        n++;
+    }
+    return n;
+}
+
+// --- microui context --------------------------------------------------------
+
+static mu_Context* g_ctx;
+static bool in_frame;
+
+static int text_width_cb(mu_Font font, const char* str, int len)
+{
+    (void)font;
+    if (len < 0) {
+        len = (int)ui_strlen(str);
+    }
+    return len * GLYPH_W;
+}
+static int text_height_cb(mu_Font font)
+{
+    (void)font;
+    return GLYPH_H;
+}
+
+static mu_Color col(int r, int g, int b)
+{
+    mu_Color c = {(unsigned char)r, (unsigned char)g, (unsigned char)b, 255};
+    return c;
+}
+
+// A bright, blue-title-bar theme reminiscent of classic desktop / TempleOS UIs,
+// sized so the 16px font fits the controls.
+static void apply_theme(mu_Context* ctx)
+{
+    mu_Style* s = ctx->style;
+    s->size.y = 22;
+    s->padding = 6;
+    s->spacing = 4;
+    s->title_height = 28;
+    s->scrollbar_size = 14;
+    s->thumb_size = 10;
+    s->colors[MU_COLOR_TEXT] = col(20, 20, 20);
+    s->colors[MU_COLOR_BORDER] = col(30, 30, 40);
+    s->colors[MU_COLOR_WINDOWBG] = col(224, 224, 224);
+    s->colors[MU_COLOR_TITLEBG] = col(0, 0, 160);
+    s->colors[MU_COLOR_TITLETEXT] = col(255, 255, 255);
+    s->colors[MU_COLOR_PANELBG] = col(208, 208, 208);
+    s->colors[MU_COLOR_BUTTON] = col(180, 180, 190);
+    s->colors[MU_COLOR_BUTTONHOVER] = col(150, 170, 210);
+    s->colors[MU_COLOR_BUTTONFOCUS] = col(120, 150, 220);
+    s->colors[MU_COLOR_BASE] = col(255, 255, 255);
+    s->colors[MU_COLOR_BASEHOVER] = col(235, 235, 245);
+    s->colors[MU_COLOR_BASEFOCUS] = col(220, 225, 245);
+    s->colors[MU_COLOR_SCROLLBASE] = col(200, 200, 200);
+    s->colors[MU_COLOR_SCROLLTHUMB] = col(120, 120, 140);
+}
+
+static mu_Context* ui_ctx(void)
+{
+    if (g_ctx == NULL) {
+        g_ctx = new (&heap_default()->base, mu_Context, 1);
+        mu_init(g_ctx);
+        g_ctx->text_width = text_width_cb;
+        g_ctx->text_height = text_height_cb;
+        apply_theme(g_ctx);
+    }
+    return g_ctx;
+}
+
+bool ui_available(void)
+{
+    return gfx_available();
+}
+
+mu_Context* ui_current(void)
+{
+    return in_frame ? g_ctx : NULL;
+}
+
+// --- rendering --------------------------------------------------------------
+
+static uint32_t rgb(mu_Color c)
+{
+    return ((uint32_t)c.r << 16) | ((uint32_t)c.g << 8) | (uint32_t)c.b;
+}
+
+// microui icons drawn as centered glyphs (no atlas): a close cross, a checkbox
+// tick, and treenode collapse/expand markers.
+static void draw_icon(int id, mu_Rect r, mu_Color c)
+{
+    char ch = '?';
+    switch (id) {
+    case MU_ICON_CLOSE:
+        ch = 'x';
+        break;
+    case MU_ICON_CHECK:
+        ch = 'x';
+        break;
+    case MU_ICON_COLLAPSED:
+        ch = '+';
+        break;
+    case MU_ICON_EXPANDED:
+        ch = '-';
+        break;
+    default:
+        return;
+    }
+    int gx = r.x + (r.w - GLYPH_W) / 2;
+    int gy = r.y + (r.h - GLYPH_H) / 2;
+    gfx_glyph(gx, gy, (unsigned char)ch, rgb(c));
+}
+
+static void render(mu_Context* ctx)
+{
+    mu_Command* cmd = NULL;
+    while (mu_next_command(ctx, &cmd)) {
+        switch (cmd->type) {
+        case MU_COMMAND_RECT: {
+            mu_Rect r = cmd->rect.rect;
+            gfx_fill(r.x, r.y, r.w, r.h, rgb(cmd->rect.color));
+            break;
+        }
+        case MU_COMMAND_TEXT: {
+            mu_TextCommand* t = &cmd->text;
+            gfx_text(t->pos.x, t->pos.y, t->str, ui_strlen(t->str),
+                     rgb(t->color));
+            break;
+        }
+        case MU_COMMAND_ICON:
+            draw_icon(cmd->icon.id, cmd->icon.rect, cmd->icon.color);
+            break;
+        case MU_COMMAND_CLIP: {
+            mu_Rect r = cmd->clip.rect;
+            gfx_clip(r.x, r.y, r.w, r.h);
+            break;
+        }
+        default:
+            break;
+        }
+    }
+}
+
+// A classic left-pointing arrow cursor: '#' outline, '.' fill, ' ' transparent.
+// Drawn last, straight to the screen (gfx_pixel clips to the display).
+static const char* const CURSOR[] = {
+        "#",         "##",       "#.#",      "#..#",      "#...#",
+        "#....#",    "#.....#",  "#......#", "#.......#", "#........#",
+        "#....####", "#..#..#",  "#.# #..#", "##  #..#",  "#    #..#",
+        "     #..#", "      ##",
+};
+
+static void draw_cursor(int x, int y)
+{
+    int rows = (int)(sizeof CURSOR / sizeof CURSOR[0]);
+    for (int j = 0; j < rows; j++) {
+        const char* row = CURSOR[j];
+        for (int i = 0; row[i] != '\0'; i++) {
+            if (row[i] == '.') {
+                gfx_pixel(x + i, y + j, 0xffffff);
+            } else if (row[i] == '#') {
+                gfx_pixel(x + i, y + j, 0x000000);
+            }
+        }
+    }
+}
+
+// --- input pump -------------------------------------------------------------
+
+static int cur_x, cur_y; // cursor position, in screen pixels
+static uint8_t prev_btn; // previous mouse button bitmask (for edge detection)
+static int esc_state;    // 0 normal, 1 saw ESC, 2 in a CSI escape sequence
+
+static void feed_byte(mu_Context* ctx, int c, bool* want_close)
+{
+    if (esc_state == 1) {
+        if (c == '[' || c == 'O') {
+            esc_state = 2;
+            return;
+        }
+        // Lone ESC immediately followed by another key: treat ESC as "close",
+        // then fall through and handle this byte normally.
+        *want_close = true;
+        esc_state = 0;
+    }
+    if (esc_state == 2) {
+        if (c >= 0x40 && c <= 0x7E) { // final byte of the sequence
+            if (c == 'A') {
+                mu_input_scroll(ctx, 0, -GLYPH_H * 3);
+            } else if (c == 'B') {
+                mu_input_scroll(ctx, 0, GLYPH_H * 3);
+            }
+            esc_state = 0;
+        }
+        return;
+    }
+    if (c == 27) {
+        esc_state = 1;
+    } else if (c == '\r' || c == '\n') {
+        mu_input_keydown(ctx, MU_KEY_RETURN);
+        mu_input_keyup(ctx, MU_KEY_RETURN);
+    } else if (c == '\b' || c == 127) {
+        mu_input_keydown(ctx, MU_KEY_BACKSPACE);
+        mu_input_keyup(ctx, MU_KEY_BACKSPACE);
+    } else if (c >= 32 && c < 127) {
+        char t[2] = {(char)c, 0};
+        mu_input_text(ctx, t);
+    }
+}
+
+static bool pump_input(mu_Context* ctx)
+{
+    bool want_close = false;
+
+    int dx = 0, dy = 0;
+    uint8_t btn = 0;
+    mouse_poll(&dx, &dy, &btn);
+    cur_x += dx;
+    cur_y += dy;
+    if (cur_x < 0) {
+        cur_x = 0;
+    }
+    if (cur_y < 0) {
+        cur_y = 0;
+    }
+    if (cur_x >= (int)gfx_width()) {
+        cur_x = (int)gfx_width() - 1;
+    }
+    if (cur_y >= (int)gfx_height()) {
+        cur_y = (int)gfx_height() - 1;
+    }
+    mu_input_mousemove(ctx, cur_x, cur_y);
+
+    static const uint8_t bits[3] = {0x01, 0x02, 0x04};
+    static const int mubtn[3] = {MU_MOUSE_LEFT, MU_MOUSE_RIGHT,
+                                 MU_MOUSE_MIDDLE};
+    for (int i = 0; i < 3; i++) {
+        if ((btn & bits[i]) && !(prev_btn & bits[i])) {
+            mu_input_mousedown(ctx, cur_x, cur_y, mubtn[i]);
+        } else if (!(btn & bits[i]) && (prev_btn & bits[i])) {
+            mu_input_mouseup(ctx, cur_x, cur_y, mubtn[i]);
+        }
+    }
+    prev_btn = btn;
+
+    int c;
+    while ((c = keyboard_poll()) >= 0) {
+        feed_byte(ctx, c, &want_close);
+    }
+    while ((c = serial_poll()) >= 0) {
+        feed_byte(ctx, c, &want_close);
+    }
+    // A bare ESC with nothing following it this pass means "close".
+    if (esc_state == 1) {
+        want_close = true;
+        esc_state = 0;
+    }
+    return want_close;
+}
+
+// --- modal loop -------------------------------------------------------------
+
+void ui_run(ui_frame_fn build, void* ud)
+{
+    if (!gfx_available()) {
+        return;
+    }
+    mu_Context* ctx = ui_ctx();
+
+    bool was_buffered = gfx_buffered();
+    if (!was_buffered) {
+        gfx_buffer(true);
+    }
+    gfx_snapshot(); // capture the shell image to repaint under the windows
+
+    cur_x = (int)gfx_width() / 2;
+    cur_y = (int)gfx_height() / 2;
+    prev_btn = 0;
+    esc_state = 0;
+
+    bool running = true;
+    while (running) {
+        bool close = pump_input(ctx);
+
+        mu_begin(ctx);
+        in_frame = true;
+        bool keep = build(ctx, ud);
+        in_frame = false;
+        mu_end(ctx);
+
+        if (close || !keep) {
+            running = false;
+        }
+
+        gfx_restore(); // shell background
+        gfx_clip_reset();
+        render(ctx);
+        gfx_clip_reset();
+        draw_cursor(cur_x, cur_y);
+        gfx_flip();
+
+        if (running) {
+            __asm__ __volatile__("hlt");
+        }
+    }
+
+    // Drop the UI: repaint the clean shell image and stop buffering.
+    gfx_restore();
+    gfx_flip();
+    if (!was_buffered) {
+        gfx_buffer(false);
+    }
+    gfx_snapshot_free();
+}
+
+// --- native convenience popups ----------------------------------------------
+
+struct msg_ud {
+    const char* title;
+    const char* body;
+};
+
+static bool msg_frame(mu_Context* ctx, void* ud)
+{
+    struct msg_ud* m = ud;
+    int w = (int)gfx_width();
+    int h = (int)gfx_height();
+    int ww = w * 3 / 4;
+    int wh = h * 3 / 4;
+    int open = mu_begin_window(ctx, m->title,
+                               mu_rect((w - ww) / 2, (h - wh) / 2, ww, wh));
+    if (open) {
+        int fill[1] = {-1};
+        mu_layout_row(ctx, 1, fill, -1);
+        mu_text(ctx, m->body);
+        mu_end_window(ctx);
+    }
+    return open != 0;
+}
+
+void ui_message(const char* title, const char* body)
+{
+    struct msg_ud m = {title, body};
+    ui_run(msg_frame, &m);
+}
+
+struct confirm_ud {
+    const char* title;
+    const char* body;
+    bool result;
+    bool done;
+};
+
+static bool confirm_frame(mu_Context* ctx, void* ud)
+{
+    struct confirm_ud* c = ud;
+    int w = (int)gfx_width();
+    int h = (int)gfx_height();
+    int ww = 420;
+    int wh = 200;
+    int open = mu_begin_window_ex(ctx, c->title,
+                                  mu_rect((w - ww) / 2, (h - wh) / 2, ww, wh),
+                                  MU_OPT_NORESIZE);
+    if (open) {
+        int fill[1] = {-1};
+        mu_layout_row(ctx, 1, fill, -1);
+        mu_text(ctx, c->body);
+        int btns[2] = {-90, -1};
+        mu_layout_row(ctx, 2, btns, 0);
+        if (mu_button(ctx, "OK")) {
+            c->result = true;
+            c->done = true;
+        }
+        if (mu_button(ctx, "Cancel")) {
+            c->result = false;
+            c->done = true;
+        }
+        mu_end_window(ctx);
+    }
+    return open != 0 && !c->done;
+}
+
+bool ui_confirm(const char* title, const char* body)
+{
+    struct confirm_ud c = {title, body, false, false};
+    ui_run(confirm_frame, &c);
+    return c.result;
+}

@@ -288,6 +288,39 @@ long strtol(const char* s, char** end, int base)
     return sign * val;
 }
 
+// Byte-wise swap of two equal-size elements (no temp allocation).
+static void kl_swap(char* a, char* b, size_t size)
+{
+    for (size_t i = 0; i < size; i++) {
+        char t = a[i];
+        a[i] = b[i];
+        b[i] = t;
+    }
+}
+
+// qsort: a plain recursive Lomuto quicksort. The only in-tree caller is
+// microui's mu_end (sorting ≤32 root windows by z-index), so simplicity beats
+// pivot cleverness here.
+void qsort(void* base, size_t n, size_t size,
+           int (*cmp)(const void*, const void*))
+{
+    if (n < 2) {
+        return;
+    }
+    char* a = base;
+    char* pivot = a + (n - 1) * size; // last element as pivot
+    size_t store = 0;
+    for (size_t i = 0; i + 1 < n; i++) {
+        if (cmp(a + i * size, pivot) < 0) {
+            kl_swap(a + i * size, a + store * size, size);
+            store++;
+        }
+    }
+    kl_swap(a + store * size, pivot, size);
+    qsort(a, store, size, cmp);
+    qsort(a + (store + 1) * size, n - store - 1, size, cmp);
+}
+
 void abort(void) { kernel_panic("libc abort()"); }
 
 void exit(int code)

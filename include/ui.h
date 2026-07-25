@@ -1,0 +1,32 @@
+#ifndef __UI_H
+#define __UI_H
+
+#include <stdbool.h>
+
+// Graphical UI layer: renders the vendored microui (src/microui/) over the
+// shell framebuffer and drives it with the PS/2 mouse + keyboard. Popups run as
+// a modal loop (like the full-screen editor) — they float over the shell text
+// and restore it on close. See src/ui.c; the Lua `ui` library is lua_ui.c.
+
+struct mu_Context;
+
+// True when a framebuffer + microui context are available (the UI needs one).
+bool ui_available(void);
+
+// Per-frame build callback: called once each frame between mu_begin/mu_end to
+// populate the UI (open windows, emit widgets). Return false to close the loop.
+typedef bool (*ui_frame_fn)(struct mu_Context* ctx, void* ud);
+
+// Run the modal UI loop, calling `build` every frame until it (or Esc / a
+// closed window) asks to stop. No-op without a framebuffer.
+void ui_run(ui_frame_fn build, void* ud);
+
+// The microui context while a frame is building, else NULL. The Lua widget
+// wrappers (lua_ui.c) operate on this.
+struct mu_Context* ui_current(void);
+
+// Native convenience popups (used by the Lua `ui` library and help()).
+void ui_message(const char* title, const char* body); // scrollable text window
+bool ui_confirm(const char* title, const char* body); // OK/Cancel -> true/false
+
+#endif

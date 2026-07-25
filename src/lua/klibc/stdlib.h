@@ -10,6 +10,8 @@ void free(void* p);
 double strtod(const char* s, char** end);
 long strtol(const char* s, char** end, int base);
 static inline int abs(int x) { return x < 0 ? -x : x; }
+void qsort(void* base, size_t n, size_t size,
+           int (*cmp)(const void*, const void*));
 void abort(void);
 void exit(int code);
 char* getenv(const char* name);

@@ -5,6 +5,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 // Direct drawing to the Limine framebuffer (32-bit only). Coexists with the
 // flanterm text console on the same surface — graphics and text overwrite each
@@ -30,6 +31,23 @@ void gfx_pixel(int64_t x, int64_t y, uint32_t rgb);
 void gfx_rect(int64_t x, int64_t y, int64_t w, int64_t h, uint32_t rgb);
 void gfx_clear(uint32_t rgb);
 void gfx_line(int64_t x0, int64_t y0, int64_t x1, int64_t y1, uint32_t rgb);
+
+// Clip-aware drawing for the UI layer (src/ui.c renders microui through these).
+// gfx_clip sets the current clip rectangle; gfx_fill and gfx_text/gfx_glyph are
+// clamped to it (and to the screen). gfx_clip_reset drops back to full-screen.
+void gfx_clip(int64_t x, int64_t y, int64_t w, int64_t h);
+void gfx_clip_reset(void);
+void gfx_fill(int64_t x, int64_t y, int64_t w, int64_t h, uint32_t rgb);
+// Draw one 8x16 glyph / an n-byte string at pixel (x, y), honoring the clip.
+void gfx_glyph(int64_t x, int64_t y, unsigned char c, uint32_t rgb);
+void gfx_text(int64_t x, int64_t y, const char* s, size_t n, uint32_t rgb);
+
+// Save / restore the current draw target (back buffer when buffered, else the
+// screen) into a heap snapshot. The UI loop snapshots the shell image once,
+// then restores it under the windows each frame so popups float over live text.
+void gfx_snapshot(void);
+void gfx_restore(void);
+void gfx_snapshot_free(void);
 
 // Blit a width*height array of 0xAARRGGBB pixels with its top-left at (x, y).
 // Fully transparent pixels (alpha 0) are skipped, so images with a cut-out

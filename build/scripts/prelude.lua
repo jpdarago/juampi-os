@@ -60,7 +60,10 @@ function dump(v)
 end
 pp = dump
 
--- --- help ------------------------------------------------------------------
+-- --- help & reference ------------------------------------------------------
+-- help()/ref() open a graphical microui browser when a framebuffer is present
+-- (mouse to scroll/expand, Esc or the [x] box to close), and fall back to
+-- plain text over serial otherwise.
 
 local DESC = {
     k = "kernel introspection: time, memory, cpuid, peek/poke, shutdown, random",
@@ -72,8 +75,40 @@ local DESC = {
     mem = "shared-memory buffers",
     net = "IPv4 networking: DHCP, DNS (net.resolve), ping, UDP/TCP sockets",
     http = "HTTP/1.1 client: http.get(url) -> status, body",
+    ui = "graphical popups & windows: ui.window, ui.popup, ui.confirm",
 }
-local LIBS = { "k", "fb", "fs", "disk", "pci", "thread", "mem", "net", "http" }
+local LIBS =
+    { "k", "fb", "fs", "disk", "pci", "thread", "mem", "net", "http", "ui" }
+
+local OVERVIEW = [==[juampiOS - a scriptable ring-0 kernel with an embedded
+Lua 5.4 shell. Everything runs in one address space at ring 0.
+
+Core globals:
+  run(name[,arg])    run a .lua script or a native .elf binary
+  run()              list what you can run
+  bench(t[,arg[,n]]) time a function/script/binary -> total, per_call
+  edit(name)         full-screen text editor
+  dump(v) / pp(v)    pretty-print a value or table
+  clear()            clear the screen
+  help() / help(lib) this reference;  ref(topic) for a page]==]
+
+local KEYS = [==[Shell line editor:
+  left/right, Home/End, Ctrl-A/E   move to char / line ends
+  Ctrl-arrows, Alt-b / Alt-f       move by word
+  Ctrl-U / Ctrl-K / Ctrl-W         kill line / to end / word
+  up / down                        command history
+
+Full-screen editor (edit):
+  Ctrl-S save    Ctrl-X save & run    Ctrl-Q quit
+
+UI windows (ui.window, help):
+  mouse to click, drag and scroll
+  Esc or the [x] title box to close]==]
+
+local PAGES = {
+    overview = { "Overview", OVERVIEW },
+    keys = { "Keybindings", KEYS },
+}
 
 local function fn_names(t)
     local ns = {}
@@ -86,28 +121,34 @@ local function fn_names(t)
     return ns
 end
 
--- help() prints an overview; help(lib) or help("lib") lists a library's members.
-function help(topic)
-    if topic ~= nil then
-        local name, t = tostring(topic), topic
-        if type(topic) == "string" then
-            t = _G[topic]
-        else
-            for k, v in pairs(_G) do
-                if v == topic then
-                    name = k
-                    break
-                end
+local function lib_body(name, t)
+    return (DESC[name] or "") .. "\n\n" .. table.concat(fn_names(t), "  ")
+end
+
+local function has_ui()
+    return ui ~= nil and ui.available ~= nil and ui.available()
+end
+
+-- The graphical reference browser: overview + keybindings + a node per library.
+local function browser()
+    ui.window("juampiOS - Help & Reference", function()
+        if ui.header("Overview") then
+            ui.text(OVERVIEW)
+        end
+        if ui.header("Keybindings") then
+            ui.text(KEYS)
+        end
+        for _, n in ipairs(LIBS) do
+            local t = _G[n]
+            if type(t) == "table" and ui.treenode(n .. "  -  " .. (DESC[n] or "")) then
+                ui.text(lib_body(n, t))
+                ui.endtreenode()
             end
         end
-        if type(t) ~= "table" then
-            print("help: no such library: " .. tostring(topic))
-            return
-        end
-        print(name .. " — " .. (DESC[name] or ""))
-        print("  " .. table.concat(fn_names(t), "  "))
-        return
-    end
+    end)
+end
+
+local function help_text()
     print("juampiOS Lua shell. Available:")
     print("  run(name[,arg])   run a .lua script or a native .elf binary")
     print("  run()             list what you can run")
@@ -119,5 +160,61 @@ function help(topic)
     print("  libraries:")
     for _, n in ipairs(LIBS) do
         print(string.format("    %-7s %s", n, DESC[n] or ""))
+    end
+end
+
+-- help() opens the reference; help(lib) or help("lib") focuses one library.
+function help(topic)
+    if topic == nil then
+        if has_ui() then
+            browser()
+        else
+            help_text()
+        end
+        return
+    end
+    local name, t = tostring(topic), topic
+    if type(topic) == "string" then
+        t = _G[topic]
+    else
+        for k, v in pairs(_G) do
+            if v == topic then
+                name = k
+                break
+            end
+        end
+    end
+    if type(t) ~= "table" then
+        print("help: no such library: " .. tostring(topic))
+        return
+    end
+    if has_ui() then
+        ui.popup(name, lib_body(name, t))
+    else
+        print(name .. " - " .. (DESC[name] or ""))
+        print("  " .. table.concat(fn_names(t), "  "))
+    end
+end
+
+-- ref() opens the browser; ref("overview")/ref("keys") show an authored page;
+-- ref(lib) is the same as help(lib).
+function ref(topic)
+    if topic == nil then
+        if has_ui() then
+            browser()
+        else
+            help_text()
+        end
+        return
+    end
+    local page = PAGES[tostring(topic):lower()]
+    if page then
+        if has_ui() then
+            ui.popup(page[1], page[2])
+        else
+            print(page[2])
+        end
+    else
+        help(topic)
     end
 end

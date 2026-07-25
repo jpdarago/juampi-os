@@ -8,6 +8,8 @@
 
 #include <stddef.h>
 
+#include "font8x16.h"
+
 // The framebuffer is written with plain (non-volatile) stores: there are no
 // readers and no ordering requirements, so dropping volatile lets the compiler
 // vectorize the full-screen fills and the back-buffer flip (a volatile
@@ -126,6 +128,92 @@ void gfx_clear(uint32_t rgb)
     gfx_rect(0, 0, (int64_t)width, (int64_t)height, rgb);
 }
 
+// --- Clip-aware primitives for the UI layer ---------------------------------
+// Current clip rectangle as an exclusive [x0,x1) x [y0,y1) box; every clipped
+// draw also clamps to the screen. INT64_MAX means "unbounded" (full screen), so
+// drawing before any gfx_clip covers everything.
+static int64_t cl_x0, cl_y0, cl_x1 = INT64_MAX, cl_y1 = INT64_MAX;
+
+void gfx_clip_reset(void)
+{
+    cl_x0 = 0;
+    cl_y0 = 0;
+    cl_x1 = INT64_MAX;
+    cl_y1 = INT64_MAX;
+}
+
+void gfx_clip(int64_t x, int64_t y, int64_t w, int64_t h)
+{
+    cl_x0 = x;
+    cl_y0 = y;
+    cl_x1 = x + w;
+    cl_y1 = y + h;
+}
+
+void gfx_fill(int64_t x, int64_t y, int64_t w, int64_t h, uint32_t rgb)
+{
+    if (fb == NULL) {
+        return;
+    }
+    uint32_t px = pack(rgb);
+    int64_t x0 = x < cl_x0 ? cl_x0 : x;
+    int64_t y0 = y < cl_y0 ? cl_y0 : y;
+    int64_t x1 = x + w > cl_x1 ? cl_x1 : x + w;
+    int64_t y1 = y + h > cl_y1 ? cl_y1 : y + h;
+    if (x0 < 0) {
+        x0 = 0;
+    }
+    if (y0 < 0) {
+        y0 = 0;
+    }
+    if (x1 > (int64_t)width) {
+        x1 = (int64_t)width;
+    }
+    if (y1 > (int64_t)height) {
+        y1 = (int64_t)height;
+    }
+    for (int64_t yy = y0; yy < y1; yy++) {
+        uint32_t* row = row_of((uint64_t)yy);
+        for (int64_t xx = x0; xx < x1; xx++) {
+            row[xx] = px;
+        }
+    }
+}
+
+void gfx_glyph(int64_t x, int64_t y, unsigned char c, uint32_t rgb)
+{
+    if (fb == NULL) {
+        return;
+    }
+    uint32_t px = pack(rgb);
+    const uint8_t* g = &font8x16[(size_t)c * FONT_H];
+    for (int row = 0; row < FONT_H; row++) {
+        int64_t py = y + row;
+        if (py < cl_y0 || py >= cl_y1 || py < 0 || py >= (int64_t)height) {
+            continue;
+        }
+        uint32_t* dst = row_of((uint64_t)py);
+        uint8_t bits = g[row];
+        for (int col = 0; col < FONT_W; col++) {
+            if (!(bits & (0x80 >> col))) {
+                continue;
+            }
+            int64_t sx = x + col;
+            if (sx < cl_x0 || sx >= cl_x1 || sx < 0 || sx >= (int64_t)width) {
+                continue;
+            }
+            dst[sx] = px;
+        }
+    }
+}
+
+void gfx_text(int64_t x, int64_t y, const char* s, size_t n, uint32_t rgb)
+{
+    for (size_t i = 0; i < n; i++) {
+        gfx_glyph(x + (int64_t)i * FONT_W, y, (unsigned char)s[i], rgb);
+    }
+}
+
 void gfx_blit(int64_t x, int64_t y, uint64_t w, uint64_t h,
               const uint32_t* pixels)
 {
@@ -218,6 +306,42 @@ void gfx_flip(void)
         for (uint64_t y = 0; y < height; y++) {
             memcpy(fb + y * pitch, back + y * width, width * 4);
         }
+    }
+}
+
+// Heap snapshot of the draw target, used by the UI loop to keep the shell text
+// visible under the floating windows (see gfx.h).
+static uint32_t* snap;
+
+void gfx_snapshot(void)
+{
+    if (fb == NULL) {
+        return;
+    }
+    if (snap == NULL) {
+        snap = new (&heap_default()->base, uint32_t,
+                    (ptrdiff_t)(width * height));
+    }
+    for (uint64_t y = 0; y < height; y++) {
+        memcpy(snap + y * width, row_of(y), width * 4);
+    }
+}
+
+void gfx_restore(void)
+{
+    if (fb == NULL || snap == NULL) {
+        return;
+    }
+    for (uint64_t y = 0; y < height; y++) {
+        memcpy(row_of(y), snap + y * width, width * 4);
+    }
+}
+
+void gfx_snapshot_free(void)
+{
+    if (snap != NULL) {
+        heap_free(heap_default(), snap);
+        snap = NULL;
     }
 }
 

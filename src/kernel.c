@@ -15,6 +15,7 @@
 #include <shell.h>
 #include <console.h>
 #include <keyboard.h>
+#include <mouse.h>
 #include <ktime.h>
 #include <ksym.h>
 #include <gfx.h>
@@ -304,6 +305,7 @@ void kmain(void)
     gdt_init(mem);
     interrupts_init();
     keyboard_init(); // PS/2 keyboard on IRQ 1 feeds the console input path
+    mouse_init();    // PS/2 mouse on IRQ 12 drives the microui popups
     register_interrupt_handler(3, breakpoint_handler); // int3 -> non-fatal
     __asm__ __volatile__("sti");
 

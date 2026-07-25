@@ -91,6 +91,11 @@ HL_OBJS  := $(OBJ_DIR)/highlight/highlight.o $(OBJ_DIR)/highlight/lua_keywords.o
 # like the other vendored code; the SSE4.2 fast path is #ifdef'd off in our build.
 HTTP_OBJS := $(OBJ_DIR)/http/picohttpparser.o
 
+# Vendored microui (src/microui/): the immediate-mode UI used by src/ui.c.
+# Compiled verbatim (-w) with the klibc <stdio.h>/<stdlib.h>/<string.h> on the
+# include path (it needs sprintf/qsort/memcpy, all provided by the shim).
+MICROUI_OBJS := $(OBJ_DIR)/microui/microui.o
+
 # Vendored BearSSL (src/bearssl/): the TLS library for HTTPS. Its whole src/ tree
 # compiles freestanding (no malloc, no OS deps); built verbatim (-w) with its own
 # includes + the klibc <string.h>. sysrng.c (the /dev/urandom seeder) was dropped
@@ -103,8 +108,8 @@ BEARSSL_INC  := -I$(BEARSSL_DIR)/inc -I$(BEARSSL_DIR)/src -I$(SRC_DIR)/lua/klibc
 COBJS      := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CSOURCES))
 ASMOBJS    := $(patsubst $(SRC_DIR)/%.S,$(OBJ_DIR)/%.o,$(ASMSOURCES))
 VENDOR_OBJS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(VENDOR_CSOURCES))
-OBJS       := $(COBJS) $(ASMOBJS) $(VENDOR_OBJS) $(LUA_OBJS) $(LUA_ASM_OBJ) $(HL_OBJS) $(HTTP_OBJS) $(BEARSSL_OBJS)
-DEPS       := $(COBJS:.o=.d) $(VENDOR_OBJS:.o=.d) $(LUA_OBJS:.o=.d) $(HL_OBJS:.o=.d) $(HTTP_OBJS:.o=.d) $(BEARSSL_OBJS:.o=.d)
+OBJS       := $(COBJS) $(ASMOBJS) $(VENDOR_OBJS) $(LUA_OBJS) $(LUA_ASM_OBJ) $(HL_OBJS) $(HTTP_OBJS) $(MICROUI_OBJS) $(BEARSSL_OBJS)
+DEPS       := $(COBJS:.o=.d) $(VENDOR_OBJS:.o=.d) $(LUA_OBJS:.o=.d) $(HL_OBJS:.o=.d) $(HTTP_OBJS:.o=.d) $(MICROUI_OBJS:.o=.d) $(BEARSSL_OBJS:.o=.d)
 
 KERNEL := kernel.bin
 
@@ -159,6 +164,11 @@ $(OBJ_DIR)/highlight/%.o: $(HL_DIR)/%.c | $(OBJ_DIR)
 
 # Vendored picohttpparser: same treatment (verbatim, klibc headers).
 $(OBJ_DIR)/http/%.o: $(SRC_DIR)/http/%.c | $(OBJ_DIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -w -I$(SRC_DIR)/lua/klibc $(CPPFLAGS) -c -o $@ $<
+
+# Vendored microui: same treatment (verbatim, klibc headers for sprintf/qsort).
+$(OBJ_DIR)/microui/%.o: $(SRC_DIR)/microui/%.c | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w -I$(SRC_DIR)/lua/klibc $(CPPFLAGS) -c -o $@ $<
 
