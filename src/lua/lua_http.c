@@ -2,6 +2,8 @@
 // over the TCP stack + the vendored picohttpparser. https:// is a later round.
 
 #include <http.h>
+#include <arena.h>
+#include <memory.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -10,11 +12,20 @@
 static int l_get(lua_State* L)
 {
     const char* url = luaL_checkstring(L, 1);
-    // Sized for typical pages; larger bodies are truncated to this.
-    static char body[256 * 1024];
+
+    // Per-call scratch carved from the kernel heap and wrapped in an arena for
+    // http_get's response buffer — nothing static, so this stays reentrant / safe
+    // if the caller ever runs off the BSP. Freed once the body is copied into a
+    // Lua string. The slack covers the arena's own alignment rounding.
+    ptrdiff_t sz = HTTP_RECV_MAX + 4096;
+    void* mem = alloc(&heap_default()->base, sz, 16, 1);
+    arena scratch = arena_init(mem, sz);
+
+    char* body = NULL;
     int blen = 0;
-    int status = http_get(url, body, (int)sizeof(body), &blen);
+    int status = http_get(&scratch.base, url, &body, &blen);
     if (status < 0) {
+        heap_free(heap_default(), mem);
         const char* msg;
         switch (status) {
         case -1:
@@ -35,7 +46,8 @@ static int l_get(lua_State* L)
         return 2;
     }
     lua_pushinteger(L, status);
-    lua_pushlstring(L, body, (size_t)blen);
+    lua_pushlstring(L, body, (size_t)blen); // copies into a Lua string
+    heap_free(heap_default(), mem);          // safe: the copy is done
     return 2;
 }
 

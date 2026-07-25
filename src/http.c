@@ -7,7 +7,7 @@
 
 #include <http.h>
 #include <net.h>
-#include <utils.h> // memcpy
+#include <utils.h> // memset
 
 #include <printf/printf.h> // snprintf (kernel provides the standard name)
 #include <stdint.h>
@@ -15,11 +15,6 @@
 #include <stdbool.h>
 
 #include "http/picohttpparser.h"
-
-// One shared response buffer (holds headers + body). Large responses beyond
-// this are truncated — fine for the small pages this client targets.
-#define RECV_MAX (512 * 1024)
-static char recvbuf[RECV_MAX];
 
 static char lower(char c)
 {
@@ -60,10 +55,13 @@ static bool hdr_value_has(const struct phr_header* h, const char* needle)
     return false;
 }
 
-int http_get(const char* url, char* body, int cap, int* body_len)
+int http_get(allocator* a, const char* url, char** out_body, int* out_len)
 {
-    if (body_len) {
-        *body_len = 0;
+    if (out_body) {
+        *out_body = NULL;
+    }
+    if (out_len) {
+        *out_len = 0;
     }
 
     // Require an http:// scheme.
@@ -117,11 +115,15 @@ int http_get(const char* url, char* body, int cap, int* body_len)
                       path, host);
     net_tcp_send(conn, req, (uint32_t)rn);
 
+    // Response buffer comes from the caller's allocator (no static state), so
+    // concurrent callers with their own arenas/heaps don't collide.
+    char* recvbuf = new (a, char, HTTP_RECV_MAX);
+
     // Read until the server closes (EOF) or we run out of buffer.
     int total = 0;
-    while (total < RECV_MAX) {
+    while (total < HTTP_RECV_MAX) {
         int r = net_tcp_recv(conn, recvbuf + total,
-                             (uint32_t)(RECV_MAX - total), 8000);
+                             (uint32_t)(HTTP_RECV_MAX - total), 8000);
         if (r <= 0) {
             break; // 0 = clean EOF, -1 = timeout
         }
@@ -168,12 +170,12 @@ int http_get(const char* url, char* body, int cap, int* body_len)
         }
     }
 
-    int copy = blen < cap ? blen : cap;
-    if (body && copy > 0) {
-        memcpy(body, recvbuf + hdrlen, (size_t)copy);
+    // Hand back a view into the scratch buffer; the caller owns its lifetime.
+    if (out_body) {
+        *out_body = recvbuf + hdrlen;
     }
-    if (body_len) {
-        *body_len = copy;
+    if (out_len) {
+        *out_len = blen;
     }
     return status;
 }

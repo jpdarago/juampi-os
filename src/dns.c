@@ -100,6 +100,9 @@ static bool parse_answer(const uint8_t* m, int len, uint16_t id,
             return false;
         }
         if (type == 1 && rdlen == 4) { // A record
+            // Assemble the 4 big-endian RDATA bytes into a host-order address
+            // (an ntohl by hand — endian-agnostic and no unaligned 4-byte load;
+            // matches the byte-wise ntohs reads used for the 16-bit fields).
             *out_ip = ((uint32_t)m[o] << 24) | ((uint32_t)m[o + 1] << 16) |
                       ((uint32_t)m[o + 2] << 8) | (uint32_t)m[o + 3];
             return true;

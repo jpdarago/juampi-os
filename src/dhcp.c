@@ -113,11 +113,32 @@ static int build(uint8_t* buf, uint32_t xid, uint8_t type, uint32_t req_ip,
     return (int)udplen;
 }
 
+// The address configuration a reply carries (0 for options the server omits).
+typedef struct {
+    uint32_t ip;         // yiaddr — offered/leased address
+    uint32_t mask;       // option 1  — subnet mask
+    uint32_t gateway_ip; // option 3  — router
+    uint32_t dns_ip;     // option 6  — first DNS server
+    uint32_t server_ip;  // option 54 — DHCP server identifier
+} dhcp_lease;
+
+// One DISCOVER/REQUEST round: the socket/identity context plus what to send and
+// which reply type to accept.
+typedef struct {
+    int sock;
+    const uint8_t* mac;
+    uint32_t xid;
+    uint32_t slot_ms;   // per-attempt receive timeout
+    uint8_t type;       // message to send (DISCOVER / REQUEST)
+    uint8_t want;       // reply type to accept (OFFER / ACK)
+    uint32_t req_ip;    // option 50 (REQUEST only)
+    uint32_t server_ip; // option 54 (REQUEST only)
+} dhcp_req;
+
 // Parse a reply; require op==BOOTREPLY, matching xid, and option 53 == `want`.
-// Fills the offered address and any options present (0 when absent).
+// Fills `out` with the offered address and any options present.
 static bool parse(const uint8_t* d, int len, uint32_t xid, uint8_t want,
-                  uint32_t* yiaddr, uint32_t* mask, uint32_t* router,
-                  uint32_t* dns, uint32_t* server_id)
+                  dhcp_lease* out)
 {
     if (len < DHCP_FIXED + 4) {
         return false;
@@ -131,8 +152,8 @@ static bool parse(const uint8_t* d, int len, uint32_t xid, uint8_t want,
         return false;
     }
     o += 4;
-    *yiaddr = ntohl(m->yiaddr);
-    *mask = *router = *dns = *server_id = 0;
+    out->ip = ntohl(m->yiaddr);
+    out->mask = out->gateway_ip = out->dns_ip = out->server_ip = 0;
     uint8_t mtype = 0;
     const uint8_t* end = d + len;
     while (o < end && *o != OPT_END) {
@@ -150,34 +171,33 @@ static bool parse(const uint8_t* d, int len, uint32_t xid, uint8_t want,
         if (code == OPT_MSGTYPE && l >= 1) {
             mtype = o[0];
         } else if (code == OPT_MASK && l >= 4) {
-            *mask = get32(o);
+            out->mask = get32(o);
         } else if (code == OPT_ROUTER && l >= 4) {
-            *router = get32(o);
+            out->gateway_ip = get32(o);
         } else if (code == OPT_DNS && l >= 4) {
-            *dns = get32(o); // first DNS server
+            out->dns_ip = get32(o); // first DNS server
         } else if (code == OPT_SERVERID && l >= 4) {
-            *server_id = get32(o);
+            out->server_ip = get32(o);
         }
         o += l;
     }
     return mtype == want;
 }
 
-// Send `type` (broadcast, src 0.0.0.0) and wait up to `slot_ms` for a matching
-// reply. Returns true and fills the outputs on success.
-static bool exchange(int sock, const uint8_t mac[6], uint32_t xid, uint8_t type,
-                     uint8_t want, uint32_t req_ip, uint32_t server_id,
-                     uint32_t slot_ms, uint32_t* yiaddr, uint32_t* mask,
-                     uint32_t* router, uint32_t* dns, uint32_t* sid)
+// Send `req->type` (broadcast, src 0.0.0.0) and wait up to `req->slot_ms` for a
+// matching reply. Returns true and fills `*out` on success.
+static bool exchange(const dhcp_req* req, dhcp_lease* out)
 {
     for (int attempt = 0; attempt < 3; attempt++) {
-        uint8_t out[600];
-        int n = build(out, xid, type, req_ip, server_id, mac);
-        ip_send_bcast(0, IP_PROTO_UDP, out, (uint16_t)n);
+        uint8_t buf[600];
+        int n = build(buf, req->xid, req->type, req->req_ip, req->server_ip,
+                      req->mac);
+        ip_send_bcast(0, IP_PROTO_UDP, buf, (uint16_t)n);
 
-        uint8_t in[600];
-        int r = net_udp_recvfrom(sock, slot_ms, in, sizeof in, NULL, NULL);
-        if (r > 0 && parse(in, r, xid, want, yiaddr, mask, router, dns, sid)) {
+        uint8_t reply[600];
+        int r = net_udp_recvfrom(req->sock, req->slot_ms, reply, sizeof reply,
+                                 NULL, NULL);
+        if (r > 0 && parse(reply, r, req->xid, req->want, out)) {
             return true;
         }
     }
@@ -203,22 +223,33 @@ bool net_dhcp(uint32_t timeout_ms)
         return false;
     }
 
-    uint32_t lease_ip = 0, mask = 0, gateway_ip = 0, dns_ip = 0, server_ip = 0;
-    bool ok = exchange(sock, mac, xid, DHCP_DISCOVER, DHCP_OFFER, 0, 0, slot,
-                       &lease_ip, &mask, &gateway_ip, &dns_ip, &server_ip);
+    dhcp_req req = {
+            .sock = sock,
+            .mac = mac,
+            .xid = xid,
+            .slot_ms = slot,
+            .type = DHCP_DISCOVER,
+            .want = DHCP_OFFER,
+    };
+    dhcp_lease lease = {0};
+    bool ok = exchange(&req, &lease);
     if (ok) {
-        uint32_t ack_ip = 0, ack_mask = 0, ack_gw = 0, ack_dns = 0, ack_sid = 0;
-        ok = exchange(sock, mac, xid, DHCP_REQUEST, DHCP_ACK, lease_ip,
-                      server_ip, slot, &ack_ip, &ack_mask, &ack_gw, &ack_dns,
-                      &ack_sid);
+        // Confirm the offer with a REQUEST; the ACK's options win where
+        // present.
+        req.type = DHCP_REQUEST;
+        req.want = DHCP_ACK;
+        req.req_ip = lease.ip;
+        req.server_ip = lease.server_ip;
+        dhcp_lease ack = {0};
+        ok = exchange(&req, &ack);
         if (ok) {
-            lease_ip = ack_ip;
-            if (ack_mask)
-                mask = ack_mask;
-            if (ack_gw)
-                gateway_ip = ack_gw;
-            if (ack_dns)
-                dns_ip = ack_dns;
+            lease.ip = ack.ip;
+            if (ack.mask)
+                lease.mask = ack.mask;
+            if (ack.gateway_ip)
+                lease.gateway_ip = ack.gateway_ip;
+            if (ack.dns_ip)
+                lease.dns_ip = ack.dns_ip;
         }
     }
     net_udp_close(sock);
@@ -226,15 +257,15 @@ bool net_dhcp(uint32_t timeout_ms)
         return false;
     }
 
-    if (mask == 0) {
-        mask = 0xFFFFFF00u;
+    if (lease.mask == 0) {
+        lease.mask = 0xFFFFFF00u;
     }
-    net_config(lease_ip, mask, gateway_ip);
-    g_dns = dns_ip;
+    net_config(lease.ip, lease.mask, lease.gateway_ip);
+    g_dns = lease.dns_ip;
 
     char ips[16], gws[16], dnss[16];
-    net_ntoa(lease_ip, ips);
-    net_ntoa(gateway_ip, gws);
+    net_ntoa(lease.ip, ips);
+    net_ntoa(lease.gateway_ip, gws);
     net_ntoa(net_dns_server(), dnss);
     console_print("juampiOS: net DHCP lease ");
     console_print(ips);
