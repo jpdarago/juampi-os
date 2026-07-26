@@ -19,6 +19,9 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
 - [[networking]] — TCP/IP stack design: e1000 driver, polled execution model,
   Ethernet/ARP/IPv4/ICMP/UDP, DHCP/DNS, and a `net.*` socket library.
   *Status: planned (M10).*
+- [[ui]] — desktop UI & windowing on microui: what was built, the global-state
+  problem, and the reentrant (later multithreaded) target design.
+  *Status: in progress (M11).*
 
 ## By status
 
@@ -27,6 +30,7 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
 | [[x86-64-port]] | complete          | —         |
 | [[lua-shell]]   | complete          | M8–M9     |
 | [[networking]]  | planned           | M10       |
+| [[ui]]          | in progress       | M11       |
 
 ## Conventions
 
