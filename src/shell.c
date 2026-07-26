@@ -368,9 +368,11 @@ static void shell_read_line(const char* prompt, char* buf, size_t max)
     }
 }
 
-void shell_run(void)
+void shell_run(heap_allocator* heap)
 {
     static char line[LINE_MAX];
+
+    ui_init(heap); // the UI's root allocator; per-widget arenas are carved here
 
     // With a framebuffer, run the windowed desktop shell (the REPL lives in a
     // terminal window). Never returns. Headless (serial/CI) falls through to

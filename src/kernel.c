@@ -457,5 +457,5 @@ void kmain(void)
     // isolation is wanted, but the kernel shell runs in ring 0 for full
     // access.)
     console_print("juampiOS: boot complete\n");
-    shell_run();
+    shell_run(&heap);
 }

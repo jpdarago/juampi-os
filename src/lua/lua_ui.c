@@ -396,7 +396,7 @@ static int l_canvas(lua_State* L)
     LuaCanvas* cv = (LuaCanvas*)lua_newuserdatauv(L, sizeof(LuaCanvas), 0);
     cv->w = w;
     cv->h = h;
-    cv->buf = new (&heap_default()->base, uint32_t, (ptrdiff_t)w * h);
+    cv->buf = new (&ui_root_heap()->base, uint32_t, (ptrdiff_t)w * h);
     luaL_setmetatable(L, CANVAS_MT);
     return 1;
 }
@@ -410,7 +410,7 @@ static int l_canvas_gc(lua_State* L)
 {
     LuaCanvas* cv = (LuaCanvas*)luaL_checkudata(L, 1, CANVAS_MT);
     if (cv->buf != NULL) {
-        heap_free(heap_default(), cv->buf);
+        heap_free(ui_root_heap(), cv->buf);
         cv->buf = NULL;
     }
     return 0;

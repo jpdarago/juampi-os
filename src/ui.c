@@ -19,6 +19,7 @@
 #include <fault.h>
 #include <net.h>
 #include <editor.h>
+#include <arena.h>
 
 #include <printf/printf.h> // snprintf for the editor window title
 #include <stdint.h>
@@ -36,6 +37,22 @@ static size_t ui_strlen(const char* s)
         n++;
     }
     return n;
+}
+
+// --- root allocator (injected) + per-widget arenas --------------------------
+
+// The UI's root allocator, injected once at boot (shell_run -> ui_init). The UI
+// never calls heap_default(); per-widget arenas and the microui context are
+// carved from this.
+static heap_allocator* ui_heap;
+
+void ui_init(heap_allocator* h)
+{
+    ui_heap = h;
+}
+heap_allocator* ui_root_heap(void)
+{
+    return ui_heap;
 }
 
 // --- microui context --------------------------------------------------------
@@ -93,7 +110,7 @@ static void apply_theme(mu_Context* ctx)
 static mu_Context* ui_ctx(void)
 {
     if (g_ctx == NULL) {
-        g_ctx = new (&heap_default()->base, mu_Context, 1);
+        g_ctx = new (&ui_heap->base, mu_Context, 1);
         mu_init(g_ctx);
         g_ctx->text_width = text_width_cb;
         g_ctx->text_height = text_height_cb;
@@ -566,7 +583,7 @@ void ui_open_canvas(const char* title, uint32_t* buf, int w, int h)
             }
             if (same) {
                 slot = i; // re-render into the same window: free the old buffer
-                heap_free(heap_default(), canv[i].buf);
+                heap_free(ui_heap, canv[i].buf);
                 break;
             }
         } else if (slot < 0) {
@@ -574,7 +591,7 @@ void ui_open_canvas(const char* title, uint32_t* buf, int w, int h)
         }
     }
     if (slot < 0) {
-        heap_free(heap_default(), buf); // no room
+        heap_free(ui_heap, buf); // no room
         return;
     }
     canv[slot].used = true;
@@ -607,7 +624,7 @@ static void draw_canvas_windows(mu_Context* ctx)
             canv[i].fresh = false;
         }
         if (!mu_begin_window(ctx, canv[i].title, r)) {
-            heap_free(heap_default(), canv[i].buf); // closed via [x]
+            heap_free(ui_heap, canv[i].buf); // closed via [x]
             canv[i].buf = NULL;
             canv[i].used = false;
             continue;
