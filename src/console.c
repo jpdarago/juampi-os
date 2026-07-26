@@ -70,16 +70,19 @@ static spinlock console_lock;
 
 // Optional extra sink (the windowed terminal's scrollback). Receives the raw
 // character stream — including the SGR escapes from the highlighter — before
-// the CRLF expansion the real terminals need. Set only on the BSP by the
-// desktop shell; NULL otherwise.
-static void (*extra_sink)(char);
+// the CRLF expansion the real terminals need, plus an opaque `ctx` so the sink
+// can be a per-instance widget rather than a singleton. Set only on the BSP by
+// the desktop shell; NULL otherwise.
+static void (*extra_sink)(void*, char);
+static void* extra_sink_ctx;
 
-void console_set_sink(void (*fn)(char))
+void console_set_sink(void (*fn)(void*, char), void* ctx)
 {
-    // Publish under the lock: emit() reads extra_sink while holding it, so an
+    // Publish under the lock: emit() reads these while holding it, so an
     // unlocked store could tear against a concurrent print from another core.
     spin_lock(&console_lock);
     extra_sink = fn;
+    extra_sink_ctx = ctx;
     spin_unlock(&console_lock);
 }
 
@@ -89,7 +92,7 @@ void console_set_sink(void (*fn)(char))
 static void emit(char c)
 {
     if (extra_sink) {
-        extra_sink(c);
+        extra_sink(extra_sink_ctx, c);
     }
     if (c == '\n') {
         serial_putc('\r');

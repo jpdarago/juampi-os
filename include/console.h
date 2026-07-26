@@ -29,10 +29,11 @@ void console_clear(void);
 // shell's line editor; arrow/navigation keys arrive as VT100 escape sequences.
 int console_getch(void);
 
-// Mirror every emitted character to `fn` as well as the framebuffer + serial.
-// The windowed desktop shell (src/term.c) sets this so shell output is captured
-// into a terminal scrollback; pass NULL to detach. BSP-only.
-void console_set_sink(void (*fn)(char));
+// Mirror every emitted character to `fn(ctx, c)` as well as the framebuffer +
+// serial. The windowed desktop shell (src/term.c) sets this so shell output is
+// captured into a terminal scrollback; `ctx` is passed back to the sink (the
+// terminal instance). Pass (NULL, NULL) to detach. BSP-only.
+void console_set_sink(void (*fn)(void*, char), void* ctx);
 
 // Blocking line input with echo and basic editing (backspace), reading from
 // whichever input source has a byte first (PS/2 keyboard or serial). Returns

@@ -55,6 +55,26 @@ heap_allocator* ui_root_heap(void)
     return ui_heap;
 }
 
+// A lifetime-scoped arena for a widget: one block from the injected root heap,
+// wrapped in an arena the widget allocates from, freed wholesale on close.
+typedef struct {
+    arena a;
+    void* backing;
+} ui_arena;
+
+static ui_arena ui_arena_new(ptrdiff_t size)
+{
+    // 16 is the heap's maximum alignment; the arena pads its own allocations.
+    void* backing = alloc(&ui_heap->base, size, 16, 1);
+    ui_arena ua = {arena_init(backing, size), backing};
+    return ua;
+}
+static void ui_arena_free(ui_arena* ua)
+{
+    heap_free(ui_heap, ua->backing);
+    ua->backing = NULL;
+}
+
 // --- microui context --------------------------------------------------------
 
 static mu_Context* g_ctx;
@@ -646,12 +666,20 @@ static void desktop_windows(mu_Context* ctx)
 // framebuffer demo) can own the raw screen: detach the terminal sink (output
 // goes back to flanterm), stop double-buffering, and wipe the screen. Resume
 // restores buffering + the sink; the desktop loop repaints on the next frame.
+// The desktop's single terminal instance (its state lives in a per-terminal
+// arena; this pointer lets ui_fullscreen_end re-attach the console sink to it).
+static term* desk_term;
+
+// The terminal's whole lifetime: the ~430 KB scrollback grid + input/history,
+// with headroom. Lives for the desktop's life (never freed).
+#define TERM_ARENA_SIZE ((ptrdiff_t)1024 * 1024)
+
 void ui_fullscreen_begin(void)
 {
     if (!gfx_available()) {
         return;
     }
-    console_set_sink(NULL);
+    console_set_sink(NULL, NULL);
     gfx_buffer(false);
     console_clear();
 }
@@ -662,7 +690,7 @@ void ui_fullscreen_end(void)
         return;
     }
     gfx_buffer(true);
-    console_set_sink(term_write);
+    console_set_sink(term_write, desk_term);
 }
 
 void ui_desktop_run(void)
@@ -671,9 +699,11 @@ void ui_desktop_run(void)
         return; // headless: caller falls back to the classic text REPL
     }
     mu_Context* ctx = ui_ctx();
-    term_init();
-    console_set_sink(term_write); // shell output now lands in the terminal grid
-    luashell_init();              // prelude/init.lua greetings land in the grid
+    ui_arena ta = ui_arena_new(TERM_ARENA_SIZE); // desktop-lifetime, not freed
+    desk_term = term_open(&ta.a.base);
+    console_set_sink(term_write,
+                     desk_term); // shell output now lands in the terminal grid
+    luashell_init();             // prelude/init.lua greetings land in the grid
     console_print("juampiOS desktop - a Lua 5.4 shell in a window.\n"
                   "  help() opens the reference;  drag windows by the title "
                   "bar.\n\n");
@@ -699,15 +729,15 @@ void ui_desktop_run(void)
         feed_mouse(ctx);
         int c;
         while ((c = keyboard_poll()) >= 0) {
-            term_key(c);
+            term_key(desk_term, c);
         }
         while ((c = serial_poll()) >= 0) {
-            term_key(c);
+            term_key(desk_term, c);
         }
 
         mu_begin(ctx);
         in_frame = true;
-        term_build(ctx);
+        term_build(desk_term, ctx);
         desktop_windows(ctx);
         in_frame = false;
         mu_end(ctx);
@@ -729,26 +759,6 @@ void ui_desktop_run(void)
 // Everything an editor allocates over its lifetime — document lines, undo
 // slots, yank register, frame scratch — with headroom. Freed wholesale below.
 #define EDITOR_ARENA_SIZE ((ptrdiff_t)2 * 1024 * 1024)
-
-// A lifetime-scoped arena for a widget: one block from the injected root heap,
-// wrapped in an arena the widget allocates from, freed wholesale on close.
-typedef struct {
-    arena a;
-    void* backing;
-} ui_arena;
-
-static ui_arena ui_arena_new(ptrdiff_t size)
-{
-    // 16 is the heap's maximum alignment; the arena pads its own allocations.
-    void* backing = alloc(&ui_heap->base, size, 16, 1);
-    ui_arena ua = {arena_init(backing, size), backing};
-    return ua;
-}
-static void ui_arena_free(ui_arena* ua)
-{
-    heap_free(ui_heap, ua->backing);
-    ua->backing = NULL;
-}
 
 int ui_edit(const char* path)
 {
