@@ -111,6 +111,49 @@ static uint32_t pack(uint32_t rgb)
     return (r << r_shift) | (g << g_shift) | (b << b_shift);
 }
 
+// --- surfaces ---------------------------------------------------------------
+// A surface owns its geometry, channel layout, and clip rectangle. The clip is
+// an exclusive [x0,x1) x [y0,y1) box; INT64_MAX means "whole surface".
+struct gfx_surface {
+    uint8_t* pixels;
+    uint64_t w, h, pitch; // pitch in bytes (may exceed w*4 for the hw fb)
+    uint8_t r_shift, g_shift, b_shift;
+    int64_t cx0, cy0, cx1, cy1;
+};
+
+static gfx_surface screen_surf = {.cx1 = INT64_MAX, .cy1 = INT64_MAX};
+
+gfx_surface* gfx_screen(void)
+{
+    if (fb == NULL) {
+        return NULL;
+    }
+    // Point at the current screen target: the back buffer while buffering
+    // (tight width*4 pitch), else the hardware framebuffer (its own pitch). The
+    // clip is preserved across calls (the renderer sets it per frame).
+    screen_surf.pixels = back != NULL ? (uint8_t*)back : fb;
+    screen_surf.w = width;
+    screen_surf.h = height;
+    screen_surf.pitch = back != NULL ? width * 4 : pitch;
+    screen_surf.r_shift = r_shift;
+    screen_surf.g_shift = g_shift;
+    screen_surf.b_shift = b_shift;
+    return &screen_surf;
+}
+
+static uint32_t surf_pack(const gfx_surface* s, uint32_t rgb)
+{
+    uint32_t r = (rgb >> 16) & 0xFF;
+    uint32_t g = (rgb >> 8) & 0xFF;
+    uint32_t b = rgb & 0xFF;
+    return (r << s->r_shift) | (g << s->g_shift) | (b << s->b_shift);
+}
+
+static inline uint32_t* surf_row(const gfx_surface* s, uint64_t y)
+{
+    return (uint32_t*)(s->pixels + y * s->pitch);
+}
+
 void gfx_pixel(int64_t x, int64_t y, uint32_t rgb)
 {
     if (fb == NULL || x < 0 || y < 0 || (uint64_t)x >= width ||
@@ -146,78 +189,84 @@ void gfx_clear(uint32_t rgb)
     gfx_rect(0, 0, (int64_t)width, (int64_t)height, rgb);
 }
 
-// --- Clip-aware primitives for the UI layer ---------------------------------
-// Current clip rectangle as an exclusive [x0,x1) x [y0,y1) box; every clipped
-// draw also clamps to the screen. INT64_MAX means "unbounded" (full screen), so
-// drawing before any gfx_clip covers everything.
-static int64_t cl_x0, cl_y0, cl_x1 = INT64_MAX, cl_y1 = INT64_MAX;
+// --- Clip-aware primitives, drawing into an explicit surface ----------------
+// Each draw clamps to the surface's clip box and to the surface bounds. A fresh
+// surface (INT64_MAX clip) covers everything until gfx_clip narrows it.
 
-void gfx_clip_reset(void)
+void gfx_clip_reset(gfx_surface* s)
 {
-    cl_x0 = 0;
-    cl_y0 = 0;
-    cl_x1 = INT64_MAX;
-    cl_y1 = INT64_MAX;
-}
-
-void gfx_clip(int64_t x, int64_t y, int64_t w, int64_t h)
-{
-    cl_x0 = x;
-    cl_y0 = y;
-    cl_x1 = x + w;
-    cl_y1 = y + h;
-}
-
-void gfx_fill(int64_t x, int64_t y, int64_t w, int64_t h, uint32_t rgb)
-{
-    if (fb == NULL) {
+    if (s == NULL) {
         return;
     }
-    uint32_t px = pack(rgb);
-    int64_t x0 = x < cl_x0 ? cl_x0 : x;
-    int64_t y0 = y < cl_y0 ? cl_y0 : y;
-    int64_t x1 = x + w > cl_x1 ? cl_x1 : x + w;
-    int64_t y1 = y + h > cl_y1 ? cl_y1 : y + h;
+    s->cx0 = 0;
+    s->cy0 = 0;
+    s->cx1 = INT64_MAX;
+    s->cy1 = INT64_MAX;
+}
+
+void gfx_clip(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h)
+{
+    if (s == NULL) {
+        return;
+    }
+    s->cx0 = x;
+    s->cy0 = y;
+    s->cx1 = x + w;
+    s->cy1 = y + h;
+}
+
+void gfx_fill(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
+              uint32_t rgb)
+{
+    if (s == NULL) {
+        return;
+    }
+    uint32_t px = surf_pack(s, rgb);
+    int64_t x0 = x < s->cx0 ? s->cx0 : x;
+    int64_t y0 = y < s->cy0 ? s->cy0 : y;
+    int64_t x1 = x + w > s->cx1 ? s->cx1 : x + w;
+    int64_t y1 = y + h > s->cy1 ? s->cy1 : y + h;
     if (x0 < 0) {
         x0 = 0;
     }
     if (y0 < 0) {
         y0 = 0;
     }
-    if (x1 > (int64_t)width) {
-        x1 = (int64_t)width;
+    if (x1 > (int64_t)s->w) {
+        x1 = (int64_t)s->w;
     }
-    if (y1 > (int64_t)height) {
-        y1 = (int64_t)height;
+    if (y1 > (int64_t)s->h) {
+        y1 = (int64_t)s->h;
     }
     for (int64_t yy = y0; yy < y1; yy++) {
-        uint32_t* row = row_of((uint64_t)yy);
+        uint32_t* row = surf_row(s, (uint64_t)yy);
         for (int64_t xx = x0; xx < x1; xx++) {
             row[xx] = px;
         }
     }
 }
 
-void gfx_glyph(int64_t x, int64_t y, unsigned char c, uint32_t rgb)
+void gfx_glyph(gfx_surface* s, int64_t x, int64_t y, unsigned char c,
+               uint32_t rgb)
 {
-    if (fb == NULL) {
+    if (s == NULL) {
         return;
     }
-    uint32_t px = pack(rgb);
+    uint32_t px = surf_pack(s, rgb);
     const uint8_t* g = &font8x16[(size_t)c * FONT_H];
     for (int row = 0; row < FONT_H; row++) {
         int64_t py = y + row;
-        if (py < cl_y0 || py >= cl_y1 || py < 0 || py >= (int64_t)height) {
+        if (py < s->cy0 || py >= s->cy1 || py < 0 || py >= (int64_t)s->h) {
             continue;
         }
-        uint32_t* dst = row_of((uint64_t)py);
+        uint32_t* dst = surf_row(s, (uint64_t)py);
         uint8_t bits = g[row];
         for (int col = 0; col < FONT_W; col++) {
             if (!(bits & (0x80 >> col))) {
                 continue;
             }
             int64_t sx = x + col;
-            if (sx < cl_x0 || sx >= cl_x1 || sx < 0 || sx >= (int64_t)width) {
+            if (sx < s->cx0 || sx >= s->cx1 || sx < 0 || sx >= (int64_t)s->w) {
                 continue;
             }
             dst[sx] = px;
@@ -225,10 +274,11 @@ void gfx_glyph(int64_t x, int64_t y, unsigned char c, uint32_t rgb)
     }
 }
 
-void gfx_text(int64_t x, int64_t y, const char* s, size_t n, uint32_t rgb)
+void gfx_text(gfx_surface* s, int64_t x, int64_t y, const char* str, size_t n,
+              uint32_t rgb)
 {
     for (size_t i = 0; i < n; i++) {
-        gfx_glyph(x + (int64_t)i * FONT_W, y, (unsigned char)s[i], rgb);
+        gfx_glyph(s, x + (int64_t)i * FONT_W, y, (unsigned char)str[i], rgb);
     }
 }
 
@@ -398,33 +448,34 @@ void gfx_target_reset(void)
     pitch = save_pitch;
 }
 
-// Copy a native-layout width*height buffer into the current target at (x, y),
-// clipped to the current clip rect and the screen. Unlike gfx_blit this is a
-// straight pixel copy — no re-pack, no alpha keying — for painting a canvas
-// window whose pixels are already in framebuffer layout.
-void gfx_image(int64_t x, int64_t y, int64_t w, int64_t h, const uint32_t* buf)
+// Copy a native-layout w*h buffer into surface `s` at (x, y), clipped to the
+// surface's clip rect and bounds. Unlike gfx_blit this is a straight pixel copy
+// — no re-pack, no alpha keying — for painting a canvas window whose pixels are
+// already in framebuffer layout.
+void gfx_image(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
+               const uint32_t* buf)
 {
-    if (fb == NULL) {
+    if (s == NULL) {
         return;
     }
-    int64_t x0 = x < cl_x0 ? cl_x0 : x;
-    int64_t y0 = y < cl_y0 ? cl_y0 : y;
-    int64_t x1 = x + w > cl_x1 ? cl_x1 : x + w;
-    int64_t y1 = y + h > cl_y1 ? cl_y1 : y + h;
+    int64_t x0 = x < s->cx0 ? s->cx0 : x;
+    int64_t y0 = y < s->cy0 ? s->cy0 : y;
+    int64_t x1 = x + w > s->cx1 ? s->cx1 : x + w;
+    int64_t y1 = y + h > s->cy1 ? s->cy1 : y + h;
     if (x0 < 0) {
         x0 = 0;
     }
     if (y0 < 0) {
         y0 = 0;
     }
-    if (x1 > (int64_t)width) {
-        x1 = (int64_t)width;
+    if (x1 > (int64_t)s->w) {
+        x1 = (int64_t)s->w;
     }
-    if (y1 > (int64_t)height) {
-        y1 = (int64_t)height;
+    if (y1 > (int64_t)s->h) {
+        y1 = (int64_t)s->h;
     }
     for (int64_t yy = y0; yy < y1; yy++) {
-        uint32_t* row = row_of((uint64_t)yy);
+        uint32_t* row = surf_row(s, (uint64_t)yy);
         const uint32_t* src = buf + (uint64_t)(yy - y) * (uint64_t)w;
         for (int64_t xx = x0; xx < x1; xx++) {
             row[xx] = src[xx - x];

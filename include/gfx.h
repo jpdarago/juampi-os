@@ -32,15 +32,30 @@ void gfx_rect(int64_t x, int64_t y, int64_t w, int64_t h, uint32_t rgb);
 void gfx_clear(uint32_t rgb);
 void gfx_line(int64_t x0, int64_t y0, int64_t x1, int64_t y1, uint32_t rgb);
 
-// Clip-aware drawing for the UI layer (src/ui.c renders microui through these).
-// gfx_clip sets the current clip rectangle; gfx_fill and gfx_text/gfx_glyph are
-// clamped to it (and to the screen). gfx_clip_reset drops back to full-screen.
-void gfx_clip(int64_t x, int64_t y, int64_t w, int64_t h);
-void gfx_clip_reset(void);
-void gfx_fill(int64_t x, int64_t y, int64_t w, int64_t h, uint32_t rgb);
+// A drawing surface: a pixel buffer with its own geometry, channel layout, and
+// clip rectangle. The clip-aware primitives below take one explicitly, so a
+// canvas draw can't disturb the screen's clip and nothing lives in a global.
+// The type is opaque; obtain the screen's surface with gfx_screen().
+typedef struct gfx_surface gfx_surface;
+
+// The screen as a surface (the back buffer when double-buffering, else the
+// hardware framebuffer). Its clip persists across calls; the UI renderer sets
+// it per microui CLIP command. NULL if headless.
+gfx_surface* gfx_screen(void);
+
+// Clip-aware drawing into a surface (src/ui.c renders microui through these).
+// gfx_clip sets the surface's clip rectangle; gfx_fill and gfx_text/gfx_glyph
+// are clamped to it (and to the surface). gfx_clip_reset drops back to the
+// whole surface.
+void gfx_clip(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h);
+void gfx_clip_reset(gfx_surface* s);
+void gfx_fill(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
+              uint32_t rgb);
 // Draw one 8x16 glyph / an n-byte string at pixel (x, y), honoring the clip.
-void gfx_glyph(int64_t x, int64_t y, unsigned char c, uint32_t rgb);
-void gfx_text(int64_t x, int64_t y, const char* s, size_t n, uint32_t rgb);
+void gfx_glyph(gfx_surface* s, int64_t x, int64_t y, unsigned char c,
+               uint32_t rgb);
+void gfx_text(gfx_surface* s, int64_t x, int64_t y, const char* str, size_t n,
+              uint32_t rgb);
 
 // Save / restore the current draw target (back buffer when buffered, else the
 // screen) into a heap snapshot. The UI loop snapshots the shell image once,
@@ -53,11 +68,12 @@ void gfx_snapshot_free(void);
 // canvas): gfx_* then draw into `buf`, and gfx_width/height/pitch report the
 // canvas, so a demo renders into a window instead of the screen.
 // gfx_target_reset restores the screen geometry. gfx_image blits such a buffer
-// back into the current target (1:1, clip-aware) to paint the canvas window.
+// into a surface (1:1, clip-aware) to paint the canvas window.
 void gfx_target(uint32_t* buf, uint64_t w, uint64_t h);
 void gfx_target_reset(void);
 bool gfx_target_dirty(void); // did a program fetch the target as a framebuffer?
-void gfx_image(int64_t x, int64_t y, int64_t w, int64_t h, const uint32_t* buf);
+void gfx_image(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
+               const uint32_t* buf);
 
 // Blit a width*height array of 0xAARRGGBB pixels with its top-left at (x, y).
 // Fully transparent pixels (alpha 0) are skipped, so images with a cut-out

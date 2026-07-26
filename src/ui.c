@@ -242,7 +242,7 @@ void ui_text_ansi(mu_Context* ctx, const char* s, int x, int y)
 
 // microui icons drawn as centered glyphs (no atlas): a close cross, a checkbox
 // tick, and treenode collapse/expand markers.
-static void draw_icon(int id, mu_Rect r, mu_Color c)
+static void draw_icon(gfx_surface* s, int id, mu_Rect r, mu_Color c)
 {
     char ch = '?';
     switch (id) {
@@ -263,36 +263,37 @@ static void draw_icon(int id, mu_Rect r, mu_Color c)
     }
     int gx = r.x + (r.w - GLYPH_W) / 2;
     int gy = r.y + (r.h - GLYPH_H) / 2;
-    gfx_glyph(gx, gy, (unsigned char)ch, rgb(c));
+    gfx_glyph(s, gx, gy, (unsigned char)ch, rgb(c));
 }
 
 static void render(mu_Context* ctx)
 {
+    gfx_surface* s = gfx_screen();
     mu_Command* cmd = NULL;
     while (mu_next_command(ctx, &cmd)) {
         switch (cmd->type) {
         case MU_COMMAND_RECT: {
             mu_Rect r = cmd->rect.rect;
-            gfx_fill(r.x, r.y, r.w, r.h, rgb(cmd->rect.color));
+            gfx_fill(s, r.x, r.y, r.w, r.h, rgb(cmd->rect.color));
             break;
         }
         case MU_COMMAND_TEXT: {
             mu_TextCommand* t = &cmd->text;
-            gfx_text(t->pos.x, t->pos.y, t->str, ui_strlen(t->str),
+            gfx_text(s, t->pos.x, t->pos.y, t->str, ui_strlen(t->str),
                      rgb(t->color));
             break;
         }
         case MU_COMMAND_ICON:
-            draw_icon(cmd->icon.id, cmd->icon.rect, cmd->icon.color);
+            draw_icon(s, cmd->icon.id, cmd->icon.rect, cmd->icon.color);
             break;
         case MU_COMMAND_CLIP: {
             mu_Rect r = cmd->clip.rect;
-            gfx_clip(r.x, r.y, r.w, r.h);
+            gfx_clip(s, r.x, r.y, r.w, r.h);
             break;
         }
         case CMD_IMAGE: {
             ImageCommand* ic = (ImageCommand*)cmd;
-            gfx_image(ic->rect.x, ic->rect.y, ic->w, ic->h, ic->buf);
+            gfx_image(s, ic->rect.x, ic->rect.y, ic->w, ic->h, ic->buf);
             break;
         }
         default:
@@ -469,9 +470,9 @@ void ui_run(ui_frame_fn build, void* ud)
         }
 
         gfx_restore(); // shell background
-        gfx_clip_reset();
+        gfx_clip_reset(gfx_screen());
         render(ctx);
-        gfx_clip_reset();
+        gfx_clip_reset(gfx_screen());
         draw_cursor(cur_x, cur_y);
         gfx_flip();
 
@@ -742,10 +743,11 @@ void ui_desktop_run(void)
         in_frame = false;
         mu_end(ctx);
 
-        gfx_clip_reset();
-        gfx_fill(0, 0, (int)gfx_width(), (int)gfx_height(), DESKTOP_BG);
+        gfx_clip_reset(gfx_screen());
+        gfx_fill(gfx_screen(), 0, 0, (int)gfx_width(), (int)gfx_height(),
+                 DESKTOP_BG);
         render(ctx);
-        gfx_clip_reset();
+        gfx_clip_reset(gfx_screen());
         draw_cursor(cur_x, cur_y);
         gfx_flip();
 
@@ -826,9 +828,9 @@ int ui_edit(const char* path)
         mu_end(ctx);
 
         gfx_restore();
-        gfx_clip_reset();
+        gfx_clip_reset(gfx_screen());
         render(ctx);
-        gfx_clip_reset();
+        gfx_clip_reset(gfx_screen());
         draw_cursor(cur_x, cur_y);
         gfx_flip();
 
