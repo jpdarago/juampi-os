@@ -132,10 +132,12 @@ plus an `allocator*`. That's the clean way to let ELF binaries join the desktop.
    `heap_default()` in ext2 + its file-reading callers. (Injected-heap seam, like
    ui_init — a bare `allocator*` can't replace ext2's *freeable* block scratch.)
 3. ◐ **Continue the UI plan** ([[ui]]): ✅ terminal instance (`9425ed3`, + the
-   context-carrying console sink) → ☐ `gfx_surface` (also clears the 5 gfx
-   `heap_default` sites + the `fb`/`ui` shared-state edge, and the raytracer
-   canvas `buf` in lua_run) → ☐ per-session contexts (kills the deferral rule) →
-   ☐ `ui.textbox` + canvas rename + `lab_api` surface/allocator for ELF.
+   context-carrying console sink) → ◐ `gfx_surface` (✅ `6876859` type +
+   `gfx_screen()` + per-surface clip for the UI renderer; ☐ screen primitives +
+   canvas onto surfaces, removing `gfx_target`, with the 5 gfx `heap_default`
+   sites + `fb`/`ui` edge + raytracer `buf`) → ☐ per-session contexts (kills the
+   deferral rule) → ☐ `ui.textbox` + canvas rename + `lab_api` surface/allocator
+   for ELF.
 4. ☐ **Defer locking** to the compositor milestone; until then one-line
    "BSP-only, unlocked" comments on the latent singletons.
 
