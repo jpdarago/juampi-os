@@ -22,15 +22,19 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
 - [[ui]] — desktop UI & windowing on microui: what was built, the global-state
   problem, and the reentrant (later multithreaded) target design.
   *Status: in progress (M11).*
+- [[reentrancy-audit]] — whole-kernel review of mutable state, reentrancy, SMP
+  safety, allocator discipline, and the UI API (Lua + ELF), with a fix plan.
+  *Status: in progress (M11).*
 
 ## By status
 
-| Note            | Status            | Milestone |
-| --------------- | ----------------- | --------- |
-| [[x86-64-port]] | complete          | —         |
-| [[lua-shell]]   | complete          | M8–M9     |
-| [[networking]]  | planned           | M10       |
-| [[ui]]          | in progress       | M11       |
+| Note                 | Status            | Milestone |
+| -------------------- | ----------------- | --------- |
+| [[x86-64-port]]      | complete          | —         |
+| [[lua-shell]]        | complete          | M8–M9     |
+| [[networking]]       | planned           | M10       |
+| [[ui]]               | in progress       | M11       |
+| [[reentrancy-audit]] | in progress       | M11       |
 
 ## Conventions
 
