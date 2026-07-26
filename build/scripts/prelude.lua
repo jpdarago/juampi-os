@@ -87,7 +87,8 @@ Core globals:
   run(name[,arg])    run a .lua script or a native .elf binary
   run()              list what you can run
   bench(t[,arg[,n]]) time a function/script/binary -> total, per_call
-  edit(name)         full-screen text editor
+  edit(name)         vim-style editor window
+  files([path])      graphical file browser
   dump(v) / pp(v)    pretty-print a value or table
   clear()            clear the screen
   help() / help(lib) this reference;  ref(topic) for a page]==]
@@ -219,3 +220,82 @@ function ref(topic)
         help(topic)
     end
 end
+
+-- --- file browser ----------------------------------------------------------
+
+local function path_join(dir, name)
+    if dir == "/" then
+        return "/" .. name
+    end
+    return dir .. "/" .. name
+end
+
+local function path_parent(dir)
+    local p = dir:match("^(.*)/[^/]+/?$")
+    if not p or p == "" then
+        return "/"
+    end
+    return p
+end
+
+-- files([path]): a graphical file browser on the ext2 data disk. Click a folder
+-- to enter it, ".." to go up, a file to open it in the editor (a .elf launches
+-- via run()). Falls back to a text listing when there is no framebuffer.
+function files(start)
+    local path = start or "/"
+    if not has_ui() then
+        local es = fs.list(path)
+        if not es then
+            print("files: cannot list " .. path)
+            return
+        end
+        print(path .. ":")
+        for _, e in ipairs(es) do
+            print(string.format("  %-5s %s", e.type, e.name))
+        end
+        return
+    end
+    while true do
+        local pending = nil
+        ui.window("File browser", function()
+            ui.row({ -1 }) -- one full-width column, so names aren't clipped
+            ui.label(path)
+            if path ~= "/" and ui.button(".. (up)") then
+                path = path_parent(path)
+            end
+            local es = fs.list(path)
+            if not es then
+                ui.label("(cannot read directory)")
+                return
+            end
+            table.sort(es, function(a, b)
+                if (a.type == "dir") ~= (b.type == "dir") then
+                    return a.type == "dir" -- folders first
+                end
+                return a.name < b.name
+            end)
+            for _, e in ipairs(es) do
+                if e.name ~= "." and e.name ~= ".." then
+                    local mark = (e.type == "dir") and "[+] " or "    "
+                    if ui.button(mark .. e.name) then
+                        if e.type == "dir" then
+                            path = path_join(path, e.name)
+                        else
+                            pending = path_join(path, e.name)
+                            ui.close() -- leave the modal loop to open the file
+                        end
+                    end
+                end
+            end
+        end)
+        if not pending then
+            return
+        end
+        if pending:match("%.elf$") then
+            run(pending) -- native program: opens its own window
+            return
+        end
+        edit(pending) -- text / scripts: the vim editor; then reopen the browser
+    end
+end
+browse = files

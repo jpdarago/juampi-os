@@ -44,6 +44,10 @@ struct win_ud {
     bool err;          // the build function raised an error
 };
 
+// Set by ui.close() (no argument) to close the running modal ui.window from
+// within its build callback (e.g. the file browser opening a file).
+static bool modal_close;
+
 static bool win_frame(mu_Context* ctx, void* ud)
 {
     struct win_ud* w = ud;
@@ -62,7 +66,7 @@ static bool win_frame(mu_Context* ctx, void* ud)
         }
         mu_end_window(ctx);
     }
-    return open != 0;
+    return open != 0 && !modal_close;
 }
 
 static int l_window(lua_State* L)
@@ -77,6 +81,7 @@ static int l_window(lua_State* L)
     lua_pushvalue(L, 2);
     int ref = luaL_ref(L, LUA_REGISTRYINDEX);
     struct win_ud w = {L, ref, title, false};
+    modal_close = false;
     ui_run(win_frame, &w);
     luaL_unref(L, LUA_REGISTRYINDEX, ref);
     if (w.err) {
@@ -165,8 +170,14 @@ static int l_open(lua_State* L)
     return 2;
 }
 
+// ui.close([id]): with an id, close that non-modal window; with no argument,
+// close the running modal ui.window (used by the file browser to open a file).
 static int l_close(lua_State* L)
 {
+    if (lua_isnoneornil(L, 1)) {
+        modal_close = true;
+        return 0;
+    }
     int id = (int)luaL_checkinteger(L, 1);
     for (int i = 0; i < MAXW; i++) {
         if (deskw[i].used && deskw[i].id == id) {
