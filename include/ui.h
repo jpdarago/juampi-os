@@ -19,12 +19,20 @@ bool ui_available(void);
 // falls back to the classic text REPL) when there is no framebuffer.
 void ui_desktop_run(void);
 
-// Bracket a full-screen activity (the text editor, a framebuffer demo) that
-// must own the raw screen: begin suspends the desktop compositor (output
-// reverts to the flanterm console); end resumes it. No-ops without a
-// framebuffer.
+// Bracket a full-screen activity (a framebuffer demo) that must own the raw
+// screen: begin suspends the desktop compositor (output reverts to the flanterm
+// console); end resumes it. No-ops without a framebuffer.
 void ui_fullscreen_begin(void);
 void ui_fullscreen_end(void);
+
+// Run the windowed vim-style editor on `path` as a modal window over the
+// desktop (or the classic full-screen editor when headless). Returns
+// EDITOR_RUN/QUIT.
+int ui_edit(const char* path);
+
+// Draw an ANSI-SGR-colored string as colored text runs at pixel (x, y) inside a
+// window (used by the editor's highlighted lines).
+void ui_text_ansi(struct mu_Context* ctx, const char* s, int x, int y);
 
 // Per-frame build callback: called once each frame between mu_begin/mu_end to
 // populate the UI (open windows, emit widgets). Return false to close the loop.

@@ -18,7 +18,9 @@
 #include <luashell.h>
 #include <fault.h>
 #include <net.h>
+#include <editor.h>
 
+#include <printf/printf.h> // snprintf for the editor window title
 #include <stdint.h>
 #include <stddef.h>
 
@@ -143,6 +145,62 @@ void ui_image(mu_Context* ctx, const uint32_t* buf, int w, int h)
 static uint32_t rgb(mu_Color c)
 {
     return ((uint32_t)c.r << 16) | ((uint32_t)c.g << 8) | (uint32_t)c.b;
+}
+
+static mu_Color colu(uint32_t c)
+{
+    return mu_color((int)((c >> 16) & 0xff), (int)((c >> 8) & 0xff),
+                    (int)(c & 0xff), 255);
+}
+
+// Draw an ANSI-SGR-colored string (the 5 highlighter codes) as colored text
+// runs starting at pixel (x, y). Used by the windowed editor's highlighted
+// lines.
+void ui_text_ansi(mu_Context* ctx, const char* s, int x, int y)
+{
+    static const uint32_t pal[5] = {0xd4d4d4, 0x6ac46a, 0xd4c46a, 0xc46ac4,
+                                    0x808080};
+    int color = 0, esc = 0, csi_len = 0, n = 0, col = 0;
+    char csi[16], run[256];
+    for (int i = 0; s[i] != '\0'; i++) {
+        char ch = s[i];
+        if (esc == 1) {
+            esc = (ch == '[') ? 2 : 0;
+            csi_len = 0;
+        } else if (esc == 2) {
+            if (ch >= 0x40 && ch <= 0x7e) {
+                if (ch == 'm') {
+                    if (n > 0) {
+                        mu_draw_text(ctx, NULL, run, n,
+                                     mu_vec2(x + (col - n) * GLYPH_W, y),
+                                     colu(pal[color]));
+                        n = 0;
+                    }
+                    int code = 0;
+                    for (int j = 0; j < csi_len; j++) {
+                        code = code * 10 + (csi[j] - '0');
+                    }
+                    color = (code == 32)   ? 1
+                            : (code == 33) ? 2
+                            : (code == 35) ? 3
+                            : (code == 90) ? 4
+                                           : 0;
+                }
+                esc = 0;
+            } else if (csi_len < (int)sizeof(csi) - 1) {
+                csi[csi_len++] = ch;
+            }
+        } else if (ch == 27) {
+            esc = 1;
+        } else if (n < (int)sizeof(run)) {
+            run[n++] = ch;
+            col++;
+        }
+    }
+    if (n > 0) {
+        mu_draw_text(ctx, NULL, run, n, mu_vec2(x + (col - n) * GLYPH_W, y),
+                     colu(pal[color]));
+    }
 }
 
 // microui icons drawn as centered glyphs (no atlas): a close cross, a checkbox
@@ -647,4 +705,86 @@ void ui_desktop_run(void)
         net_poll(); // keep the network stack live between keystrokes
         __asm__ __volatile__("hlt");
     }
+}
+
+// --- windowed editor (modal) ------------------------------------------------
+
+int ui_edit(const char* path)
+{
+    if (!gfx_available()) {
+        return editor_run(path); // headless fallback
+    }
+    mu_Context* ctx = ui_ctx();
+    editor_vim_open(path);
+
+    char title[160];
+    snprintf(title, sizeof title, "edit: %s", path);
+
+    bool was_buffered = gfx_buffered();
+    if (!was_buffered) {
+        gfx_buffer(true);
+    }
+    gfx_snapshot(); // float the editor window over the frozen desktop
+    cur_x = (int)gfx_width() / 2;
+    cur_y = (int)gfx_height() / 2;
+    prev_btn = 0;
+
+    int W = (int)gfx_width();
+    int H = (int)gfx_height();
+    int ww = W * 3 / 4;
+    int wh = H * 3 / 4;
+    int action = EDITOR_CONTINUE;
+    bool fresh = true;
+
+    while (action == EDITOR_CONTINUE) {
+        feed_mouse(ctx); // window drag/resize
+        int c;
+        while (action == EDITOR_CONTINUE && (c = keyboard_poll()) >= 0) {
+            action = editor_vim_key(c);
+        }
+        while (action == EDITOR_CONTINUE && (c = serial_poll()) >= 0) {
+            action = editor_vim_key(c);
+        }
+        if (action == EDITOR_CONTINUE) {
+            action = editor_vim_key(-1); // resolve a dangling Esc
+        }
+
+        mu_begin(ctx);
+        in_frame = true;
+        if (fresh) {
+            mu_Container* cc = mu_get_container(ctx, title);
+            if (cc != NULL) {
+                cc->open = 1;
+            }
+            fresh = false;
+        }
+        if (mu_begin_window(ctx, title,
+                            mu_rect((W - ww) / 2, (H - wh) / 2, ww, wh))) {
+            editor_vim_draw(ctx);
+            mu_end_window(ctx);
+        } else if (action == EDITOR_CONTINUE) {
+            action = EDITOR_QUIT; // window closed via the titlebar [x]
+        }
+        in_frame = false;
+        mu_end(ctx);
+
+        gfx_restore();
+        gfx_clip_reset();
+        render(ctx);
+        gfx_clip_reset();
+        draw_cursor(cur_x, cur_y);
+        gfx_flip();
+
+        if (action == EDITOR_CONTINUE) {
+            __asm__ __volatile__("hlt");
+        }
+    }
+
+    gfx_restore();
+    gfx_flip();
+    if (!was_buffered) {
+        gfx_buffer(false);
+    }
+    gfx_snapshot_free();
+    return action;
 }
