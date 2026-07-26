@@ -63,7 +63,7 @@ static uint16_t udp_checksum(uint32_t src_ip, uint32_t dst_ip, const void* seg,
 static bool udp_output(uint16_t sport, uint32_t dst_ip, uint16_t dport,
                        const void* data, uint16_t len)
 {
-    static uint8_t seg[sizeof(udp_hdr) + UDP_MSG_MAX];
+    uint8_t seg[sizeof(udp_hdr) + UDP_MSG_MAX]; // stack-local: reentrant
     if (len > UDP_MSG_MAX) {
         len = UDP_MSG_MAX;
     }

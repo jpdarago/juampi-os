@@ -196,7 +196,7 @@ static int l_udp_recvfrom(lua_State* L)
     if (timeout < 0) {
         timeout = 0;
     }
-    static uint8_t buf[1472];
+    uint8_t buf[1472]; // stack-local: copied into Lua before return
     uint32_t src_ip = 0;
     uint16_t src_port = 0;
     int n = (*ud < 0) ? -1
@@ -319,7 +319,7 @@ static int l_tcp_recv(lua_State* L)
     int* ud = check_tcp(L);
     lua_Integer cap = luaL_optinteger(L, 2, 4096);
     lua_Integer timeout = luaL_optinteger(L, 3, 5000);
-    static uint8_t buf[4096];
+    uint8_t buf[4096]; // stack-local: copied into Lua before return
     if (cap < 1) {
         cap = 1;
     }

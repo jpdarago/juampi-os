@@ -76,7 +76,11 @@ static void (*extra_sink)(char);
 
 void console_set_sink(void (*fn)(char))
 {
+    // Publish under the lock: emit() reads extra_sink while holding it, so an
+    // unlocked store could tear against a concurrent print from another core.
+    spin_lock(&console_lock);
     extra_sink = fn;
+    spin_unlock(&console_lock);
 }
 
 // Write one character to both sinks. Not locked — callers hold console_lock.

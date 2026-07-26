@@ -169,7 +169,7 @@ set:
 static bool eth_send(const uint8_t dst[6], uint16_t ethertype, const void* l3,
                      uint16_t l3len)
 {
-    static uint8_t frame[1600];
+    uint8_t frame[1600]; // stack-local: reentrant, ~1.6 KB on the 64 KiB stack
     eth_hdr* eth = (eth_hdr*)frame;
     memcpy(eth->dst, dst, 6);
     memcpy(eth->src, my_mac, 6);
@@ -251,7 +251,7 @@ static bool arp_resolve(uint32_t ip, uint8_t out[6], uint32_t timeout_ms)
 static bool ip_emit(const uint8_t dmac[6], uint32_t src_ip, uint32_t dst_ip,
                     uint8_t proto, const void* l4, uint16_t l4len)
 {
-    static uint8_t pkt[1600];
+    uint8_t pkt[1600]; // stack-local: reentrant (see eth_send)
     ip_hdr* ip = (ip_hdr*)pkt;
     ip->ver_ihl = 0x45;
     ip->tos = 0;
@@ -305,7 +305,7 @@ static void icmp_input(uint32_t src_ip, const uint8_t* data, uint16_t len)
 
     if (ic->type == ICMP_ECHO_REQUEST) {
         // Echo it back: same id/seq/payload, type -> reply, recompute csum.
-        static uint8_t rep[1500];
+        uint8_t rep[1500]; // stack-local: reentrant
         if (len > sizeof(rep)) {
             return;
         }
