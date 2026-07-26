@@ -125,13 +125,17 @@ plus an `allocator*`. That's the clean way to let ELF binaries join the desktop.
 
 ## Recommended sequence (interleaves with [[ui]])
 
-1. ☐ **Cheap reentrancy hygiene** — destatic net/udp/lua_net scratch (§1); move
-   `console_set_sink` under the lock. Small independent commits.
-2. ☐ **ext2 takes an allocator** (§2) — highest-value discipline change.
+1. ✅ **Cheap reentrancy hygiene** (`ab1682d`) — net/udp/lua_net scratch made
+   stack-local (§1); `console_set_sink` now stores under `console_lock`.
+2. ✅ **ext2 takes an allocator** (`891856b`) — fs heap injected at mount
+   (`ext2_mount(heap_allocator*)`), `ext2_free()` for results; zero
+   `heap_default()` in ext2 + its file-reading callers. (Injected-heap seam, like
+   ui_init — a bare `allocator*` can't replace ext2's *freeable* block scratch.)
 3. ☐ **Continue the UI plan** ([[ui]]): terminal instance → `gfx_surface` (also
-   clears the 5 gfx `heap_default` sites + the `fb`/`ui` shared-state edge) →
-   per-session contexts (kills the deferral rule) → `ui.textbox` + canvas rename
-   + `lab_api` surface/allocator for ELF.
+   clears the 5 gfx `heap_default` sites + the `fb`/`ui` shared-state edge, and
+   the raytracer canvas `buf` in lua_run) → per-session contexts (kills the
+   deferral rule) → `ui.textbox` + canvas rename + `lab_api` surface/allocator
+   for ELF.
 4. ☐ **Defer locking** to the compositor milestone; until then one-line
    "BSP-only, unlocked" comments on the latent singletons.
 
