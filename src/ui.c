@@ -726,13 +726,43 @@ void ui_desktop_run(void)
 
 // --- windowed editor (modal) ------------------------------------------------
 
+// Everything an editor allocates over its lifetime — document lines, undo
+// slots, yank register, frame scratch — with headroom. Freed wholesale below.
+#define EDITOR_ARENA_SIZE ((ptrdiff_t)2 * 1024 * 1024)
+
+// A lifetime-scoped arena for a widget: one block from the injected root heap,
+// wrapped in an arena the widget allocates from, freed wholesale on close.
+typedef struct {
+    arena a;
+    void* backing;
+} ui_arena;
+
+static ui_arena ui_arena_new(ptrdiff_t size)
+{
+    // 16 is the heap's maximum alignment; the arena pads its own allocations.
+    void* backing = alloc(&ui_heap->base, size, 16, 1);
+    ui_arena ua = {arena_init(backing, size), backing};
+    return ua;
+}
+static void ui_arena_free(ui_arena* ua)
+{
+    heap_free(ui_heap, ua->backing);
+    ua->backing = NULL;
+}
+
 int ui_edit(const char* path)
 {
+    // The editor's whole lifetime lives in one arena, whether windowed or
+    // headless; ui_arena_free at the end releases every buffer at once.
+    ui_arena ua = ui_arena_new(EDITOR_ARENA_SIZE);
+    editor* e = editor_open(&ua.a.base, path);
+
     if (!gfx_available()) {
-        return editor_run(path); // headless fallback
+        int r = editor_run(e); // classic full-screen editor (headless)
+        ui_arena_free(&ua);
+        return r;
     }
     mu_Context* ctx = ui_ctx();
-    editor_vim_open(path);
 
     char title[160];
     snprintf(title, sizeof title, "edit: %s", path);
@@ -757,13 +787,13 @@ int ui_edit(const char* path)
         feed_mouse(ctx); // window drag/resize
         int c;
         while (action == EDITOR_CONTINUE && (c = keyboard_poll()) >= 0) {
-            action = editor_vim_key(c);
+            action = editor_vim_key(e, c);
         }
         while (action == EDITOR_CONTINUE && (c = serial_poll()) >= 0) {
-            action = editor_vim_key(c);
+            action = editor_vim_key(e, c);
         }
         if (action == EDITOR_CONTINUE) {
-            action = editor_vim_key(-1); // resolve a dangling Esc
+            action = editor_vim_key(e, -1); // resolve a dangling Esc
         }
 
         mu_begin(ctx);
@@ -777,7 +807,7 @@ int ui_edit(const char* path)
         }
         if (mu_begin_window(ctx, title,
                             mu_rect((W - ww) / 2, (H - wh) / 2, ww, wh))) {
-            editor_vim_draw(ctx);
+            editor_vim_draw(e, ctx);
             mu_end_window(ctx);
         } else if (action == EDITOR_CONTINUE) {
             action = EDITOR_QUIT; // window closed via the titlebar [x]
@@ -803,5 +833,6 @@ int ui_edit(const char* path)
         gfx_buffer(false);
     }
     gfx_snapshot_free();
+    ui_arena_free(&ua); // releases the editor and all its buffers at once
     return action;
 }

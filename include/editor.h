@@ -1,28 +1,39 @@
 #ifndef __EDITOR_H
 #define __EDITOR_H
 
-// Full-screen Lua text editor for the kernel shell. Loads `path` from the ext2
-// data disk (starting from an empty buffer if it does not exist), lets the user
-// edit it with syntax highlighting (via highlight_lua), and saves back to ext2
-// with Ctrl-S. Rendering is done entirely with ANSI escapes through the
-// console, so it works on the framebuffer terminal and over a serial terminal
-// alike.
+#include <alloc.h>
+
+// Text editor for the kernel shell, as a reentrant instance: editor_open()
+// allocates every buffer (document, undo ring, yank register, render scratch)
+// from the allocator the caller provides — by convention a per-widget arena
+// whose wholesale free ends the editor's lifetime, so there is no editor_close.
+// Multiple instances may exist at once; an instance is single-owner (drive it
+// from one core), and the shared console/ext2/gfx services remain the
+// machine-wide serialization boundary (see docs/ui.md).
 //
-// Returns EDITOR_RUN if the user left with Ctrl-X ("save and run"), so the
-// caller can execute the file; otherwise EDITOR_QUIT. EDITOR_CONTINUE means the
-// editor is still running (returned by editor_vim_key between keystrokes).
+// Two frontends over the same instance:
+//   * editor_run(e)      — classic blocking full-screen ANSI editor (headless).
+//   * editor_vim_key(e, byte) / editor_vim_draw(e, ctx) — the windowed
+//     vim-style editor, pumped and rendered per frame by ui_edit() (src/ui.c).
+
+typedef struct editor editor;
+struct mu_Context;
+
+// EDITOR_CONTINUE means the editor is still running (returned by
+// editor_vim_key between keystrokes); RUN means "save succeeded, execute the
+// file"; QUIT returns to the shell.
 enum { EDITOR_QUIT = 0, EDITOR_RUN = 1, EDITOR_CONTINUE = 2 };
 
-// Classic full-screen ANSI editor (headless / serial fallback).
-int editor_run(const char* path);
+// Load `path` (missing file = empty buffer) into a fresh instance whose memory
+// all comes from `mem`. Never fails (out-of-memory panics, per alloc.h).
+editor* editor_open(allocator* mem, const char* path);
 
-// Windowed vim-style editor, driven by the desktop loop (ui_edit in ui.c).
-// editor_vim_open loads the file; editor_vim_key feeds one input byte and
-// returns an EDITOR_* action; editor_vim_draw renders into the current UI
-// window.
-struct mu_Context;
-void editor_vim_open(const char* path);
-int editor_vim_key(int byte);
-void editor_vim_draw(struct mu_Context* ctx);
+// Classic full-screen ANSI editor loop (headless / serial fallback).
+int editor_run(editor* e);
+
+// Windowed vim editor: feed one input byte (or -1 to flush a dangling Esc at
+// end of frame) and render into the current microui window.
+int editor_vim_key(editor* e, int byte);
+void editor_vim_draw(editor* e, struct mu_Context* ctx);
 
 #endif
