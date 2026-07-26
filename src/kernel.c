@@ -347,7 +347,7 @@ void kmain(void)
     // data disk (primary IDE slave) is separate from the Limine boot disk; a
     // valid ext2 there backs the `disk`/`fs` Lua libraries and run()-from-disk.
     ata_init();
-    bool fs_ok = ext2_mount();
+    bool fs_ok = ext2_mount(&heap);
     console_print("juampiOS: ata ");
     if (ata_present()) {
         console_print("sectors=");

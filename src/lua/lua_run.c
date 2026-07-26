@@ -205,14 +205,14 @@ static int l_run(lua_State* L)
                 heap_free(heap_default(), buf);
             }
             if (owned != NULL) {
-                heap_free(heap_default(), owned);
+                ext2_free(owned);
             }
             lua_pushinteger(L, r);
             return 1;
         }
         long r = lab_run(data, size, arg);
         if (owned != NULL) {
-            heap_free(heap_default(), owned);
+            ext2_free(owned);
         }
         lua_pushinteger(L, r);
         return 1;
@@ -221,7 +221,7 @@ static int l_run(lua_State* L)
     int base = lua_gettop(L);
     int status = luaL_loadbuffer(L, data, size, name);
     if (owned != NULL) {
-        heap_free(heap_default(), owned); // loadbuffer copied the bytes
+        ext2_free(owned); // loadbuffer copied the bytes
     }
     if (status != LUA_OK) {
         return lua_error(L);
@@ -260,12 +260,12 @@ static int l_bench(lua_State* L)
         if (is_elf(data, size)) {
             cycles = lab_bench(data, size, arg, (uint64_t)iters);
             if (owned != NULL) {
-                heap_free(heap_default(), owned);
+                ext2_free(owned);
             }
         } else {
             int status = luaL_loadbuffer(L, data, size, name);
             if (owned != NULL) {
-                heap_free(heap_default(), owned);
+                ext2_free(owned);
             }
             if (status != LUA_OK) {
                 return lua_error(L);

@@ -5,7 +5,6 @@
 #include <console.h>
 #include <editor.h>
 #include <ext2.h>
-#include <memory.h>
 #include <ui.h>
 
 #include "lua.h"
@@ -29,7 +28,7 @@ static int l_edit(lua_State* L)
         return lua_error(L);
     }
     int status = luaL_loadbuffer(L, (const char*)data, size, path);
-    heap_free(heap_default(), data);
+    ext2_free(data);
     if (status == LUA_OK) {
         status = lua_pcall(L, 0, 0, 0);
     }

@@ -3,7 +3,6 @@
 // back to this to load scripts that live on disk rather than in a Limine module.
 
 #include <ext2.h>
-#include <memory.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -26,7 +25,7 @@ static int l_read(lua_State* L)
         return 2;
     }
     lua_pushlstring(L, (const char*)data, size);
-    heap_free(heap_default(), data);
+    ext2_free(data);
     return 1;
 }
 

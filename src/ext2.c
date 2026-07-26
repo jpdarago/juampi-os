@@ -104,9 +104,15 @@ static uint32_t inode_size;
 static uint32_t groups; // number of block groups
 static bool has_filetype;
 
+// The fs's scratch/result allocator, injected once at mount (from kmain) so the
+// module never reaches for the global heap_default(). Block buffers are alloc'd
+// and freed within an operation; ext2_read_path's result outlives the call and
+// is released by the caller via ext2_free().
+static heap_allocator* fs_heap;
+
 static allocator* mem(void)
 {
-    return &heap_default()->base;
+    return &fs_heap->base;
 }
 
 // Read ext2 block `blk` (block_size bytes) into `buf`. Blocks map linearly onto
@@ -127,7 +133,7 @@ static bool read_group_desc(uint32_t group, struct group_desc* out)
     if (ok) {
         memcpy(out, blk + byte % block_size, sizeof(*out));
     }
-    heap_free(heap_default(), blk);
+    heap_free(fs_heap, blk);
     return ok;
 }
 
@@ -148,7 +154,7 @@ static bool read_inode(uint32_t ino, struct inode* out)
     if (ok) {
         memcpy(out, blk + byte % block_size, sizeof(*out));
     }
-    heap_free(heap_default(), blk);
+    heap_free(fs_heap, blk);
     return ok;
 }
 
@@ -181,7 +187,7 @@ static uint32_t block_of(const struct inode* in, uint32_t n)
             }
         }
     }
-    heap_free(heap_default(), tmp);
+    heap_free(fs_heap, tmp);
     return result;
 }
 
@@ -217,7 +223,7 @@ static void* read_file(const struct inode* in, uint64_t size, size_t* out_size)
         remaining -= chunk;
         bi++;
     }
-    heap_free(heap_default(), block);
+    heap_free(fs_heap, block);
     if (out_size) {
         *out_size = (size_t)size;
     }
@@ -255,14 +261,14 @@ static void walk_dir(const struct inode* dir, dirent_fn fn, void* ctx)
                     namelen |= (uint32_t)de->file_type << 8;
                 }
                 if (fn(ctx, de->inode, type, de->name, namelen)) {
-                    heap_free(heap_default(), block);
+                    heap_free(fs_heap, block);
                     return;
                 }
             }
             off += de->rec_len;
         }
     }
-    heap_free(heap_default(), block);
+    heap_free(fs_heap, block);
 }
 
 // --- Path resolution -------------------------------------------------------
@@ -321,9 +327,10 @@ static bool resolve(const char* path, uint32_t* out_ino, struct inode* out)
 
 // --- Public API ------------------------------------------------------------
 
-bool ext2_mount(void)
+bool ext2_mount(heap_allocator* heap)
 {
     mounted = false;
+    fs_heap = heap; // must be set before any mem()/read below
     if (!ata_present()) {
         return false;
     }
@@ -352,6 +359,15 @@ bool ext2_mount(void)
 bool ext2_mounted(void)
 {
     return mounted;
+}
+
+// Free a buffer returned by ext2_read_path (from the injected fs heap), so
+// callers never name heap_default() either.
+void ext2_free(void* p)
+{
+    if (p != NULL) {
+        heap_free(fs_heap, p);
+    }
 }
 
 void* ext2_read_path(const char* path, size_t* size)
@@ -456,7 +472,7 @@ static bool write_group_desc(uint32_t group, const struct group_desc* gd)
         memcpy(blk + byte % block_size, gd, sizeof(*gd));
         ok = write_block(table + byte / block_size, blk);
     }
-    heap_free(heap_default(), blk);
+    heap_free(fs_heap, blk);
     return ok;
 }
 
@@ -476,7 +492,7 @@ static bool write_inode(uint32_t ino, const struct inode* in)
         memcpy(blk + byte % block_size, in, sizeof(*in));
         ok = write_block(b, blk);
     }
-    heap_free(heap_default(), blk);
+    heap_free(fs_heap, blk);
     return ok;
 }
 
@@ -509,7 +525,7 @@ static int bitmap_alloc(uint32_t bitmap_block, uint32_t nbits)
             write_block(bitmap_block, bm);
         }
     }
-    heap_free(heap_default(), bm);
+    heap_free(fs_heap, bm);
     return found;
 }
 
@@ -520,7 +536,7 @@ static void bitmap_free(uint32_t bitmap_block, uint32_t bit)
         bm[bit >> 3] &= (uint8_t)~(1u << (bit & 7));
         write_block(bitmap_block, bm);
     }
-    heap_free(heap_default(), bm);
+    heap_free(fs_heap, bm);
 }
 
 // Allocate a zeroed data block; 0 on failure.
@@ -544,7 +560,7 @@ static uint32_t alloc_block(void)
         uint8_t* zero = new (mem(), uint8_t, block_size);
         memset(zero, 0, block_size);
         write_block(blk, zero);
-        heap_free(heap_default(), zero);
+        heap_free(fs_heap, zero);
         return blk;
     }
     return 0;
@@ -643,7 +659,7 @@ static bool set_block_of(struct inode* in, uint32_t n, uint32_t blk)
         ok = write_block(in->block[12], tmp);
         in->blocks += block_size / 512;
     }
-    heap_free(heap_default(), tmp);
+    heap_free(fs_heap, tmp);
     return ok;
 }
 
@@ -687,11 +703,11 @@ static void free_all_blocks(struct inode* in)
                 free_block(l1[i]);
             }
         }
-        heap_free(heap_default(), l1);
+        heap_free(fs_heap, l1);
         free_block(in->block[13]);
         in->block[13] = 0;
     }
-    heap_free(heap_default(), tmp);
+    heap_free(fs_heap, tmp);
     in->blocks = 0;
 }
 
@@ -761,7 +777,7 @@ static bool dir_add(uint32_t dir_ino, struct inode* dir, const char* name,
             done = true;
         }
     }
-    heap_free(heap_default(), block);
+    heap_free(fs_heap, block);
     return done;
 }
 
@@ -800,7 +816,7 @@ static bool dir_remove(struct inode* dir, const char* name, uint32_t namelen)
             off += de->rec_len;
         }
     }
-    heap_free(heap_default(), block);
+    heap_free(fs_heap, block);
     return done;
 }
 
@@ -904,7 +920,7 @@ bool ext2_write_file(const char* path, const void* data, size_t size)
             break;
         }
     }
-    heap_free(heap_default(), buf);
+    heap_free(fs_heap, buf);
     in.size = (uint32_t)size;
     write_inode(ino, &in);
     return ok;
@@ -953,7 +969,7 @@ bool ext2_mkdir(const char* path)
     dd->name[0] = '.';
     dd->name[1] = '.';
     write_block(blk, block);
-    heap_free(heap_default(), block);
+    heap_free(fs_heap, block);
 
     struct inode in;
     memset(&in, 0, sizeof(in));

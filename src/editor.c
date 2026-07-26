@@ -17,16 +17,14 @@
 // Allocation discipline: all buffers come from the instance's arena (`e->mem`),
 // sized so the whole lifetime fits (see EDITOR_ARENA_SIZE in ui.c). Bounded
 // structures that would churn (undo snapshots, the yank register) are fixed-
-// capacity slots allocated once and reused. The one exception is the blob
-// ext2_read_path() returns, which by the fs layer's contract lives on the
-// default heap and is freed right after parsing.
+// capacity slots allocated once and reused. The blob ext2_read_path() returns
+// is owned by the fs layer, so it is released with ext2_free() after parsing.
 
 #include <editor.h>
 #include <console.h>
 #include <highlight.h>
 #include <ext2.h>
-#include <memory.h> // heap_free of the ext2_read_path blob (fs contract)
-#include <ui.h>     // windowed vim editor: ui_text_ansi
+#include <ui.h> // windowed vim editor: ui_text_ansi
 
 #include <printf/printf.h> // snprintf for the status bar
 #include <stddef.h>
@@ -229,7 +227,7 @@ static void load_file(editor* e, const char* path)
     }
     buffer_from_text(e, (const char*)data, size);
     // The blob is the fs layer's (default-heap) allocation, not widget memory.
-    heap_free(heap_default(), data);
+    ext2_free(data);
 }
 
 // Serialize the buffer (lines joined with '\n') into `out` (capacity `cap`).

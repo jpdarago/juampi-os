@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include <memory.h>
 
 // A small read-only ext2 reader over the ATA data disk (ata.h). Enough to load
 // scripts and browse files from Lua: superblock parse, inode lookup, path
@@ -16,16 +17,20 @@ typedef struct {
     bool is_dir;
 } ext2_stat;
 
-// Mount the filesystem: read and validate the superblock. Returns true on a
-// valid ext2 fs. Safe to call with no disk attached (returns false); every
-// other call then reports "not mounted" rather than touching the disk.
-bool ext2_mount(void);
+// Mount the filesystem: read and validate the superblock. `heap` is the fs's
+// scratch/result allocator (injected here so the module never calls
+// heap_default()). Returns true on a valid ext2 fs. Safe to call with no disk
+// attached (returns false); every other call then reports "not mounted".
+bool ext2_mount(heap_allocator* heap);
 bool ext2_mounted(void);
 
 // Read a whole regular file by path (leading '/' optional; resolved from the
-// root). Returns a heap buffer of *size bytes that the caller must heap_free(),
-// or NULL if the path is missing or not a regular file.
+// root). Returns a buffer of *size bytes that the caller must release with
+// ext2_free(), or NULL if the path is missing or not a regular file.
 void* ext2_read_path(const char* path, size_t* size);
+
+// Release a buffer returned by ext2_read_path.
+void ext2_free(void* p);
 
 // Fill *out for `path`. Returns false if the path does not resolve.
 bool ext2_stat_path(const char* path, ext2_stat* out);
