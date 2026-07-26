@@ -15,10 +15,12 @@
 #include <console.h>
 #include <str.h>
 #include <utils.h> // memcpy
+#include <ui.h>    // full-screen bracket for native ELFs on the desktop
 
 #include <printf/printf.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -184,7 +186,19 @@ static int l_run(lua_State* L)
 
     if (is_elf(data, size)) {
         long arg = (long)luaL_optinteger(L, 2, 0);
+        // Native programs draw straight to the raw framebuffer, so on the
+        // windowed desktop they take over full-screen (the compositor would
+        // otherwise paint over them); a keypress returns to the desktop.
+        bool fs = ui_available();
+        if (fs) {
+            ui_fullscreen_begin();
+        }
         long r = lab_run(data, size, arg);
+        if (fs) {
+            console_print("\n[press a key to return to the desktop]");
+            console_getch();
+            ui_fullscreen_end();
+        }
         if (owned != NULL) {
             heap_free(heap_default(), owned);
         }

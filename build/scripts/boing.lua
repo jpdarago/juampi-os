@@ -138,10 +138,11 @@ end
 
 if windowed then
     local cv = ui.canvas(W, H)
+    -- Window sized to the canvas plus the 28px title bar, so it fits snugly.
     ui.open("Boing Ball", function()
         cv:draw(frame)
         cv:show()
-    end)
+    end, W, H + 28)
 else
     fb.buffer(true)
     local stop = k.ns() + 14000000000 -- ~14 seconds

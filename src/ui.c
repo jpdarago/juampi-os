@@ -129,6 +129,9 @@ void ui_image(mu_Context* ctx, const uint32_t* buf, int w, int h)
         return;
     }
     mu_Rect b = cnt->body;
+    // Dark letterbox behind the image so any body the canvas doesn't cover
+    // reads as intentional, not the light window background.
+    mu_draw_rect(ctx, b, mu_color(14, 17, 22, 255));
     ImageCommand* c = (ImageCommand*)mu_push_command(ctx, CMD_IMAGE,
                                                      sizeof(ImageCommand));
     c->buf = buf;

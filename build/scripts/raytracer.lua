@@ -246,7 +246,8 @@ if ui and ui.available and ui.available() and mode ~= "full" then
     local cv = ui.canvas(W, H)
     local buf, pitch, rs, gs, bs = cv:mem()
     raytrace_into(buf, W, H, pitch, rs, gs, bs)
-    ui.open("Raytracer", function() cv:show() end)
+    -- Window sized to the canvas plus the 28px title bar.
+    ui.open("Raytracer", function() cv:show() end, W, H + 28)
 elseif fb.width() == 0 then
     print("raytracer: no framebuffer")
 else

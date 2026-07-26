@@ -93,8 +93,9 @@ static int l_window(lua_State* L)
 static struct {
     bool used;
     lua_State* L;
-    int ref; // registry ref to the build function
+    int ref;   // registry ref to the build function
     int id;
+    int w, h;  // requested window size (0 = default)
     char title[64];
 } deskw[MAXW];
 static int desk_gid = 1;
@@ -117,10 +118,13 @@ static bool title_eq(const char* a, const char* b)
     return a[i] == b[i];
 }
 
+// ui.open(title, fn [, w, h]) — w,h size the window (default when omitted).
 static int l_open(lua_State* L)
 {
     const char* title = luaL_checkstring(L, 1);
     luaL_checktype(L, 2, LUA_TFUNCTION);
+    int w = (int)luaL_optinteger(L, 3, 0);
+    int h = (int)luaL_optinteger(L, 4, 0);
     if (!ui_available()) {
         lua_pushnil(L);
         lua_pushstring(L, "ui: no framebuffer");
@@ -133,6 +137,8 @@ static int l_open(lua_State* L)
             lua_pushvalue(L, 2);
             deskw[i].ref = luaL_ref(L, LUA_REGISTRYINDEX);
             deskw[i].L = L;
+            deskw[i].w = w;
+            deskw[i].h = h;
             lua_pushinteger(L, deskw[i].id);
             return 1;
         }
@@ -141,6 +147,8 @@ static int l_open(lua_State* L)
         if (!deskw[i].used) {
             deskw[i].used = true;
             deskw[i].L = L;
+            deskw[i].w = w;
+            deskw[i].h = h;
             copy_title(deskw[i].title, title);
             lua_pushvalue(L, 2);
             deskw[i].ref = luaL_ref(L, LUA_REGISTRYINDEX);
@@ -176,8 +184,8 @@ static void build_windows(mu_Context* ctx)
         if (!deskw[i].used) {
             continue;
         }
-        int ww = W / 2;
-        int wh = H * 3 / 5;
+        int ww = deskw[i].w > 0 ? deskw[i].w : W / 2;
+        int wh = deskw[i].h > 0 ? deskw[i].h : H * 3 / 5;
         int x = W - ww - 40 - 30 * i;
         int y = 60 + 30 * i;
         if (x < 40) {
