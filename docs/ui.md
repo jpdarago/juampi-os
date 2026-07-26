@@ -191,13 +191,16 @@ The framebuffer is inherently one shared resource, so "multithreaded UI" means a
 1. Introduce `gfx_surface` and convert `gfx_*` to take one; make the screen and
    canvases surfaces; replace `gfx_target` with "draw to a surface" + a clip
    stack. (No API change visible to Lua yet.)
-2. Make `term`/`editor` heap instances; keep one desktop terminal for now.
+2. ✅ Make `term`/`editor` heap instances; keep one desktop terminal for now.
    - ✅ **Editor** (`0a5a03f`): `struct editor` instance, opened from a 2 MiB
      per-widget arena (`ui_arena_new/free` in ui.c) and freed wholesale; zero
      file-scope statics; undo = fixed-slot ring, yank = fixed slot, save
      serializes into the reused frame scratch (no churn — arenas can't free).
      Gotcha: the heap's max alignment is **16**; asking for 64 panics.
-   - ☐ Terminal.
+   - ✅ **Terminal** (`9425ed3`): `struct term` instance from a 1 MiB
+     desktop-lifetime arena (`desk_term` in ui.c); the ~430 KB grid + input +
+     history leave the BSS. Needed a **context-carrying console sink**
+     (`console_set_sink(fn, ctx)`) so the sink is the instance, not a global.
 3. Per-session `mu_Context` + a context stack; drop the deferral rule; let a
    window open a child window.
 4. Unify the window registries; route input to the focused window.
