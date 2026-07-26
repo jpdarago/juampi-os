@@ -15,7 +15,8 @@
 #include <console.h>
 #include <str.h>
 #include <utils.h> // memcpy
-#include <ui.h>    // full-screen bracket for native ELFs on the desktop
+#include <ui.h>    // canvas window for native lab programs on the desktop
+#include <gfx.h>   // off-screen render target
 
 #include <printf/printf.h>
 #include <stdint.h>
@@ -186,19 +187,30 @@ static int l_run(lua_State* L)
 
     if (is_elf(data, size)) {
         long arg = (long)luaL_optinteger(L, 2, 0);
-        // Native programs draw straight to the raw framebuffer, so on the
-        // windowed desktop they take over full-screen (the compositor would
-        // otherwise paint over them); a keypress returns to the desktop.
-        bool fs = ui_available();
-        if (fs) {
-            ui_fullscreen_begin();
+        // On the windowed desktop, render the program into an off-screen canvas
+        // (gfx_target); if it drew to the framebuffer, show it in a window, else
+        // it was a text program whose output already went to the terminal. The
+        // compositor would otherwise paint over anything drawn to raw VRAM.
+        if (ui_available()) {
+            int cw = 640, ch = 400;
+            uint32_t* buf = new (&heap_default()->base, uint32_t,
+                                 (ptrdiff_t)cw * ch);
+            gfx_target(buf, (uint64_t)cw, (uint64_t)ch);
+            long r = lab_run(data, size, arg);
+            bool drew = gfx_target_dirty();
+            gfx_target_reset();
+            if (drew) {
+                ui_open_canvas(name, buf, cw, ch); // takes ownership of buf
+            } else {
+                heap_free(heap_default(), buf);
+            }
+            if (owned != NULL) {
+                heap_free(heap_default(), owned);
+            }
+            lua_pushinteger(L, r);
+            return 1;
         }
         long r = lab_run(data, size, arg);
-        if (fs) {
-            console_print("\n[press a key to return to the desktop]");
-            console_getch();
-            ui_fullscreen_end();
-        }
         if (owned != NULL) {
             heap_free(heap_default(), owned);
         }

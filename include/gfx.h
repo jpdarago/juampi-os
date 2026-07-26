@@ -56,6 +56,7 @@ void gfx_snapshot_free(void);
 // back into the current target (1:1, clip-aware) to paint the canvas window.
 void gfx_target(uint32_t* buf, uint64_t w, uint64_t h);
 void gfx_target_reset(void);
+bool gfx_target_dirty(void); // did a program fetch the target as a framebuffer?
 void gfx_image(int64_t x, int64_t y, int64_t w, int64_t h, const uint32_t* buf);
 
 // Blit a width*height array of 0xAARRGGBB pixels with its top-left at (x, y).

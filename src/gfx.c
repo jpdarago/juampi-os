@@ -31,6 +31,7 @@ static uint32_t* back;
 // The saved screen geometry is restored by gfx_target_reset.
 static uint32_t* target;
 static uint64_t save_w, save_h, save_pitch;
+static bool target_dirty; // did anyone fetch the target as a framebuffer?
 
 // Start of scanline y in the current draw target: an off-screen canvas if one
 // is bound, else the back buffer if double-buffering, else the hardware
@@ -90,6 +91,13 @@ void* gfx_framebuffer(uint64_t* size, uint64_t* out_pitch)
     }
     if (out_pitch != NULL) {
         *out_pitch = pitch;
+    }
+    // While an off-screen target is bound, hand it back as "the framebuffer" so
+    // code that draws straight to VRAM (native lab programs, fb.canvas) renders
+    // into the canvas instead. Fetching it counts as intent to draw.
+    if (target != NULL) {
+        target_dirty = true;
+        return target;
     }
     return fb;
 }
@@ -366,9 +374,17 @@ void gfx_target(uint32_t* buf, uint64_t w, uint64_t h)
     save_h = height;
     save_pitch = pitch;
     target = buf;
+    target_dirty = false;
     width = w;
     height = h;
     pitch = w * 4;
+}
+
+// Whether anyone fetched the target via gfx_framebuffer since it was bound — a
+// cheap "did this program draw graphics?" signal for the run() launcher.
+bool gfx_target_dirty(void)
+{
+    return target_dirty;
 }
 
 void gfx_target_reset(void)

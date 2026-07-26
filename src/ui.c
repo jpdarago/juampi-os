@@ -275,13 +275,22 @@ static void feed_byte(mu_Context* ctx, int c, bool* want_close)
 
 // Integrate accumulated mouse movement into the cursor and feed microui the
 // motion + button edges. Shared by the modal and desktop loops.
+// Mild pointer acceleration: precise for small moves, faster for quick flicks,
+// so a relative PS/2 mouse can still reach the screen corners without huge
+// swipes.
+static int accel(int d)
+{
+    int a = d < 0 ? -d : d;
+    return d + d * a / 6;
+}
+
 static void feed_mouse(mu_Context* ctx)
 {
     int dx = 0, dy = 0;
     uint8_t btn = 0;
     mouse_poll(&dx, &dy, &btn);
-    cur_x += dx;
-    cur_y += dy;
+    cur_x += accel(dx);
+    cur_y += accel(dy);
     if (cur_x < 0) {
         cur_x = 0;
     }
@@ -473,11 +482,89 @@ void ui_set_window_hook(void (*fn)(mu_Context*))
     window_hook = fn;
 }
 
+// Canvas windows opened from C (a native lab program that drew into an
+// off-screen buffer — see run() in lua_run.c). ui.c owns the buffer and frees
+// it when the window is closed. Distinct from the Lua ui.open() registry.
+#define MAXCANV 4
+static struct {
+    bool used;
+    bool fresh; // just (re)opened — force the retained container open
+    char title[48];
+    uint32_t* buf;
+    int w, h;
+} canv[MAXCANV];
+
+void ui_open_canvas(const char* title, uint32_t* buf, int w, int h)
+{
+    int slot = -1;
+    for (int i = 0; i < MAXCANV; i++) {
+        if (canv[i].used) {
+            bool same = true;
+            for (int k = 0; k < 47 && (title[k] || canv[i].title[k]); k++) {
+                if (title[k] != canv[i].title[k]) {
+                    same = false;
+                    break;
+                }
+            }
+            if (same) {
+                slot = i; // re-render into the same window: free the old buffer
+                heap_free(heap_default(), canv[i].buf);
+                break;
+            }
+        } else if (slot < 0) {
+            slot = i;
+        }
+    }
+    if (slot < 0) {
+        heap_free(heap_default(), buf); // no room
+        return;
+    }
+    canv[slot].used = true;
+    canv[slot].fresh = true;
+    canv[slot].buf = buf;
+    canv[slot].w = w;
+    canv[slot].h = h;
+    int i = 0;
+    for (; i < 47 && title[i]; i++) {
+        canv[slot].title[i] = title[i];
+    }
+    canv[slot].title[i] = '\0';
+}
+
+static void draw_canvas_windows(mu_Context* ctx)
+{
+    for (int i = 0; i < MAXCANV; i++) {
+        if (!canv[i].used) {
+            continue;
+        }
+        int x = 90 + 24 * i;
+        int y = 70 + 24 * i;
+        mu_Rect r = mu_rect(x, y, canv[i].w, canv[i].h + 28);
+        // Force the retained container open the frame after (re)opening.
+        if (canv[i].fresh) {
+            mu_Container* c = mu_get_container(ctx, canv[i].title);
+            if (c != NULL) {
+                c->open = 1;
+            }
+            canv[i].fresh = false;
+        }
+        if (!mu_begin_window(ctx, canv[i].title, r)) {
+            heap_free(heap_default(), canv[i].buf); // closed via [x]
+            canv[i].buf = NULL;
+            canv[i].used = false;
+            continue;
+        }
+        ui_image(ctx, canv[i].buf, canv[i].w, canv[i].h);
+        mu_end_window(ctx);
+    }
+}
+
 static void desktop_windows(mu_Context* ctx)
 {
     if (window_hook != NULL) {
         window_hook(ctx);
     }
+    draw_canvas_windows(ctx);
 }
 
 // Suspend the desktop compositor so a full-screen activity (the text editor, a

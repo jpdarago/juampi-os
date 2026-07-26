@@ -92,6 +92,7 @@ static int l_window(lua_State* L)
 #define MAXW 8
 static struct {
     bool used;
+    bool fresh; // just (re)opened — force the retained container open this frame
     lua_State* L;
     int ref;   // registry ref to the build function
     int id;
@@ -139,6 +140,7 @@ static int l_open(lua_State* L)
             deskw[i].L = L;
             deskw[i].w = w;
             deskw[i].h = h;
+            deskw[i].fresh = true;
             lua_pushinteger(L, deskw[i].id);
             return 1;
         }
@@ -146,6 +148,7 @@ static int l_open(lua_State* L)
     for (int i = 0; i < MAXW; i++) {
         if (!deskw[i].used) {
             deskw[i].used = true;
+            deskw[i].fresh = true;
             deskw[i].L = L;
             deskw[i].w = w;
             deskw[i].h = h;
@@ -190,6 +193,15 @@ static void build_windows(mu_Context* ctx)
         int y = 60 + 30 * i;
         if (x < 40) {
             x = 40;
+        }
+        // A reopened window reuses microui's retained container, which remembers
+        // it was closed — force it open on the first frame after (re)opening.
+        if (deskw[i].fresh) {
+            mu_Container* c = mu_get_container(ctx, deskw[i].title);
+            if (c != NULL) {
+                c->open = 1;
+            }
+            deskw[i].fresh = false;
         }
         if (!mu_begin_window(ctx, deskw[i].title, mu_rect(x, y, ww, wh))) {
             // Closed via the titlebar [x]: drop it.

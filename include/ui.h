@@ -48,6 +48,11 @@ void ui_set_window_hook(void (*fn)(struct mu_Context*));
 // / cv:show.
 void ui_image(struct mu_Context* ctx, const uint32_t* buf, int w, int h);
 
+// Open a persistent desktop window showing a native-layout w*h pixel buffer (a
+// native lab program that rendered off-screen). Takes ownership of `buf` (freed
+// when the window is closed); re-using a title re-renders into the same window.
+void ui_open_canvas(const char* title, uint32_t* buf, int w, int h);
+
 // Native convenience popups (used by the Lua `ui` library and help()).
 void ui_message(const char* title, const char* body); // scrollable text window
 bool ui_confirm(const char* title, const char* body); // OK/Cancel -> true/false
