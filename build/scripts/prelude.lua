@@ -140,9 +140,56 @@ local function signature(name, info)
     return s
 end
 
--- The body shown for a library node. If the library was registered with typed
--- docs (a __doc table, via luadoc_newlib in C), show each function's signature
--- and one-line docstring; otherwise fall back to a bare list of names.
+-- One parameter/return as "name: type" plus " - description" when present.
+local function arg_line(a)
+    local s = a.name .. ": " .. a.type
+    if a.doc and a.doc ~= "" then
+        s = s .. " - " .. a.doc
+    end
+    return s
+end
+
+-- Graphical detail for one function (inside an expanded ui.treenode): the
+-- docstring, then each parameter and return with its type and description.
+local function fn_detail(info)
+    if info.doc and info.doc ~= "" then
+        ui.text(info.doc)
+    end
+    if info.params and #info.params > 0 then
+        ui.label("Parameters:")
+        for _, a in ipairs(info.params) do
+            ui.text("  " .. arg_line(a))
+        end
+    end
+    if info.returns and #info.returns > 0 then
+        ui.label("Returns:")
+        for _, a in ipairs(info.returns) do
+            ui.text("  " .. arg_line(a))
+        end
+    end
+end
+
+-- Graphical per-function tree: one collapsible node per function (labelled with
+-- its signature) that expands to fn_detail. For libraries registered with typed
+-- docs (a __doc table, via luadoc_newlib in C); plain functions get a bare node.
+local function lib_tree(t)
+    local doc = t.__doc
+    for _, fn in ipairs(fn_names(t)) do
+        local info = doc and doc[fn]
+        local label = info and signature(fn, info) or (fn .. "()")
+        if ui.treenode(label) then
+            if info then
+                fn_detail(info)
+            else
+                ui.text("(no documentation)")
+            end
+            ui.endtreenode()
+        end
+    end
+end
+
+-- Text (headless) body for a library: signatures, docstrings, and per-parameter
+-- descriptions; falls back to a bare list of names when there are no typed docs.
 local function lib_body(name, t)
     local header = DESC[name] or ""
     local doc = t.__doc
@@ -156,6 +203,11 @@ local function lib_body(name, t)
             lines[#lines + 1] = signature(fn, info)
             if info.doc and info.doc ~= "" then
                 lines[#lines + 1] = "    " .. info.doc
+            end
+            for _, a in ipairs(info.params or {}) do
+                if a.doc and a.doc ~= "" then
+                    lines[#lines + 1] = "      " .. arg_line(a)
+                end
             end
         else
             lines[#lines + 1] = fn .. "()"
@@ -181,7 +233,7 @@ local function browser()
         for _, n in ipairs(LIBS) do
             local t = _G[n]
             if type(t) == "table" and ui.treenode(n .. "  -  " .. (DESC[n] or "")) then
-                ui.text(lib_body(n, t))
+                lib_tree(t) -- a collapsible node per function
                 ui.endtreenode()
             end
         end
@@ -229,10 +281,14 @@ function help(topic)
         return
     end
     if has_ui() then
-        ui.popup(name, lib_body(name, t))
+        -- A focused window for one library: the description plus a collapsible,
+        -- documented node per function.
+        ui.open(name .. " - reference", function()
+            ui.label(DESC[name] or "")
+            lib_tree(t)
+        end)
     else
-        print(name .. " - " .. (DESC[name] or ""))
-        print("  " .. table.concat(fn_names(t), "  "))
+        print(lib_body(name, t))
     end
 end
 
