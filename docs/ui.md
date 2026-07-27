@@ -211,8 +211,12 @@ The framebuffer is inherently one shared resource, so "multithreaded UI" means a
      desktop-lifetime arena (`desk_term` in ui.c); the ~430 KB grid + input +
      history leave the BSS. Needed a **context-carrying console sink**
      (`console_set_sink(fn, ctx)`) so the sink is the instance, not a global.
-3. Per-session `mu_Context` + a context stack; drop the deferral rule; let a
-   window open a child window.
+3. ✅ Per-session `mu_Context` + a context stack (`9ee6270`); the deferral rule is
+   gone — a window's build callback can open a child modal directly. Each loop
+   drives `ctx_pool[level]`; `cur_stack`/`ui_current()` track the innermost;
+   `modal_close` is saved/restored so an inner `ui.close()` doesn't close the
+   parent. (`files()` still uses the old defer pattern — it works and can be
+   simplified opportunistically.)
 4. Unify the window registries; route input to the focused window.
 5. (Milestone M12) Screen `spinlock`; optional per-core surfaces + compositor
    submit.
