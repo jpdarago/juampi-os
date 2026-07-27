@@ -188,15 +188,19 @@ The framebuffer is inherently one shared resource, so "multithreaded UI" means a
 0. ✅ **Allocator injection** (`b02ae54`): `kmain → shell_run(heap) → ui_init`;
    the UI never calls `heap_default()`; `ui_root_heap()` is the seam widgets'
    arenas are carved from.
-1. ◐ Introduce `gfx_surface` and convert `gfx_*` to take one; make the screen and
-   canvases surfaces; replace `gfx_target` with "draw to a surface" + a clip
-   stack. (No API change visible to Lua yet.)
-   - ✅ `gfx_surface` + `gfx_screen()` (`6876859`): the clip-aware primitives
-     (`gfx_fill/glyph/text/image` + `gfx_clip`) take a surface; the module-global
-     clip rect is gone; the UI renderer draws into the screen surface.
-   - ☐ Screen primitives (`gfx_pixel/rect/line/blit`) + the canvas `:draw` path
-     onto surfaces, removing `gfx_target` (pairs with the `lab_api` surface work,
-     since native ELFs still use the flat framebuffer redirect).
+1. ✅ Introduce `gfx_surface` and convert `gfx_*` to take one; make the screen and
+   canvases surfaces; replace `gfx_target` with "draw to a surface". gfx is now
+   purely surface drawing + the screen framebuffer — no global clip, target, or
+   geometry-swap state.
+   - ✅ `gfx_surface` + `gfx_screen()` (`6876859`): the clip-aware primitives take
+     a surface (per-surface clip); the UI renderer draws into the screen surface.
+   - ✅ Screen primitives (`gfx_pixel/rect/line/blit`) surface-based (`68c7860`);
+     the Lua `fb.*` layer keeps one thin implicit "current surface" (`luafb.h`)
+     that `ui.canvas:draw` redirects — no more `gfx_target` for Lua.
+   - ✅ Native ELF renders into a `lab_run(…, target, w, h)` buffer + `lab_drew()`
+     (`ac69025`); `gfx_target`/`_reset`/`_dirty` **deleted**. (The `lab_api`
+     struct is unchanged, so `.elf`s need no rebuild — the fuller ELF surface API
+     is a later ergonomics item.)
 2. ✅ Make `term`/`editor` heap instances; keep one desktop terminal for now.
    - ✅ **Editor** (`0a5a03f`): `struct editor` instance, opened from a 2 MiB
      per-widget arena (`ui_arena_new/free` in ui.c) and freed wholesale; zero
