@@ -471,6 +471,95 @@ static const luaL_Reg canvas_methods[] = {
         {NULL, NULL},
 };
 
+// --- text input: ui.textbox([cap[, initial]]) -------------------------------
+// microui edits the text buffer in place across frames, so a textbox owns a
+// persistent char buffer (a small userdata). tb:show() draws the field and
+// reports edits; tb:text()/tb:set() read and write the string.
+
+#define TEXTBOX_MT "juampi.textbox"
+typedef struct {
+    char* buf;
+    int cap;
+} LuaTextbox;
+
+static void tb_copy(LuaTextbox* tb, const char* s)
+{
+    int i = 0;
+    for (; s[i] != '\0' && i < tb->cap - 1; i++) {
+        tb->buf[i] = s[i];
+    }
+    tb->buf[i] = '\0';
+}
+
+static int l_textbox(lua_State* L)
+{
+    int cap = (int)luaL_optinteger(L, 1, 128);
+    if (cap < 2) {
+        cap = 2;
+    }
+    if (cap > 4096) {
+        cap = 4096;
+    }
+    const char* init = luaL_optstring(L, 2, "");
+    LuaTextbox* tb = (LuaTextbox*)lua_newuserdatauv(L, sizeof(LuaTextbox), 0);
+    tb->cap = cap;
+    tb->buf = new (&ui_root_heap()->base, char, cap);
+    tb_copy(tb, init);
+    luaL_setmetatable(L, TEXTBOX_MT);
+    return 1;
+}
+
+static LuaTextbox* check_textbox(lua_State* L)
+{
+    return (LuaTextbox*)luaL_checkudata(L, 1, TEXTBOX_MT);
+}
+
+static int l_textbox_gc(lua_State* L)
+{
+    LuaTextbox* tb = (LuaTextbox*)luaL_checkudata(L, 1, TEXTBOX_MT);
+    if (tb->buf != NULL) {
+        heap_free(ui_root_heap(), tb->buf);
+        tb->buf = NULL;
+    }
+    return 0;
+}
+
+// tb:show() -> "submit" (Enter) | "change" (edited) | nil. Draw the field this
+// frame; call it inside a window build function.
+static int l_textbox_show(lua_State* L)
+{
+    LuaTextbox* tb = check_textbox(L);
+    int res = mu_textbox(need_ctx(L), tb->buf, tb->cap);
+    if (res & MU_RES_SUBMIT) {
+        lua_pushstring(L, "submit");
+    } else if (res & MU_RES_CHANGE) {
+        lua_pushstring(L, "change");
+    } else {
+        lua_pushnil(L);
+    }
+    return 1;
+}
+
+static int l_textbox_text(lua_State* L)
+{
+    lua_pushstring(L, check_textbox(L)->buf);
+    return 1;
+}
+
+static int l_textbox_set(lua_State* L)
+{
+    LuaTextbox* tb = check_textbox(L);
+    tb_copy(tb, luaL_checkstring(L, 2));
+    return 0;
+}
+
+static const luaL_Reg textbox_methods[] = {
+        {"show", l_textbox_show},
+        {"text", l_textbox_text},
+        {"set", l_textbox_set},
+        {NULL, NULL},
+};
+
 static const luaL_Reg uilib[] = {
         {"window", l_window},           {"open", l_open},
         {"close", l_close},             {"label", l_label},
@@ -481,7 +570,7 @@ static const luaL_Reg uilib[] = {
         {"popup", l_popup},             {"alert", l_alert},
         {"confirm", l_confirm},         {"available", l_available},
         {"fullscreen", l_fullscreen},   {"canvas", l_canvas},
-        {NULL, NULL},
+        {"textbox", l_textbox},         {NULL, NULL},
 };
 
 int luaopen_ui(lua_State* L)
@@ -494,6 +583,14 @@ int luaopen_ui(lua_State* L)
     lua_pushcfunction(L, l_canvas_gc);
     lua_setfield(L, -2, "__gc");
     luaL_newlib(L, canvas_methods);
+    lua_setfield(L, -2, "__index");
+    lua_pop(L, 1);
+
+    // Textbox metatable, same shape.
+    luaL_newmetatable(L, TEXTBOX_MT);
+    lua_pushcfunction(L, l_textbox_gc);
+    lua_setfield(L, -2, "__gc");
+    luaL_newlib(L, textbox_methods);
     lua_setfield(L, -2, "__index");
     lua_pop(L, 1);
 
