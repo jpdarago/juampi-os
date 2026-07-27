@@ -41,21 +41,33 @@ static void lab_join(unsigned index)
 {
     smp_join(index);
 }
+// The current run's render target: a canvas buffer (drawn into a window) when
+// lab_run was given one, else NULL to draw straight to the live screen. Native
+// binaries are sequential (BSP, one at a time), so a single current-target is
+// enough — and fetching it via lab_fb() flags that the program drew.
+static uint32_t* lab_fbuf;
+static unsigned long lab_fbw, lab_fbh;
+static int lab_fb_used;
+
 static void* lab_fb(void)
 {
+    if (lab_fbuf != NULL) {
+        lab_fb_used = 1;
+        return lab_fbuf;
+    }
     return gfx_framebuffer(NULL, NULL);
 }
 static unsigned long lab_fb_width(void)
 {
-    return gfx_width();
+    return lab_fbuf != NULL ? lab_fbw : gfx_width();
 }
 static unsigned long lab_fb_height(void)
 {
-    return gfx_height();
+    return lab_fbuf != NULL ? lab_fbh : gfx_height();
 }
 static unsigned long lab_fb_pitch(void)
 {
-    return gfx_pitch();
+    return lab_fbuf != NULL ? lab_fbw * 4 : gfx_pitch();
 }
 static void lab_fb_shifts(unsigned char* r, unsigned char* g, unsigned char* b)
 {
@@ -89,14 +101,26 @@ static lab_entry load(const void* image)
     return (lab_entry)entry;
 }
 
-long lab_run(const void* image, unsigned long size, long arg)
+long lab_run(const void* image, unsigned long size, long arg, uint32_t* target,
+             unsigned long w, unsigned long h)
 {
     (void)size;
     lab_entry bench = load(image);
     if (bench == NULL) {
         return 0;
     }
-    return bench(&api, arg);
+    lab_fbuf = target;
+    lab_fbw = w;
+    lab_fbh = h;
+    lab_fb_used = 0;
+    long r = bench(&api, arg);
+    lab_fbuf = NULL; // stop aliasing the (soon-freed) canvas buffer
+    return r;
+}
+
+int lab_drew(void)
+{
+    return lab_fb_used;
 }
 
 unsigned long lab_bench(const void* image, unsigned long size, long arg,

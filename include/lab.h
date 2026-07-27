@@ -45,8 +45,14 @@ typedef long (*lab_entry)(const lab_api* api, long arg);
 
 // --- Kernel side (ignored by benchmark builds) -----------------------------
 
-// Load the ELF64 `image` and call its entry once, returning its result.
-long lab_run(const void* image, unsigned long size, long arg);
+// Load the ELF64 `image` and call its entry once, returning its result. If
+// `target` is non-NULL, the binary's api->fb() draws into that w*h buffer (a
+// canvas) instead of the live screen — so a graphical program renders into a
+// window. lab_drew() then reports whether it actually fetched the framebuffer.
+long lab_run(const void* image, unsigned long size, long arg, uint32_t* target,
+             unsigned long w, unsigned long h);
+// True if the most recent lab_run's binary fetched api->fb() (drew graphics).
+int lab_drew(void);
 // Load once, then call the entry `iters` times inside a TSC fence; return the
 // total elapsed cycles.
 unsigned long lab_bench(const void* image, unsigned long size, long arg,

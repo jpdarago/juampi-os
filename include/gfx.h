@@ -76,14 +76,8 @@ void gfx_snapshot(void);
 void gfx_restore(void);
 void gfx_snapshot_free(void);
 
-// Redirect all drawing to an off-screen native-layout w*h buffer (a Lua
-// canvas): gfx_* then draw into `buf`, and gfx_width/height/pitch report the
-// canvas, so a demo renders into a window instead of the screen.
-// gfx_target_reset restores the screen geometry. gfx_image blits such a buffer
-// into a surface (1:1, clip-aware) to paint the canvas window.
-void gfx_target(uint32_t* buf, uint64_t w, uint64_t h);
-void gfx_target_reset(void);
-bool gfx_target_dirty(void); // did a program fetch the target as a framebuffer?
+// Blit a native-layout w*h buffer (a Lua canvas) into surface `s` at (x, y),
+// 1:1 and clip-aware, to paint a canvas window.
 void gfx_image(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
                const uint32_t* buf);
 

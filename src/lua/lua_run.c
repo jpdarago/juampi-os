@@ -188,18 +188,15 @@ static int l_run(lua_State* L)
     if (is_elf(data, size)) {
         long arg = (long)luaL_optinteger(L, 2, 0);
         // On the windowed desktop, render the program into an off-screen canvas
-        // (gfx_target); if it drew to the framebuffer, show it in a window, else
-        // it was a text program whose output already went to the terminal. The
-        // compositor would otherwise paint over anything drawn to raw VRAM.
+        // buffer; if it fetched the framebuffer (drew graphics), show it in a
+        // window, else it was a text program whose output already went to the
+        // terminal. The compositor would otherwise paint over raw VRAM.
         if (ui_available()) {
             int cw = 640, ch = 400;
             uint32_t* buf = new (&heap_default()->base, uint32_t,
                                  (ptrdiff_t)cw * ch);
-            gfx_target(buf, (uint64_t)cw, (uint64_t)ch);
-            long r = lab_run(data, size, arg);
-            bool drew = gfx_target_dirty();
-            gfx_target_reset();
-            if (drew) {
+            long r = lab_run(data, size, arg, buf, (uint64_t)cw, (uint64_t)ch);
+            if (lab_drew()) {
                 ui_open_canvas(name, buf, cw, ch); // takes ownership of buf
             } else {
                 heap_free(heap_default(), buf);
@@ -210,7 +207,7 @@ static int l_run(lua_State* L)
             lua_pushinteger(L, r);
             return 1;
         }
-        long r = lab_run(data, size, arg);
+        long r = lab_run(data, size, arg, NULL, 0, 0);
         if (owned != NULL) {
             ext2_free(owned);
         }
