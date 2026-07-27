@@ -1,8 +1,8 @@
 #include <ktime.h>
-#include <idt.h> // timer_ticks (100 Hz PIT)
+#include <acpi.h> // ACPI PM timer (PIT-free calibration fallback)
+#include <ports.h>
 
-#define PIT_HZ 100   // interrupts.c programs the PIT at ~100 Hz
-#define CAL_TICKS 10 // calibrate over 10 ticks (~100 ms)
+#define PM_TIMER_HZ 3579545u // the ACPI PM timer's fixed frequency
 
 static uint64_t g_tsc_hz;
 static uint64_t g_tsc_base;
@@ -25,26 +25,82 @@ static bool detect_invariant_tsc(void)
     return (edx & (1u << 8)) != 0;
 }
 
+// The TSC frequency straight from CPUID leaf 0x15 (crystal * ratio), present on
+// Skylake and later — so timekeeping does not depend on the PIT ticking, which
+// matters on real hardware where the legacy PIT may be dead. Returns 0 when the
+// leaf is unavailable or does not enumerate the crystal.
+static uint64_t tsc_hz_from_cpuid(void)
+{
+    uint32_t a, b, c, d;
+    __asm__ __volatile__("cpuid"
+                         : "=a"(a), "=b"(b), "=c"(c), "=d"(d)
+                         : "a"(0u));
+    uint32_t max_leaf = a;
+    if (max_leaf < 0x15) {
+        return 0;
+    }
+    // 0x15: eax = ratio denominator, ebx = numerator, ecx = crystal Hz.
+    __asm__ __volatile__("cpuid"
+                         : "=a"(a), "=b"(b), "=c"(c), "=d"(d)
+                         : "a"(0x15u), "c"(0u));
+    if (a != 0 && b != 0 && c != 0) {
+        return (uint64_t)c * b / a;
+    }
+    // Crystal not enumerated: fall back to leaf 0x16 (eax = base MHz), which
+    // for an invariant TSC is the TSC rate.
+    if (max_leaf >= 0x16) {
+        __asm__ __volatile__("cpuid"
+                             : "=a"(a), "=b"(b), "=c"(c), "=d"(d)
+                             : "a"(0x16u), "c"(0u));
+        if (a != 0) {
+            return (uint64_t)a * 1000000ull;
+        }
+    }
+    return 0;
+}
+
+// Calibrate the TSC against the ACPI PM timer — a firmware-standard 3.579545
+// MHz counter that (unlike the legacy PIT) needs no interrupt and is present on
+// any ACPI system. Measure the TSC across ~10 ms of PM-timer ticks, handling
+// the 24-/32-bit wrap. Returns 0 if the FADT describes no PM timer.
+static uint64_t tsc_hz_from_pm_timer(void)
+{
+    bool is32 = false;
+    uint16_t port = acpi_pm_timer_port(&is32);
+    if (port == 0) {
+        return 0;
+    }
+    uint32_t mask = is32 ? 0xFFFFFFFFu : 0x00FFFFFFu;
+    uint32_t target = PM_TIMER_HZ / 100; // ~10 ms of PM-timer ticks
+    uint32_t last = inl(port) & mask;
+    uint64_t start_tsc = rdtsc();
+    uint64_t guard = start_tsc + 20000000000ull; // bound (~4-6 s)
+    uint32_t elapsed = 0;
+    while (elapsed < target) {
+        uint32_t now = inl(port) & mask;
+        elapsed += (now - last) & mask; // wrap-safe delta
+        last = now;
+        if (rdtsc() > guard) {
+            return 0;
+        }
+    }
+    return (rdtsc() - start_tsc) * PM_TIMER_HZ / elapsed;
+}
+
 void ktime_init(void)
 {
     g_invariant = detect_invariant_tsc();
 
-    // Measure the TSC across a whole number of PIT ticks. Aligning to a tick
-    // edge first makes the interval an exact multiple of the (PIT-accurate)
-    // tick period, so quantization is not a source of error.
-    uint64_t t0 = timer_ticks();
-    while (timer_ticks() == t0) {
-        __asm__ __volatile__("pause");
+    // Prefer the PIT-independent CPUID rate; fall back to the ACPI PM timer;
+    // and if both fail, assume 1 GHz so the monotonic clock still advances (so
+    // millisecond deadlines elsewhere, e.g. the SMP checkin timeout, work).
+    g_tsc_hz = tsc_hz_from_cpuid();
+    if (g_tsc_hz == 0) {
+        g_tsc_hz = tsc_hz_from_pm_timer();
     }
-    uint64_t start_tick = timer_ticks();
-    uint64_t start_tsc = rdtsc();
-    while (timer_ticks() - start_tick < CAL_TICKS) {
-        __asm__ __volatile__("pause");
+    if (g_tsc_hz == 0) {
+        g_tsc_hz = 1000000000ull;
     }
-    uint64_t end_tsc = rdtsc();
-    uint64_t ticks = timer_ticks() - start_tick;
-
-    g_tsc_hz = (end_tsc - start_tsc) * PIT_HZ / ticks;
     g_tsc_base = rdtsc();
 }
 

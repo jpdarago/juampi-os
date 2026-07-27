@@ -49,6 +49,23 @@ static uint32_t fadt_flags;
 static struct gas reset_reg;
 static uint8_t reset_value;
 
+// MADT (APIC) topology.
+static uint64_t madt_lapic_base;
+static uint64_t madt_ioapic_base;
+static uint32_t madt_ioapic_gsi_base;
+static bool madt_have_ioapic;
+#define MAX_OVERRIDES 16
+static struct {
+    uint8_t source; // legacy ISA IRQ
+    uint32_t gsi;   // global system interrupt it is routed to
+    uint16_t flags; // MPS INTI flags
+} madt_overrides[MAX_OVERRIDES];
+static int madt_noverrides;
+
+// ACPI PM timer.
+static uint16_t pm_timer_port;
+static bool pm_timer_32bit;
+
 // ACPI stores physical addresses; the Limine HHDM maps all physical memory, so
 // convert to a usable pointer. (Values already above the HHDM base are treated
 // as already-virtual, covering either Limine RSDP revision.)
@@ -106,6 +123,98 @@ static void parse_s5(struct sdt_header* dsdt)
     }
 }
 
+// Walk the MADT entries: record the LAPIC base, the first I/O APIC, and any
+// interrupt source overrides. See ACPI spec 5.2.12.
+static void parse_madt(struct sdt_header* madt)
+{
+    uint8_t* m = (uint8_t*)madt;
+    uint32_t lapic32 = 0;
+    memcpy(&lapic32, m + 36, 4); // Local Interrupt Controller Address
+    madt_lapic_base = lapic32;
+
+    uint32_t off = 44; // first Interrupt Controller Structure
+    while (off + 2 <= madt->length) {
+        uint8_t type = m[off];
+        uint8_t len = m[off + 1];
+        if (len < 2 || off + len > madt->length) {
+            break;
+        }
+        switch (type) {
+        case 1: // I/O APIC
+            if (!madt_have_ioapic) {
+                uint32_t addr = 0, gsi = 0;
+                memcpy(&addr, m + off + 4, 4);
+                memcpy(&gsi, m + off + 8, 4);
+                madt_ioapic_base = addr;
+                madt_ioapic_gsi_base = gsi;
+                madt_have_ioapic = true;
+            }
+            break;
+        case 2: // Interrupt Source Override
+            if (madt_noverrides < MAX_OVERRIDES) {
+                uint32_t gsi = 0;
+                uint16_t flags = 0;
+                memcpy(&gsi, m + off + 4, 4);
+                memcpy(&flags, m + off + 8, 2);
+                madt_overrides[madt_noverrides].source = m[off + 3];
+                madt_overrides[madt_noverrides].gsi = gsi;
+                madt_overrides[madt_noverrides].flags = flags;
+                madt_noverrides++;
+            }
+            break;
+        case 5: { // Local APIC Address Override (64-bit)
+            uint64_t addr = 0;
+            memcpy(&addr, m + off + 4, 8);
+            madt_lapic_base = addr;
+            break;
+        }
+        default:
+            break;
+        }
+        off += len;
+    }
+}
+
+uint64_t acpi_lapic_base(void)
+{
+    return madt_lapic_base;
+}
+
+bool acpi_ioapic(uint64_t* base, uint32_t* gsi_base)
+{
+    if (!madt_have_ioapic) {
+        return false;
+    }
+    if (base != NULL) {
+        *base = madt_ioapic_base;
+    }
+    if (gsi_base != NULL) {
+        *gsi_base = madt_ioapic_gsi_base;
+    }
+    return true;
+}
+
+void acpi_irq_to_gsi(uint32_t irq, uint32_t* gsi, uint16_t* flags)
+{
+    for (int i = 0; i < madt_noverrides; i++) {
+        if (madt_overrides[i].source == irq) {
+            *gsi = madt_overrides[i].gsi;
+            *flags = madt_overrides[i].flags;
+            return;
+        }
+    }
+    *gsi = irq; // identity mapping for un-overridden ISA IRQs
+    *flags = 0; // MPS default: edge-triggered, active-high
+}
+
+uint16_t acpi_pm_timer_port(bool* is32bit)
+{
+    if (is32bit != NULL) {
+        *is32bit = pm_timer_32bit;
+    }
+    return pm_timer_port;
+}
+
 void acpi_init(uint64_t rsdp_addr)
 {
     struct rsdp* r = map_phys(rsdp_addr);
@@ -122,14 +231,22 @@ void acpi_init(uint64_t rsdp_addr)
     uint32_t n = (root->length - (uint32_t)sizeof(struct sdt_header)) / stride;
     uint8_t* entries = (uint8_t*)root + sizeof(struct sdt_header);
     struct sdt_header* fadt = NULL;
+    struct sdt_header* madt = NULL;
     for (uint32_t i = 0; i < n; i++) {
         uint64_t ptr = 0;
         memcpy(&ptr, entries + (uint64_t)i * stride, stride);
         struct sdt_header* t = map_phys(ptr);
-        if (t != NULL && sig_is(t->sig, "FACP", 4)) {
-            fadt = t;
-            break;
+        if (t == NULL) {
+            continue;
         }
+        if (sig_is(t->sig, "FACP", 4)) {
+            fadt = t;
+        } else if (sig_is(t->sig, "APIC", 4)) {
+            madt = t;
+        }
+    }
+    if (madt != NULL) {
+        parse_madt(madt);
     }
     if (fadt == NULL) {
         return;
@@ -145,6 +262,21 @@ void acpi_init(uint64_t rsdp_addr)
     memcpy(&reset_reg, f + 116, sizeof(struct gas));
     reset_value = f[128];
     have_pm = pm1a_cnt != 0;
+
+    // ACPI PM timer: PM_TMR_BLK (I/O port) at offset 76; 32-bit counter when
+    // FADT flags bit 8 (TMR_VAL_EXT) is set. Prefer the extended X_PM_TMR_BLK
+    // GAS (offset 208) when the FADT is long enough and it is I/O-mapped.
+    uint32_t pmt = 0;
+    memcpy(&pmt, f + 76, 4);
+    pm_timer_port = (uint16_t)pmt;
+    pm_timer_32bit = (fadt_flags & (1u << 8)) != 0;
+    if (fadt->length >= 208 + sizeof(struct gas)) {
+        struct gas g;
+        memcpy(&g, f + 208, sizeof(struct gas));
+        if (g.address_space == 1 && g.address != 0) {
+            pm_timer_port = (uint16_t)g.address;
+        }
+    }
 
     uint64_t dsdt_phys = 0;
     if (fadt->length >= 148) {

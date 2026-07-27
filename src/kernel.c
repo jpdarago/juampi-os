@@ -312,8 +312,12 @@ void kmain(void)
     // A breakpoint trap must be caught and returned from cleanly...
     __asm__ __volatile__("int3");
     // ...and the timer IRQ must fire and return, advancing the tick count.
-    while (timer_ticks() < 3) {
-        __asm__ __volatile__("hlt");
+    // Bound the wait by a TSC budget (spinning, not hlt, so it can time out) so
+    // a dead legacy PIT on real hardware can't hang boot — the shell still runs
+    // off the keyboard IRQ and the CPUID-derived clock.
+    uint64_t irq_guard = rdtsc() + 20000000000ull; // ~4-6 s
+    while (timer_ticks() < 3 && rdtsc() < irq_guard) {
+        __asm__ __volatile__("pause");
     }
 
     console_print("juampiOS: int3 handled=");
@@ -324,6 +328,14 @@ void kmain(void)
     if (bp_hits == 1 && timer_ticks() >= 3) {
         console_print("juampiOS: interrupts OK\n");
     }
+
+    // --- ACPI: parse the firmware tables (power off/reset, and the
+    // APIC/PM-timer
+    // --- topology). Must precede ktime_init: the TSC calibration falls back to
+    // --- the ACPI PM timer when CPUID does not report the frequency.
+    acpi_init(rsdp_request.response != NULL
+                      ? (uint64_t)(uintptr_t)rsdp_request.response->address
+                      : 0);
 
     // --- Timekeeping: calibrate the TSC and expose a monotonic clock. --------
     ktime_init();
@@ -336,11 +348,6 @@ void kmain(void)
     console_dec(ktime_ns());
     console_print(hz > 100000000ull ? "\njuampiOS: timekeeping OK\n"
                                     : "\njuampiOS: timekeeping FAILED\n");
-
-    // --- ACPI: parse the firmware power tables (for k.shutdown/k.reboot). ----
-    acpi_init(rsdp_request.response != NULL
-                      ? (uint64_t)(uintptr_t)rsdp_request.response->address
-                      : 0);
 
     // --- Block device + filesystem: ATA data disk and a read-only ext2. -----
     // ata_init() polls with a timeout, so it must run after ktime_init(). The
@@ -383,14 +390,20 @@ void kmain(void)
     }
     uint32_t bsp = smp_bsp_index();
     for (uint64_t i = 0; i < ncores; i++) {
-        if (i != bsp) {
+        if (i != bsp && smp_online((uint32_t)i)) {
             smp_run_on((uint32_t)i, sum_worker, &jobs[i]);
         }
     }
     sum_worker(&jobs[bsp]); // the BSP takes its own slice
     for (uint64_t i = 0; i < ncores; i++) {
-        if (i != bsp) {
+        // Only join cores that actually checked in — joining a core that never
+        // started would spin forever (matters if an AP fails to come up on real
+        // hardware; the BSP already covered its slice).
+        if (i != bsp && smp_online((uint32_t)i)) {
             smp_join((uint32_t)i);
+        } else if (i != bsp) {
+            sum_worker(
+                    &jobs[i]); // offline core: the BSP does its slice instead
         }
     }
     uint64_t sum = 0;
