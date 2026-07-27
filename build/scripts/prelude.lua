@@ -122,8 +122,46 @@ local function fn_names(t)
     return ns
 end
 
+-- Format a typed arg list ({name=,type=,doc=} array) as "name: type, ...".
+local function typed(list)
+    local parts = {}
+    for _, a in ipairs(list or {}) do
+        parts[#parts + 1] = a.name .. ": " .. a.type
+    end
+    return table.concat(parts, ", ")
+end
+
+-- "fn(param: type, ...) -> ret: type, ..." from a __doc entry.
+local function signature(name, info)
+    local s = name .. "(" .. typed(info.params) .. ")"
+    if info.returns and #info.returns > 0 then
+        s = s .. " -> " .. typed(info.returns)
+    end
+    return s
+end
+
+-- The body shown for a library node. If the library was registered with typed
+-- docs (a __doc table, via luadoc_newlib in C), show each function's signature
+-- and one-line docstring; otherwise fall back to a bare list of names.
 local function lib_body(name, t)
-    return (DESC[name] or "") .. "\n\n" .. table.concat(fn_names(t), "  ")
+    local header = DESC[name] or ""
+    local doc = t.__doc
+    if not doc then
+        return header .. "\n\n" .. table.concat(fn_names(t), "  ")
+    end
+    local lines = {}
+    for _, fn in ipairs(fn_names(t)) do
+        local info = doc[fn]
+        if info then
+            lines[#lines + 1] = signature(fn, info)
+            if info.doc and info.doc ~= "" then
+                lines[#lines + 1] = "    " .. info.doc
+            end
+        else
+            lines[#lines + 1] = fn .. "()"
+        end
+    end
+    return header .. "\n\n" .. table.concat(lines, "\n")
 end
 
 local function has_ui()

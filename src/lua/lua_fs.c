@@ -3,6 +3,7 @@
 // back to this to load scripts that live on disk rather than in a Limine module.
 
 #include <ext2.h>
+#include <luadoc.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -157,14 +158,43 @@ static int l_remove(lua_State* L)
     return 1;
 }
 
-static const luaL_Reg fslib[] = {
-        {"mounted", l_mounted}, {"read", l_read},     {"list", l_list},
-        {"stat", l_stat},       {"exists", l_exists}, {"write", l_write},
-        {"mkdir", l_mkdir},     {"remove", l_remove}, {NULL, NULL},
+static const lua_fndoc fslib[] = {
+        {"mounted", l_mounted, "Whether the ext2 data disk is mounted.",
+         .rets = {{"ok", "boolean", "true if a filesystem is mounted"}}},
+        {"read", l_read, "Read a whole file into a string.",
+         .args = {{"path", "string", "absolute path on the data disk"}},
+         .rets = {{"data", "string?", "file contents, or nil on error"},
+                  {"err", "string?", "error message when data is nil"}}},
+        {"list", l_list, "List a directory.",
+         .args = {{"path", "string", "directory path"}},
+         .rets = {{"entries", "table?",
+                   "array of {name, inode, type}, or nil on error"},
+                  {"err", "string?", "error message when entries is nil"}}},
+        {"stat", l_stat, "Stat a path.",
+         .args = {{"path", "string", "path to stat"}},
+         .rets = {{"info", "table?", "{size, dir, inode, mode}, or nil"},
+                  {"err", "string?", "error message when info is nil"}}},
+        {"exists", l_exists, "Whether a path resolves.",
+         .args = {{"path", "string", "path to check"}},
+         .rets = {{"ok", "boolean", "true if the path exists"}}},
+        {"write", l_write, "Create or overwrite a regular file.",
+         .args = {{"path", "string", "file path"},
+                  {"data", "string", "bytes to write"}},
+         .rets = {{"ok", "boolean?", "true on success, else nil"},
+                  {"err", "string?", "error message on failure"}}},
+        {"mkdir", l_mkdir, "Create a directory (its parent must exist).",
+         .args = {{"path", "string", "directory path"}},
+         .rets = {{"ok", "boolean?", "true on success, else nil"},
+                  {"err", "string?", "error message on failure"}}},
+        {"remove", l_remove, "Delete a file or an empty directory.",
+         .args = {{"path", "string", "path to remove"}},
+         .rets = {{"ok", "boolean?", "true on success, else nil"},
+                  {"err", "string?", "error message on failure"}}},
+        {0},
 };
 
 int luaopen_fs(lua_State* L)
 {
-    luaL_newlib(L, fslib);
+    luadoc_newlib(L, fslib);
     return 1;
 }
