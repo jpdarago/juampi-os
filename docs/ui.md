@@ -221,6 +221,18 @@ The framebuffer is inherently one shared resource, so "multithreaded UI" means a
 5. (Milestone M12) Screen `spinlock`; optional per-core surfaces + compositor
    submit.
 
+## API ergonomics (alongside the reentrancy work)
+
+- ✅ **`ui.textbox`** (`3f04236`): a text-input widget — `ui.textbox([cap[,init]])`
+  → userdata with `:show()` (→ `"submit"`/`"change"`/nil), `:text()`, `:set()`.
+  Lua windows can host forms now.
+- ☐ **Canvas naming**: `ui.canvas` (owned off-screen buffer) vs `fb.canvas`
+  (a view of the live framebuffer) are confusingly both "canvas". Rename toward
+  `ui.surface` / `fb.framebuffer` — deferred because it breaks raytracer.lua /
+  boing.lua; add a deprecation alias when convenient.
+- ☐ **Fuller ELF graphics API** (`lab_api`): give native binaries a surface +
+  input, so they can draw into a window / emit widgets like Lua can.
+
 ## Related
 
 [[lua-shell]] (SMP + per-core state model this must fit), [[Index]].

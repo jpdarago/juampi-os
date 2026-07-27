@@ -138,7 +138,9 @@ plus an `allocator*`. That's the clean way to let ELF binaries join the desktop.
    native ELF renders via a `lab_run` target. (Still pending: the screen's own
    `back`/`snap` buffers + the raytracer canvas `buf` in lua_run still use
    `heap_default`; and a fuller ELF surface/allocator API.) → ✅ per-session
-   `mu_Context` (`9ee6270`, deferral rule gone) → ☐ `ui.textbox` + canvas rename.
+   `mu_Context` (`9ee6270`, deferral rule gone) → ✅ `ui.textbox` (`3f04236`).
+   (Canvas rename `ui.canvas`→`ui.surface` deferred: breaking to
+   raytracer.lua/boing.lua; do it with a deprecation alias when convenient.)
 4. ☐ **Defer locking** to the compositor milestone; until then one-line
    "BSP-only, unlocked" comments on the latent singletons.
 
