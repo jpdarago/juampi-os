@@ -75,10 +75,17 @@ static void ui_arena_free(ui_arena* ua)
     ua->backing = NULL;
 }
 
-// --- microui context --------------------------------------------------------
-
-static mu_Context* g_ctx;
-static bool in_frame;
+// --- microui contexts (one per nesting level) -------------------------------
+// The desktop and each modal loop drive their OWN microui context, so a
+// window's build callback can open a child modal without nesting mu_begin on a
+// single context (which microui forbids). ctx_pool[level] is the context for a
+// loop running at nesting depth `level`; cur_stack holds the contexts whose
+// build callback is currently on the C stack, so ui_current() returns the
+// innermost.
+#define UI_MAX_NEST 8
+static mu_Context* ctx_pool[UI_MAX_NEST];
+static mu_Context* cur_stack[UI_MAX_NEST];
+static int cur_depth;
 
 static int text_width_cb(mu_Font font, const char* str, int len)
 {
@@ -127,16 +134,41 @@ static void apply_theme(mu_Context* ctx)
     s->colors[MU_COLOR_SCROLLTHUMB] = col(120, 120, 140);
 }
 
-static mu_Context* ui_ctx(void)
+static mu_Context* ui_ctx_level(int level)
 {
-    if (g_ctx == NULL) {
-        g_ctx = new (&ui_heap->base, mu_Context, 1);
-        mu_init(g_ctx);
-        g_ctx->text_width = text_width_cb;
-        g_ctx->text_height = text_height_cb;
-        apply_theme(g_ctx);
+    if (ctx_pool[level] == NULL) {
+        mu_Context* c = new (&ui_heap->base, mu_Context, 1);
+        mu_init(c);
+        c->text_width = text_width_cb;
+        c->text_height = text_height_cb;
+        apply_theme(c);
+        ctx_pool[level] = c;
     }
-    return g_ctx;
+    return ctx_pool[level];
+}
+
+// The context a loop entering at the current nesting depth should drive (a
+// distinct object per level so nested mu_begin never collides).
+static mu_Context* ui_loop_ctx(void)
+{
+    int level = cur_depth < UI_MAX_NEST ? cur_depth : UI_MAX_NEST - 1;
+    return ui_ctx_level(level);
+}
+
+// Bracket a frame's build callback: while it runs, ui_current() returns ctx and
+// a modal opened inside it picks the next context level.
+static void ui_build_enter(mu_Context* ctx)
+{
+    if (cur_depth < UI_MAX_NEST) {
+        cur_stack[cur_depth] = ctx;
+    }
+    cur_depth++;
+}
+static void ui_build_leave(void)
+{
+    if (cur_depth > 0) {
+        cur_depth--;
+    }
 }
 
 bool ui_available(void)
@@ -146,7 +178,7 @@ bool ui_available(void)
 
 mu_Context* ui_current(void)
 {
-    return in_frame ? g_ctx : NULL;
+    return cur_depth > 0 ? cur_stack[cur_depth - 1] : NULL;
 }
 
 // --- rendering --------------------------------------------------------------
@@ -443,7 +475,7 @@ void ui_run(ui_frame_fn build, void* ud)
     if (!gfx_available()) {
         return;
     }
-    mu_Context* ctx = ui_ctx();
+    mu_Context* ctx = ui_loop_ctx();
 
     bool was_buffered = gfx_buffered();
     if (!was_buffered) {
@@ -461,9 +493,9 @@ void ui_run(ui_frame_fn build, void* ud)
         bool close = pump_input(ctx);
 
         mu_begin(ctx);
-        in_frame = true;
+        ui_build_enter(ctx);
         bool keep = build(ctx, ud);
-        in_frame = false;
+        ui_build_leave();
         mu_end(ctx);
 
         if (close || !keep) {
@@ -700,7 +732,7 @@ void ui_desktop_run(void)
     if (!gfx_available()) {
         return; // headless: caller falls back to the classic text REPL
     }
-    mu_Context* ctx = ui_ctx();
+    mu_Context* ctx = ui_loop_ctx();
     ui_arena ta = ui_arena_new(TERM_ARENA_SIZE); // desktop-lifetime, not freed
     desk_term = term_open(&ta.a.base);
     console_set_sink(term_write,
@@ -738,10 +770,10 @@ void ui_desktop_run(void)
         }
 
         mu_begin(ctx);
-        in_frame = true;
+        ui_build_enter(ctx);
         term_build(desk_term, ctx);
         desktop_windows(ctx);
-        in_frame = false;
+        ui_build_leave();
         mu_end(ctx);
 
         gfx_clip_reset(gfx_screen());
@@ -775,7 +807,7 @@ int ui_edit(const char* path)
         ui_arena_free(&ua);
         return r;
     }
-    mu_Context* ctx = ui_ctx();
+    mu_Context* ctx = ui_loop_ctx();
 
     char title[160];
     snprintf(title, sizeof title, "edit: %s", path);
@@ -810,7 +842,7 @@ int ui_edit(const char* path)
         }
 
         mu_begin(ctx);
-        in_frame = true;
+        ui_build_enter(ctx);
         if (fresh) {
             mu_Container* cc = mu_get_container(ctx, title);
             if (cc != NULL) {
@@ -825,7 +857,7 @@ int ui_edit(const char* path)
         } else if (action == EDITOR_CONTINUE) {
             action = EDITOR_QUIT; // window closed via the titlebar [x]
         }
-        in_frame = false;
+        ui_build_leave();
         mu_end(ctx);
 
         gfx_restore();

@@ -46,7 +46,9 @@ struct win_ud {
 };
 
 // Set by ui.close() (no argument) to close the running modal ui.window from
-// within its build callback (e.g. the file browser opening a file).
+// within its build callback (e.g. the file browser opening a file). It refers
+// to the innermost modal; l_window saves/restores it around nested runs so an
+// inner ui.close() doesn't also close the outer window.
 static bool modal_close;
 
 static bool win_frame(mu_Context* ctx, void* ud)
@@ -82,8 +84,10 @@ static int l_window(lua_State* L)
     lua_pushvalue(L, 2);
     int ref = luaL_ref(L, LUA_REGISTRYINDEX);
     struct win_ud w = {L, ref, title, false};
+    bool saved_close = modal_close; // this window may be nested inside another
     modal_close = false;
     ui_run(win_frame, &w);
+    modal_close = saved_close; // restore the outer window's close state
     luaL_unref(L, LUA_REGISTRYINDEX, ref);
     if (w.err) {
         return lua_error(L); // re-raise the message the build function left
