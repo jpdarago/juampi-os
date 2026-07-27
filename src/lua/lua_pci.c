@@ -2,6 +2,7 @@
 // Presentation (class names, formatting) is left to Lua — see lspci.lua.
 
 #include <pci.h>
+#include <luadoc.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -76,15 +77,27 @@ static int l_list(lua_State* L)
     return 1;
 }
 
-static const luaL_Reg pcilib[] = {
-        {"read", l_read},
-        {"write", l_write},
-        {"list", l_list},
-        {NULL, NULL},
+static const lua_fndoc pcilib[] = {
+        {"read", l_read, "Read a 32-bit PCI config-space register.",
+         .args = {{"bus", "number", "bus number"},
+                  {"dev", "number", "device number"},
+                  {"func", "number", "function number"},
+                  {"offset", "number", "byte offset in config space"}},
+         .rets = {{"value", "number", "the 32-bit register"}}},
+        {"write", l_write, "Write a 32-bit PCI config-space register.",
+         .args = {{"bus", "number", "bus number"},
+                  {"dev", "number", "device number"},
+                  {"func", "number", "function number"},
+                  {"offset", "number", "byte offset in config space"},
+                  {"value", "number", "32-bit value to write"}}},
+        {"list", l_list, "Enumerate all PCI devices.",
+         .rets = {{"devices", "table",
+                   "array of {bus, dev, func, vendor, device, class, ...}"}}},
+        {0},
 };
 
 int luaopen_pci(lua_State* L)
 {
-    luaL_newlib(L, pcilib);
+    luadoc_newlib(L, pcilib);
     return 1;
 }

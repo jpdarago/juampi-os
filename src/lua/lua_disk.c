@@ -3,6 +3,7 @@
 // exposes raw config space beneath the `fs`-style conveniences.
 
 #include <ata.h>
+#include <luadoc.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -48,15 +49,21 @@ static int l_read(lua_State* L)
     return 1;
 }
 
-static const luaL_Reg disklib[] = {
-        {"present", l_present},
-        {"sectors", l_sectors},
-        {"read", l_read},
-        {NULL, NULL},
+static const lua_fndoc disklib[] = {
+        {"present", l_present, "Whether an ATA data disk is attached.",
+         .rets = {{"ok", "boolean", "true if a disk is present"}}},
+        {"sectors", l_sectors, "Number of 512-byte sectors on the disk.",
+         .rets = {{"n", "number", "sector count"}}},
+        {"read", l_read, "Read raw 512-byte sectors as a byte string.",
+         .args = {{"lba", "number", "starting logical block address"},
+                  {"count", "number?", "sectors to read (default 1, cap 4096)"}},
+         .rets = {{"data", "string?", "the bytes, or nil on error"},
+                  {"err", "string?", "error message when data is nil"}}},
+        {0},
 };
 
 int luaopen_disk(lua_State* L)
 {
-    luaL_newlib(L, disklib);
+    luadoc_newlib(L, disklib);
     return 1;
 }

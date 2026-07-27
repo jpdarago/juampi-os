@@ -14,6 +14,7 @@
 
 #include <printf/printf.h>
 #include <stdint.h>
+#include <luadoc.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -294,27 +295,88 @@ static int l_backtrace(lua_State* L)
     return 0;
 }
 
-static const luaL_Reg klib[] = {
-        {"rdtsc", l_rdtsc},       {"ns", l_ns},
-        {"us", l_us},             {"ms", l_ms},
-        {"uptime", l_uptime},     {"tsc_hz", l_tsc_hz},
-        {"ncores", l_ncores},     {"cpu", l_cpu},
-        {"shutdown", l_shutdown}, {"reboot", l_reboot},
-        {"random", l_random},     {"freeframes", l_freeframes},
-        {"freemem", l_freemem},   {"totalmem", l_totalmem},
-        {"cpuid", l_cpuid},       {"cpubrand", l_cpubrand},
-        {"rdmsr", l_rdmsr},       {"wrmsr", l_wrmsr},
-        {"peek8", l_peek8},       {"peek16", l_peek16},
-        {"peek32", l_peek32},     {"peek64", l_peek64},
-        {"poke8", l_poke8},       {"poke16", l_poke16},
-        {"poke32", l_poke32},     {"poke64", l_poke64},
-        {"inb", l_inb},           {"outb", l_outb},
-        {"hexdump", l_hexdump},   {"sym", l_sym},
-        {"backtrace", l_backtrace}, {NULL, NULL},
+#define ADDR {"addr", "number", "address (may fault if invalid)"}
+#define VAL(t) {"value", "number", t}
+
+static const lua_fndoc klib[] = {
+        {"rdtsc", l_rdtsc, "Read the CPU cycle counter (TSC).",
+         .rets = {{"cycles", "number", "current TSC value"}}},
+        {"ns", l_ns, "Monotonic time since boot, in nanoseconds.",
+         .rets = {{"ns", "number", "nanoseconds"}}},
+        {"us", l_us, "Monotonic time since boot, in microseconds.",
+         .rets = {{"us", "number", "microseconds"}}},
+        {"ms", l_ms, "Monotonic time since boot, in milliseconds.",
+         .rets = {{"ms", "number", "milliseconds"}}},
+        {"uptime", l_uptime, "Seconds since boot (fractional).",
+         .rets = {{"seconds", "number", "uptime in seconds"}}},
+        {"tsc_hz", l_tsc_hz, "Calibrated TSC frequency.",
+         .rets = {{"hz", "number", "TSC ticks per second"}}},
+        {"ncores", l_ncores, "Number of CPU cores online.",
+         .rets = {{"n", "number", "core count"}}},
+        {"cpu", l_cpu, "Index of the core running this call.",
+         .rets = {{"index", "number", "0 for the BSP"}}},
+        {"shutdown", l_shutdown, "Power the machine off (ACPI S5). No return."},
+        {"reboot", l_reboot, "Reset the machine. No return."},
+        {"random", l_random, "A random 64-bit integer (RDRAND, else xorshift).",
+         .rets = {{"value", "number", "random 64-bit integer"}}},
+        {"freeframes", l_freeframes, "Free physical page frames.",
+         .rets = {{"frames", "number", "count of free 4 KiB frames"}}},
+        {"freemem", l_freemem, "Free physical memory in bytes.",
+         .rets = {{"bytes", "number", "free bytes"}}},
+        {"totalmem", l_totalmem, "Total managed physical memory in bytes.",
+         .rets = {{"bytes", "number", "total bytes"}}},
+        {"cpuid", l_cpuid, "Execute CPUID.",
+         .args = {{"leaf", "number", "CPUID leaf (EAX)"},
+                  {"subleaf", "number?", "sub-leaf (ECX), default 0"}},
+         .rets = {{"eax", "number", ""},
+                  {"ebx", "number", ""},
+                  {"ecx", "number", ""},
+                  {"edx", "number", ""}}},
+        {"cpubrand", l_cpubrand, "The CPU brand string.",
+         .rets = {{"brand", "string", "e.g. the marketing name"}}},
+        {"rdmsr", l_rdmsr, "Read a model-specific register.",
+         .args = {{"msr", "number", "MSR index"}},
+         .rets = {{"value", "number", "64-bit MSR value"}}},
+        {"wrmsr", l_wrmsr, "Write a model-specific register.",
+         .args = {{"msr", "number", "MSR index"},
+                  {"value", "number", "64-bit value to write"}}},
+        {"peek8", l_peek8, "Read a byte from memory.",
+         .args = {ADDR}, .rets = {VAL("the byte")}},
+        {"peek16", l_peek16, "Read a 16-bit word from memory.",
+         .args = {ADDR}, .rets = {VAL("the word")}},
+        {"peek32", l_peek32, "Read a 32-bit word from memory.",
+         .args = {ADDR}, .rets = {VAL("the dword")}},
+        {"peek64", l_peek64, "Read a 64-bit word from memory.",
+         .args = {ADDR}, .rets = {VAL("the qword")}},
+        {"poke8", l_poke8, "Write a byte to memory.",
+         .args = {ADDR, VAL("byte to store")}},
+        {"poke16", l_poke16, "Write a 16-bit word to memory.",
+         .args = {ADDR, VAL("word to store")}},
+        {"poke32", l_poke32, "Write a 32-bit word to memory.",
+         .args = {ADDR, VAL("dword to store")}},
+        {"poke64", l_poke64, "Write a 64-bit word to memory.",
+         .args = {ADDR, VAL("qword to store")}},
+        {"inb", l_inb, "Read a byte from an I/O port.",
+         .args = {{"port", "number", "I/O port"}},
+         .rets = {VAL("the byte read")}},
+        {"outb", l_outb, "Write a byte to an I/O port.",
+         .args = {{"port", "number", "I/O port"}, VAL("byte to write")}},
+        {"hexdump", l_hexdump, "Print a canonical hex/ASCII dump.",
+         .args = {ADDR, {"len", "number?", "bytes to dump, default 64"}}},
+        {"sym", l_sym, "Resolve an address to a kernel symbol.",
+         .args = {ADDR,
+                  },
+         .rets = {{"name", "string?", "symbol name, or nil if unknown"},
+                  {"offset", "number?", "offset past the symbol"}}},
+        {"backtrace", l_backtrace, "Print a symbolized stack backtrace."},
+        {0},
 };
+
+#undef ADDR
+#undef VAL
 
 int luaopen_k(lua_State* L)
 {
-    luaL_newlib(L, klib);
+    luadoc_newlib(L, klib);
     return 1;
 }

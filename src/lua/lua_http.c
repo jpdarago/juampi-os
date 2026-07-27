@@ -4,6 +4,7 @@
 #include <http.h>
 #include <arena.h>
 #include <memory.h>
+#include <luadoc.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -51,13 +52,16 @@ static int l_get(lua_State* L)
     return 2;
 }
 
-static const luaL_Reg httplib[] = {
-        {"get", l_get},
-        {NULL, NULL},
+static const lua_fndoc httplib[] = {
+        {"get", l_get, "Fetch a URL over HTTP/1.1.",
+         .args = {{"url", "string", "http:// URL"}},
+         .rets = {{"status", "number?", "HTTP status code, or nil on error"},
+                  {"body", "string?", "response body, or the error message"}}},
+        {0},
 };
 
 int luaopen_http(lua_State* L)
 {
-    luaL_newlib(L, httplib);
+    luadoc_newlib(L, httplib);
     return 1;
 }

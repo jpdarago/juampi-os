@@ -3,6 +3,7 @@
 // (src/e1000.c, src/net.c). See docs/networking.md.
 
 #include <net.h>
+#include <luadoc.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -353,11 +354,45 @@ static const luaL_Reg tcp_methods[] = {
         {"close", l_tcp_close},   {NULL, NULL},
 };
 
-static const luaL_Reg netlib[] = {
-        {"ready", l_ready},     {"ip", l_ip},         {"mac", l_mac},
-        {"config", l_config},   {"ping", l_ping},     {"udp", l_udp},
-        {"connect", l_connect}, {"listen", l_listen}, {"resolve", l_resolve},
-        {"dhcp", l_dhcp},       {NULL, NULL},
+static const lua_fndoc netlib[] = {
+        {"ready", l_ready, "Whether the network stack has an IP address.",
+         .rets = {{"ok", "boolean", "true if configured"}}},
+        {"ip", l_ip, "The current IPv4 address.",
+         .rets = {{"addr", "string?", "dotted-quad, or nil if unconfigured"}}},
+        {"mac", l_mac, "The NIC's MAC address.",
+         .rets = {{"mac", "string?", "xx:xx:xx:xx:xx:xx, or nil"}}},
+        {"config", l_config, "Set a static IPv4 configuration.",
+         .args = {{"ip", "string", "dotted-quad address"},
+                  {"mask", "string", "dotted-quad netmask"},
+                  {"gateway", "string", "dotted-quad gateway"}}},
+        {"dhcp", l_dhcp, "Acquire an address by DHCP.",
+         .args = {{"timeout_ms", "number?", "timeout, default 4000"}},
+         .rets = {{"addr", "string?", "leased address, or nil on failure"}}},
+        {"resolve", l_resolve, "Resolve a hostname to an IPv4 address (DNS).",
+         .args = {{"host", "string", "hostname"},
+                  {"timeout_ms", "number?", "timeout, default 4000"}},
+         .rets = {{"addr", "string?", "dotted-quad, or nil on error"},
+                  {"err", "string?", "error message when addr is nil"}}},
+        {"ping", l_ping, "ICMP echo a host and time the round trip.",
+         .args = {{"host", "string", "IP or hostname"},
+                  {"timeout_ms", "number?", "timeout, default 1000"}},
+         .rets = {{"rtt_ms", "number?", "round-trip ms, or nil on timeout"}}},
+        {"udp", l_udp, "Create a UDP socket.",
+         .rets = {{"sock", "userdata?",
+                   "socket with :bind/:sendto/:recvfrom/:close, or nil"},
+                  {"err", "string?", "error message when sock is nil"}}},
+        {"connect", l_connect, "Open a TCP connection (active).",
+         .args = {{"ip", "string", "dotted-quad address"},
+                  {"port", "number", "destination port"},
+                  {"timeout_ms", "number?", "handshake timeout, default 5000"}},
+         .rets = {{"conn", "userdata?",
+                   "connection with :send/:recv/:close, or nil"},
+                  {"err", "string?", "error message when conn is nil"}}},
+        {"listen", l_listen, "Open a TCP listener on a port.",
+         .args = {{"port", "number", "local port to listen on"}},
+         .rets = {{"listener", "userdata?", "listener with :accept, or nil"},
+                  {"err", "string?", "error message when listener is nil"}}},
+        {0},
 };
 
 // Register a metatable for an object type: a method table under __index and a
@@ -379,6 +414,6 @@ int luaopen_net(lua_State* L)
 {
     register_obj(L, UDP_MT, udp_methods, l_udp_close);
     register_obj(L, TCP_MT, tcp_methods, l_tcp_close);
-    luaL_newlib(L, netlib);
+    luadoc_newlib(L, netlib);
     return 1;
 }

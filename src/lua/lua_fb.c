@@ -4,6 +4,7 @@
 
 #include <gfx.h>
 #include <luafb.h>
+#include <luadoc.h>
 #include <qoi.h>
 #include <kmodule.h>
 #include <memory.h>
@@ -180,16 +181,61 @@ static int l_canvas(lua_State* L)
     return 1;
 }
 
-static const luaL_Reg fblib[] = {
-        {"width", l_width},     {"height", l_height}, {"pixel", l_pixel},
-        {"rect", l_rect},       {"clear", l_clear},   {"line", l_line},
-        {"image", l_image},     {"buffer", l_buffer}, {"flip", l_flip},
-        {"setmode", l_setmode}, {"pitch", l_pitch},   {"shifts", l_shifts},
-        {"canvas", l_canvas},   {NULL, NULL},
+#define COLOR(d) {"color", "number", d}
+
+static const lua_fndoc fblib[] = {
+        {"width", l_width, "Width of the current draw surface, in pixels.",
+         .rets = {{"w", "number", "width in pixels"}}},
+        {"height", l_height, "Height of the current draw surface, in pixels.",
+         .rets = {{"h", "number", "height in pixels"}}},
+        {"pixel", l_pixel, "Set one pixel.",
+         .args = {{"x", "number", "x coordinate"},
+                  {"y", "number", "y coordinate"},
+                  COLOR("0xRRGGBB colour")}},
+        {"rect", l_rect, "Fill a rectangle.",
+         .args = {{"x", "number", "left"},
+                  {"y", "number", "top"},
+                  {"w", "number", "width"},
+                  {"h", "number", "height"},
+                  COLOR("0xRRGGBB fill colour")}},
+        {"clear", l_clear, "Clear the whole surface to a colour.",
+         .args = {{"color", "number?", "0xRRGGBB, default black"}}},
+        {"line", l_line, "Draw a line.",
+         .args = {{"x0", "number", ""},
+                  {"y0", "number", ""},
+                  {"x1", "number", ""},
+                  {"y1", "number", ""},
+                  COLOR("0xRRGGBB colour")}},
+        {"image", l_image, "Decode a QOI module image and blit it.",
+         .args = {{"name", "string", "image module name"},
+                  {"x", "number?", "left (default: centre)"},
+                  {"y", "number?", "top (default: centre)"},
+                  {"key", "number?", "0xRRGGBB chroma key to drop"},
+                  {"tol", "number?", "per-channel key tolerance (default 16)"}},
+         .rets = {{"w", "number", "image width"},
+                  {"h", "number", "image height"}}},
+        {"buffer", l_buffer, "Enable/disable double buffering.",
+         .args = {{"on", "boolean?", "true (default) to enable"}},
+         .rets = {{"active", "boolean", "whether buffering is now on"}}},
+        {"flip", l_flip, "Copy the back buffer to the screen (no-op unbuffered)."},
+        {"setmode", l_setmode, "Switch to a w*h 32bpp video mode at runtime.",
+         .args = {{"w", "number", "width"}, {"h", "number", "height"}},
+         .rets = {{"ok", "boolean", "true if the mode was set"}}},
+        {"pitch", l_pitch, "Bytes per scanline of the current surface.",
+         .rets = {{"bytes", "number", "scanline stride in bytes"}}},
+        {"shifts", l_shifts, "Channel bit shifts for packing raw pixels.",
+         .rets = {{"r", "number", "red shift"},
+                  {"g", "number", "green shift"},
+                  {"b", "number", "blue shift"}}},
+        {"canvas", l_canvas, "A memview aliasing the live framebuffer.",
+         .rets = {{"mem", "userdata", "framebuffer view for raw pixel writes"}}},
+        {0},
 };
+
+#undef COLOR
 
 int luaopen_fb(lua_State* L)
 {
-    luaL_newlib(L, fblib);
+    luadoc_newlib(L, fblib);
     return 1;
 }

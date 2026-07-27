@@ -13,6 +13,7 @@
 #include <smp.h>
 #include <memory.h>
 #include <ktime.h>
+#include <luadoc.h>
 
 #include <string.h>
 #include <stdint.h>
@@ -477,15 +478,35 @@ static int l_tns(lua_State* L)
     return 1;
 }
 
-static const luaL_Reg threadlib[] = {
-        {"cores", l_cores}, {"cpu", l_cpu},         {"rdtsc", l_trdtsc},
-        {"ns", l_tns},      {"spawn", l_spawn},     {"join", l_join},
-        {"parallel", l_parallel}, {NULL, NULL},
+static const lua_fndoc threadlib[] = {
+        {"cores", l_cores, "Number of CPU cores available for work.",
+         .rets = {{"n", "number", "core count"}}},
+        {"cpu", l_cpu, "Index of the core running this call.",
+         .rets = {{"index", "number", "core index"}}},
+        {"rdtsc", l_trdtsc, "Read this core's cycle counter.",
+         .rets = {{"cycles", "number", "TSC value"}}},
+        {"ns", l_tns, "Monotonic nanoseconds (per-core safe).",
+         .rets = {{"ns", "number", "nanoseconds"}}},
+        {"spawn", l_spawn,
+         "Run fn(core, ...args) on another core; returns at once.",
+         .args = {{"core", "number", "target core index"},
+                  {"fn", "function", "fn(core, ...) to run there"},
+                  {"...", "any", "extra arguments passed to fn"}}},
+        {"join", l_join, "Wait for a spawned core's job and get its result.",
+         .args = {{"core", "number", "core index previously spawned"}},
+         .rets = {{"result", "any", "the value fn returned"}}},
+        {"parallel", l_parallel,
+         "Run fn(cpu, ...args) on every core and collect the results.",
+         .args = {{"fn", "function", "fn(cpu, ...) to run on each core"},
+                  {"...", "any", "extra arguments passed to fn"}},
+         .rets = {{"results", "table",
+                   "array indexed by core of return values"}}},
+        {0},
 };
 
 int luaopen_thread(lua_State* L)
 {
-    luaL_newlib(L, threadlib);
+    luadoc_newlib(L, threadlib);
     return 1;
 }
 
@@ -600,9 +621,13 @@ static const luaL_Reg shared_methods[] = {
         {"u64", l_u64},   {"f64", l_f64}, {NULL, NULL},
 };
 
-static const luaL_Reg memlib[] = {
-        {"shared", l_shared},
-        {NULL, NULL},
+static const lua_fndoc memlib[] = {
+        {"shared", l_shared,
+         "Allocate a zeroed shared buffer every core can read/write.",
+         .args = {{"n", "number", "size in bytes"}},
+         .rets = {{"buf", "userdata",
+                   "buffer with :size/:u8/:u32/:u64/:f64 accessors"}}},
+        {0},
 };
 
 int luaopen_mem(lua_State* L)
@@ -615,7 +640,7 @@ int luaopen_mem(lua_State* L)
         lua_setfield(L, -2, "__index");
     }
     lua_pop(L, 1);
-    luaL_newlib(L, memlib);
+    luadoc_newlib(L, memlib);
     return 1;
 }
 

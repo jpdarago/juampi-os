@@ -5,13 +5,16 @@
 
 #include "lauxlib.h"
 
-// Push an array of {name=, type=, doc=} tables describing `args` (a zeroed-entry
-// terminated list). Leaves the array table on the stack.
-static void push_args(lua_State* L, const lua_arg* args)
+// Push an array of {name=, type=, doc=} tables describing the first `max` slots
+// of `args`, stopping early at a zeroed entry. Bounding by `max` matters when an
+// arg/ret list fills its whole fixed-size array (no room for a NULL sentinel).
+// Leaves the array table on the stack.
+static void push_args(lua_State* L, const lua_arg* args, int max)
 {
     lua_newtable(L);
     int n = 0;
-    for (const lua_arg* a = args; a->name != NULL; a++) {
+    for (int i = 0; i < max && args[i].name != NULL; i++) {
+        const lua_arg* a = &args[i];
         lua_createtable(L, 0, 3);
         lua_pushstring(L, a->name);
         lua_setfield(L, -2, "name");
@@ -36,9 +39,9 @@ void luadoc_newlib(lua_State* L, const lua_fndoc* fns)
         lua_createtable(L, 0, 3);
         lua_pushstring(L, f->doc != NULL ? f->doc : "");
         lua_setfield(L, -2, "doc");
-        push_args(L, f->args);
+        push_args(L, f->args, LUADOC_MAX_ARGS);
         lua_setfield(L, -2, "params");
-        push_args(L, f->rets);
+        push_args(L, f->rets, LUADOC_MAX_RETS);
         lua_setfield(L, -2, "returns");
         lua_setfield(L, -2, f->name); // __doc[name] = entry (__doc at -2)
     }

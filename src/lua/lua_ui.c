@@ -13,6 +13,7 @@
 #include <ui.h>
 #include <gfx.h>
 #include <luafb.h>
+#include <luadoc.h>
 #include <console.h>
 #include <memory.h>
 
@@ -560,22 +561,78 @@ static const luaL_Reg textbox_methods[] = {
         {NULL, NULL},
 };
 
-static const luaL_Reg uilib[] = {
-        {"window", l_window},           {"open", l_open},
-        {"close", l_close},             {"label", l_label},
-        {"text", l_text},               {"button", l_button},
-        {"header", l_header},           {"treenode", l_treenode},
-        {"endtreenode", l_endtreenode}, {"checkbox", l_checkbox},
-        {"slider", l_slider},           {"row", l_row},
-        {"popup", l_popup},             {"alert", l_alert},
-        {"confirm", l_confirm},         {"available", l_available},
-        {"fullscreen", l_fullscreen},   {"canvas", l_canvas},
-        {"textbox", l_textbox},         {NULL, NULL},
+#define BUILDFN {"fn", "function", "build callback, called each frame"}
+
+static const lua_fndoc uilib[] = {
+        {"window", l_window,
+         "Open a modal window; runs fn each frame until closed.",
+         .args = {{"title", "string", "window title"}, BUILDFN},
+         .rets = {{"ok", "nil", "nil (or nil, err when headless)"},
+                  {"err", "string?", "error message when headless"}}},
+        {"open", l_open, "Open a non-modal desktop window that coexists with the shell.",
+         .args = {{"title", "string", "window title"},
+                  BUILDFN,
+                  {"w", "number?", "width (default: cascaded)"},
+                  {"h", "number?", "height"}},
+         .rets = {{"id", "number", "window id for ui.close(id)"}}},
+        {"close", l_close, "Close a desktop window by id, or the current modal.",
+         .args = {{"id", "number?", "window id; omit inside a modal build fn"}}},
+        {"label", l_label, "Draw a one-line text label.",
+         .args = {{"text", "string", "the label"}}},
+        {"text", l_text, "Draw wrapped multi-line text.",
+         .args = {{"text", "string", "the paragraph"}}},
+        {"button", l_button, "Draw a button.",
+         .args = {{"label", "string", "button caption"}},
+         .rets = {{"clicked", "boolean", "true on the frame it is clicked"}}},
+        {"header", l_header, "A collapsible section header.",
+         .args = {{"label", "string", "header caption"}},
+         .rets = {{"open", "boolean", "true while expanded"}}},
+        {"treenode", l_treenode,
+         "A collapsible tree node (call ui.endtreenode when open).",
+         .args = {{"label", "string", "node caption"}},
+         .rets = {{"open", "boolean", "true while expanded"}}},
+        {"endtreenode", l_endtreenode, "Close the current open ui.treenode."},
+        {"checkbox", l_checkbox, "A checkbox.",
+         .args = {{"label", "string", "caption"},
+                  {"state", "boolean", "current checked state"}},
+         .rets = {{"state", "boolean", "the (possibly toggled) state"}}},
+        {"slider", l_slider, "A horizontal value slider.",
+         .args = {{"value", "number", "current value"},
+                  {"lo", "number", "minimum"},
+                  {"hi", "number", "maximum"}},
+         .rets = {{"value", "number", "the (possibly dragged) value"}}},
+        {"row", l_row, "Set the next row's column widths.",
+         .args = {{"widths", "table", "array of widths (0=default, -1=fill)"},
+                  {"height", "number?", "row height (0 = default)"}}},
+        {"popup", l_popup, "Show a titled message popup (modal).",
+         .args = {{"title", "string", "popup title"},
+                  {"message", "string", "body text"}}},
+        {"alert", l_alert, "Show a simple alert dialog (modal).",
+         .args = {{"message", "string", "message to show"}}},
+        {"confirm", l_confirm, "Ask a yes/no question (modal).",
+         .args = {{"message", "string", "the question"}},
+         .rets = {{"ok", "boolean", "true if confirmed"}}},
+        {"available", l_available, "Whether a graphical UI is available.",
+         .rets = {{"ok", "boolean", "true if a framebuffer is present"}}},
+        {"fullscreen", l_fullscreen,
+         "Run fn with the desktop suspended, for raw full-screen drawing.",
+         .args = {BUILDFN}},
+        {"canvas", l_canvas, "Create an off-screen drawing surface.",
+         .args = {{"w", "number", "width in pixels"},
+                  {"h", "number", "height in pixels"}},
+         .rets = {{"cv", "userdata", "canvas with :draw/:mem/:show"}}},
+        {"textbox", l_textbox, "Create a text-input field (persistent buffer).",
+         .args = {{"cap", "number?", "buffer capacity (default 128)"},
+                  {"initial", "string?", "initial text"}},
+         .rets = {{"tb", "userdata", "textbox with :show/:text/:set"}}},
+        {0},
 };
+
+#undef BUILDFN
 
 int luaopen_ui(lua_State* L)
 {
-    luaL_newlib(L, uilib);
+    luadoc_newlib(L, uilib);
     ui_set_window_hook(build_windows); // desktop renders ui.open() windows
 
     // Canvas metatable: __gc frees the buffer, __index holds the methods.
