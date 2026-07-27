@@ -27,28 +27,40 @@ void* gfx_framebuffer(uint64_t* size, uint64_t* pitch);
 // DISPI). Re-points graphics and the console at the new geometry. Returns false
 // if there is no framebuffer, no DISPI, or the mode is out of range.
 bool gfx_set_mode(uint32_t width, uint32_t height);
-void gfx_pixel(int64_t x, int64_t y, uint32_t rgb);
-void gfx_rect(int64_t x, int64_t y, int64_t w, int64_t h, uint32_t rgb);
-void gfx_clear(uint32_t rgb);
-void gfx_line(int64_t x0, int64_t y0, int64_t x1, int64_t y1, uint32_t rgb);
 
 // A drawing surface: a pixel buffer with its own geometry, channel layout, and
-// clip rectangle. The clip-aware primitives below take one explicitly, so a
-// canvas draw can't disturb the screen's clip and nothing lives in a global.
-// The type is opaque; obtain the screen's surface with gfx_screen().
-typedef struct gfx_surface gfx_surface;
+// clip rectangle. Every drawing primitive takes one explicitly, so a canvas
+// draw can't disturb the screen and nothing lives in a global. It is a plain
+// value type — construct one over a packed buffer with gfx_surface_make(), or
+// get the screen's with gfx_screen(). `pitch` is in bytes; the clip is an
+// exclusive [cx0,cx1) x [cy0,cy1) box (INT64_MAX = whole surface).
+typedef struct {
+    uint8_t* pixels;
+    uint64_t w, h, pitch;
+    uint8_t r_shift, g_shift, b_shift;
+    int64_t cx0, cy0, cx1, cy1;
+} gfx_surface;
 
 // The screen as a surface (the back buffer when double-buffering, else the
 // hardware framebuffer). Its clip persists across calls; the UI renderer sets
 // it per microui CLIP command. NULL if headless.
 gfx_surface* gfx_screen(void);
 
-// Clip-aware drawing into a surface (src/ui.c renders microui through these).
-// gfx_clip sets the surface's clip rectangle; gfx_fill and gfx_text/gfx_glyph
-// are clamped to it (and to the surface). gfx_clip_reset drops back to the
-// whole surface.
+// Build a surface over a tightly packed (pitch = w*4) native-layout buffer,
+// taking the screen's channel shifts and a full (unclipped) clip box.
+gfx_surface gfx_surface_make(uint32_t* pixels, uint64_t w, uint64_t h);
+
+// Drawing primitives, all into an explicit surface, all clipped to the
+// surface's clip box and bounds. gfx_clip sets that box; gfx_clip_reset drops
+// back to the whole surface.
 void gfx_clip(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h);
 void gfx_clip_reset(gfx_surface* s);
+void gfx_pixel(gfx_surface* s, int64_t x, int64_t y, uint32_t rgb);
+void gfx_rect(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
+              uint32_t rgb);
+void gfx_clear(gfx_surface* s, uint32_t rgb);
+void gfx_line(gfx_surface* s, int64_t x0, int64_t y0, int64_t x1, int64_t y1,
+              uint32_t rgb);
 void gfx_fill(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
               uint32_t rgb);
 // Draw one 8x16 glyph / an n-byte string at pixel (x, y), honoring the clip.
@@ -75,12 +87,12 @@ bool gfx_target_dirty(void); // did a program fetch the target as a framebuffer?
 void gfx_image(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
                const uint32_t* buf);
 
-// Blit a width*height array of 0xAARRGGBB pixels with its top-left at (x, y).
-// Fully transparent pixels (alpha 0) are skipped, so images with a cut-out
-// background compose onto whatever is already on screen; any other alpha is
-// treated as opaque.
-void gfx_blit(int64_t x, int64_t y, uint64_t width, uint64_t height,
-              const uint32_t* pixels);
+// Blit a width*height array of 0xAARRGGBB pixels into surface `s` with its
+// top-left at (x, y). Fully transparent pixels (alpha 0) are skipped, so images
+// with a cut-out background compose onto what is already there; any other alpha
+// is treated as opaque.
+void gfx_blit(gfx_surface* s, int64_t x, int64_t y, uint64_t width,
+              uint64_t height, const uint32_t* pixels);
 
 // Double buffering. gfx_buffer(true) allocates an off-screen back buffer and
 // redirects all subsequent drawing to it (seeded with the current screen);

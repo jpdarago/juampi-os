@@ -12,6 +12,7 @@
 
 #include <ui.h>
 #include <gfx.h>
+#include <luafb.h>
 #include <console.h>
 #include <memory.h>
 
@@ -430,15 +431,17 @@ static int l_canvas_mem(lua_State* L)
     return 5;
 }
 
-// cv:draw(fn) — run fn with gfx (fb.*) redirected into the canvas.
+// cv:draw(fn) — run fn with the fb.* library redirected into the canvas
+// surface (restored to the screen afterwards, even on error).
 static int l_canvas_draw(lua_State* L)
 {
     LuaCanvas* cv = check_canvas(L);
     luaL_checktype(L, 2, LUA_TFUNCTION);
-    gfx_target(cv->buf, (uint64_t)cv->w, (uint64_t)cv->h);
+    gfx_surface cs = gfx_surface_make(cv->buf, (uint64_t)cv->w, (uint64_t)cv->h);
+    lua_fb_target(&cs);
     lua_pushvalue(L, 2);
     int st = lua_pcall(L, 0, 0, 0);
-    gfx_target_reset();
+    lua_fb_target(NULL);
     if (st != LUA_OK) {
         return lua_error(L);
     }

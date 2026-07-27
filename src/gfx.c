@@ -102,26 +102,25 @@ void* gfx_framebuffer(uint64_t* size, uint64_t* out_pitch)
     return fb;
 }
 
-// Pack an 0xRRGGBB colour into the framebuffer's channel layout.
-static uint32_t pack(uint32_t rgb)
-{
-    uint32_t r = (rgb >> 16) & 0xFF;
-    uint32_t g = (rgb >> 8) & 0xFF;
-    uint32_t b = rgb & 0xFF;
-    return (r << r_shift) | (g << g_shift) | (b << b_shift);
-}
-
 // --- surfaces ---------------------------------------------------------------
-// A surface owns its geometry, channel layout, and clip rectangle. The clip is
-// an exclusive [x0,x1) x [y0,y1) box; INT64_MAX means "whole surface".
-struct gfx_surface {
-    uint8_t* pixels;
-    uint64_t w, h, pitch; // pitch in bytes (may exceed w*4 for the hw fb)
-    uint8_t r_shift, g_shift, b_shift;
-    int64_t cx0, cy0, cx1, cy1;
-};
+// gfx_surface is defined in gfx.h (a value type: pixels, geometry, channel
+// shifts, and an exclusive clip box). The screen is one persistent surface.
 
 static gfx_surface screen_surf = {.cx1 = INT64_MAX, .cy1 = INT64_MAX};
+
+gfx_surface gfx_surface_make(uint32_t* pixels, uint64_t w, uint64_t h)
+{
+    gfx_surface s = {.pixels = (uint8_t*)pixels,
+                     .w = w,
+                     .h = h,
+                     .pitch = w * 4,
+                     .r_shift = r_shift,
+                     .g_shift = g_shift,
+                     .b_shift = b_shift,
+                     .cx1 = INT64_MAX,
+                     .cy1 = INT64_MAX};
+    return s;
+}
 
 gfx_surface* gfx_screen(void)
 {
@@ -154,39 +153,42 @@ static inline uint32_t* surf_row(const gfx_surface* s, uint64_t y)
     return (uint32_t*)(s->pixels + y * s->pitch);
 }
 
-void gfx_pixel(int64_t x, int64_t y, uint32_t rgb)
+void gfx_pixel(gfx_surface* s, int64_t x, int64_t y, uint32_t rgb)
 {
-    if (fb == NULL || x < 0 || y < 0 || (uint64_t)x >= width ||
-        (uint64_t)y >= height) {
+    if (s == NULL || x < 0 || y < 0 || (uint64_t)x >= s->w ||
+        (uint64_t)y >= s->h) {
         return;
     }
-    row_of((uint64_t)y)[x] = pack(rgb);
+    surf_row(s, (uint64_t)y)[x] = surf_pack(s, rgb);
 }
 
-void gfx_rect(int64_t x, int64_t y, int64_t w, int64_t h, uint32_t rgb)
+void gfx_rect(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
+              uint32_t rgb)
 {
-    if (fb == NULL) {
+    if (s == NULL) {
         return;
     }
-    uint32_t px = pack(rgb);
-    // Clip the rectangle to the screen once, so the inner loop is a tight,
+    uint32_t px = surf_pack(s, rgb);
+    // Clip the rectangle to the surface once, so the inner loop is a tight,
     // branch-free fill the compiler can vectorize (this is the per-frame
     // clear).
     int64_t x0 = x < 0 ? 0 : x;
     int64_t y0 = y < 0 ? 0 : y;
-    int64_t x1 = x + w > (int64_t)width ? (int64_t)width : x + w;
-    int64_t y1 = y + h > (int64_t)height ? (int64_t)height : y + h;
+    int64_t x1 = x + w > (int64_t)s->w ? (int64_t)s->w : x + w;
+    int64_t y1 = y + h > (int64_t)s->h ? (int64_t)s->h : y + h;
     for (int64_t yy = y0; yy < y1; yy++) {
-        uint32_t* row = row_of((uint64_t)yy);
+        uint32_t* row = surf_row(s, (uint64_t)yy);
         for (int64_t xx = x0; xx < x1; xx++) {
             row[xx] = px;
         }
     }
 }
 
-void gfx_clear(uint32_t rgb)
+void gfx_clear(gfx_surface* s, uint32_t rgb)
 {
-    gfx_rect(0, 0, (int64_t)width, (int64_t)height, rgb);
+    if (s != NULL) {
+        gfx_rect(s, 0, 0, (int64_t)s->w, (int64_t)s->h, rgb);
+    }
 }
 
 // --- Clip-aware primitives, drawing into an explicit surface ----------------
@@ -282,34 +284,35 @@ void gfx_text(gfx_surface* s, int64_t x, int64_t y, const char* str, size_t n,
     }
 }
 
-void gfx_blit(int64_t x, int64_t y, uint64_t w, uint64_t h,
+void gfx_blit(gfx_surface* s, int64_t x, int64_t y, uint64_t w, uint64_t h,
               const uint32_t* pixels)
 {
-    if (fb == NULL) {
+    if (s == NULL) {
         return;
     }
     for (uint64_t j = 0; j < h; j++) {
         int64_t py = y + (int64_t)j;
-        if (py < 0 || (uint64_t)py >= height) {
+        if (py < 0 || (uint64_t)py >= s->h) {
             continue;
         }
-        uint32_t* row = row_of((uint64_t)py);
+        uint32_t* row = surf_row(s, (uint64_t)py);
         const uint32_t* src = pixels + j * w;
         for (uint64_t i = 0; i < w; i++) {
             int64_t px = x + (int64_t)i;
-            if (px < 0 || (uint64_t)px >= width) {
+            if (px < 0 || (uint64_t)px >= s->w) {
                 continue;
             }
             uint32_t p = src[i];
             if ((p >> 24) == 0) {
                 continue; // fully transparent
             }
-            row[px] = pack(p & 0xffffff);
+            row[px] = surf_pack(s, p & 0xffffff);
         }
     }
 }
 
-void gfx_line(int64_t x0, int64_t y0, int64_t x1, int64_t y1, uint32_t rgb)
+void gfx_line(gfx_surface* s, int64_t x0, int64_t y0, int64_t x1, int64_t y1,
+              uint32_t rgb)
 {
     // Bresenham's line algorithm.
     int64_t dx = x1 - x0, dy = y1 - y0;
@@ -319,7 +322,7 @@ void gfx_line(int64_t x0, int64_t y0, int64_t x1, int64_t y1, uint32_t rgb)
     int64_t sy = dy < 0 ? -1 : 1;
     int64_t err = adx - ady;
     for (;;) {
-        gfx_pixel(x0, y0, rgb);
+        gfx_pixel(s, x0, y0, rgb);
         if (x0 == x1 && y0 == y1) {
             break;
         }

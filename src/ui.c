@@ -313,14 +313,15 @@ static const char* const CURSOR[] = {
 
 static void draw_cursor(int x, int y)
 {
+    gfx_surface* s = gfx_screen();
     int rows = (int)(sizeof CURSOR / sizeof CURSOR[0]);
     for (int j = 0; j < rows; j++) {
         const char* row = CURSOR[j];
         for (int i = 0; row[i] != '\0'; i++) {
             if (row[i] == '.') {
-                gfx_pixel(x + i, y + j, 0xffffff);
+                gfx_pixel(s, x + i, y + j, 0xffffff);
             } else if (row[i] == '#') {
-                gfx_pixel(x + i, y + j, 0x000000);
+                gfx_pixel(s, x + i, y + j, 0x000000);
             }
         }
     }

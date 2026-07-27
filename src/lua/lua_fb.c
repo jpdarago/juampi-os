@@ -3,6 +3,7 @@
 // versa. Good for visualizing what the `k` library measures.
 
 #include <gfx.h>
+#include <luafb.h>
 #include <qoi.h>
 #include <kmodule.h>
 #include <memory.h>
@@ -11,37 +12,52 @@
 #include "lua.h"
 #include "lauxlib.h"
 
+// The surface fb.* draws to: a canvas bound by ui.canvas:draw(), else the
+// screen. The gfx primitives take it explicitly; this is the thin implicit
+// "current" the Lua binding keeps (see luafb.h).
+static gfx_surface* fbcur;
+static gfx_surface* fb_cur(void)
+{
+    return fbcur != NULL ? fbcur : gfx_screen();
+}
+void lua_fb_target(gfx_surface* s)
+{
+    fbcur = s;
+}
+
 static int l_width(lua_State* L)
 {
-    lua_pushinteger(L, gfx_width());
+    gfx_surface* s = fb_cur();
+    lua_pushinteger(L, s != NULL ? (lua_Integer)s->w : 0);
     return 1;
 }
 static int l_height(lua_State* L)
 {
-    lua_pushinteger(L, gfx_height());
+    gfx_surface* s = fb_cur();
+    lua_pushinteger(L, s != NULL ? (lua_Integer)s->h : 0);
     return 1;
 }
 static int l_pixel(lua_State* L)
 {
-    gfx_pixel(luaL_checkinteger(L, 1), luaL_checkinteger(L, 2),
+    gfx_pixel(fb_cur(), luaL_checkinteger(L, 1), luaL_checkinteger(L, 2),
               (uint32_t)luaL_checkinteger(L, 3));
     return 0;
 }
 static int l_rect(lua_State* L)
 {
-    gfx_rect(luaL_checkinteger(L, 1), luaL_checkinteger(L, 2),
+    gfx_rect(fb_cur(), luaL_checkinteger(L, 1), luaL_checkinteger(L, 2),
              luaL_checkinteger(L, 3), luaL_checkinteger(L, 4),
              (uint32_t)luaL_checkinteger(L, 5));
     return 0;
 }
 static int l_clear(lua_State* L)
 {
-    gfx_clear((uint32_t)luaL_optinteger(L, 1, 0));
+    gfx_clear(fb_cur(), (uint32_t)luaL_optinteger(L, 1, 0));
     return 0;
 }
 static int l_line(lua_State* L)
 {
-    gfx_line(luaL_checkinteger(L, 1), luaL_checkinteger(L, 2),
+    gfx_line(fb_cur(), luaL_checkinteger(L, 1), luaL_checkinteger(L, 2),
              luaL_checkinteger(L, 3), luaL_checkinteger(L, 4),
              (uint32_t)luaL_checkinteger(L, 5));
     return 0;
@@ -110,11 +126,12 @@ static int l_image(lua_State* L)
         }
     }
 
-    int64_t x = luaL_optinteger(
-            L, 2, ((int64_t)gfx_width() - (int64_t)img.width) / 2);
-    int64_t y = luaL_optinteger(
-            L, 3, ((int64_t)gfx_height() - (int64_t)img.height) / 2);
-    gfx_blit(x, y, img.width, img.height, pixels);
+    gfx_surface* s = fb_cur();
+    int64_t sw = s != NULL ? (int64_t)s->w : 0;
+    int64_t sh = s != NULL ? (int64_t)s->h : 0;
+    int64_t x = luaL_optinteger(L, 2, (sw - (int64_t)img.width) / 2);
+    int64_t y = luaL_optinteger(L, 3, (sh - (int64_t)img.height) / 2);
+    gfx_blit(s, x, y, img.width, img.height, pixels);
     heap_free(heap_default(), pixels);
     lua_pushinteger(L, img.width);
     lua_pushinteger(L, img.height);
@@ -129,10 +146,11 @@ static int l_setmode(lua_State* L)
     return 1;
 }
 
-// fb.pitch() -> bytes per scanline.
+// fb.pitch() -> bytes per scanline of the current surface.
 static int l_pitch(lua_State* L)
 {
-    lua_pushinteger(L, gfx_pitch());
+    gfx_surface* s = fb_cur();
+    lua_pushinteger(L, s != NULL ? (lua_Integer)s->pitch : 0);
     return 1;
 }
 

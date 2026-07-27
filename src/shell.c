@@ -43,7 +43,7 @@ static void logo_draw(void)
     if (x < 0) {
         x = 0;
     }
-    gfx_blit(x, 16, logo_img.width, logo_img.height, logo_pixels);
+    gfx_blit(gfx_screen(), x, 16, logo_img.width, logo_img.height, logo_pixels);
 }
 
 // --- Line editor with command history --------------------------------------
