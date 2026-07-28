@@ -1,8 +1,19 @@
 #include <pci.h>
 #include <ports.h>
+#include <paging.h> // iomap for the MSI-X vector table
+#include <apic.h>   // lapic_id for the MSI-X message address
 
 #define PCI_CONFIG_ADDRESS 0xCF8
 #define PCI_CONFIG_DATA 0xCFC
+
+// MSI-X: the capability id, message-control bits, and the LAPIC message
+// address (physical destination, fixed delivery). The device raises an
+// interrupt by writing the address in its vector table with the vector as
+// data.
+#define PCI_CAP_MSIX 0x11
+#define MSIX_MC_ENABLE (1u << 15)    // message control: MSI-X enable
+#define MSIX_MC_FUNC_MASK (1u << 14) // message control: mask all vectors
+#define MSI_ADDR_BASE 0xFEE00000u
 
 static uint32_t config_address(uint8_t bus, uint8_t dev, uint8_t func,
                                uint8_t offset)
@@ -115,4 +126,33 @@ uint8_t pci_find_capability(pci_addr a, uint8_t cap_id)
         ptr = (cap >> 8) & 0xFF; // next-capability pointer
     }
     return 0;
+}
+
+bool pci_msix_setup(pci_addr a, uint8_t vector)
+{
+    uint8_t cap = pci_find_capability(a, PCI_CAP_MSIX);
+    if (cap == 0) {
+        return false;
+    }
+    // Table Offset/BIR: which BAR holds the vector table + the offset into it.
+    uint32_t tbl = pci_read32(a.bus, a.dev, a.func, (uint8_t)(cap + 4));
+    uint32_t bir = tbl & 0x7;
+    uint32_t off = tbl & ~0x7u;
+    uint64_t bar = (bir == 0) ? pci_bar64(a, 0) : pci_bar(a, (int)bir);
+    volatile uint32_t* table =
+            iomap(bar + off, PAGE_SZ, PAGEF_P | PAGEF_RW | PAGEF_UC);
+
+    // Entry 0 -> (this core's LAPIC message address, `vector`), unmasked.
+    table[0] = MSI_ADDR_BASE | (lapic_id() << 12); // message address low
+    table[1] = 0;                                  // message address high
+    table[2] = vector;                             // message data
+    table[3] = 0;                                  // vector control: unmasked
+
+    // Enable MSI-X and clear the global function mask (message control is the
+    // high half of the capability's first dword).
+    uint32_t mc = pci_read32(a.bus, a.dev, a.func, cap);
+    mc &= ~((uint32_t)MSIX_MC_FUNC_MASK << 16);
+    mc |= (uint32_t)MSIX_MC_ENABLE << 16;
+    pci_write32(a.bus, a.dev, a.func, cap, mc);
+    return true;
 }

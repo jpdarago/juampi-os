@@ -30,15 +30,7 @@
 #define PCI_SUBCLASS_NVM 0x08
 #define PCI_PROGIF_NVME 0x02
 
-// MSI-X: the capability id, message-control bits, and the 16-byte table entry
-// layout. The controller raises completions by writing the message address
-// (a LAPIC address) with the message data (the CPU vector below).
-#define PCI_CAP_MSIX 0x11
-#define MSIX_MC_ENABLE (1u << 15)    // message control: MSI-X enable
-#define MSIX_MC_FUNC_MASK (1u << 14) // message control: mask all vectors
-// LAPIC message address (physical destination, fixed delivery).
-#define MSI_ADDR_BASE 0xFEE00000u
-// A free IDT vector (32-47 have stubs; 34-43/45/46 are unused) for completions.
+// A free IDT vector (32-47 have stubs) for MSI-X completion delivery.
 #define NVME_VECTOR 45
 
 // Controller register offsets (bytes into BAR0).
@@ -287,38 +279,14 @@ static int submit_io(struct nvme_command* cmd)
     return io_irq.enabled ? submit_io_irq(cmd) : submit(&io_q, cmd);
 }
 
-// Program MSI-X table entry 0 to deliver NVME_VECTOR to this core's LAPIC and
-// enable MSI-X. Returns true if the controller advertised MSI-X and it was set
-// up; false leaves the driver on the polled path.
+// Enable MSI-X delivery of I/O completions to NVME_VECTOR on this core.
+// Returns false (polled fallback) if the controller advertises no MSI-X.
 static bool msix_setup(pci_addr a)
 {
-    uint8_t cap = pci_find_capability(a, PCI_CAP_MSIX);
-    if (cap == 0) {
+    if (!pci_msix_setup(a, NVME_VECTOR)) {
         return false;
     }
-    // Table Offset/BIR: which BAR holds the vector table and the offset into
-    // it.
-    uint32_t tbl = pci_read32(a.bus, a.dev, a.func, (uint8_t)(cap + 4));
-    uint32_t bir = tbl & 0x7;
-    uint32_t off = tbl & ~0x7u;
-    uint64_t bar = (bir == 0) ? pci_bar64(a, 0) : pci_bar(a, (int)bir);
-    volatile uint32_t* table =
-            iomap(bar + off, PAGE_SZ, PAGEF_P | PAGEF_RW | PAGEF_UC);
-
-    // Entry 0 -> (LAPIC message address, NVME_VECTOR), unmasked.
-    table[0] = MSI_ADDR_BASE | (lapic_id() << 12); // message address low
-    table[1] = 0;                                  // message address high
-    table[2] = NVME_VECTOR;                        // message data = the vector
-    table[3] = 0;                                  // vector control: unmasked
-
     register_interrupt_handler(NVME_VECTOR, nvme_irq);
-
-    // Enable MSI-X and clear the global function mask (message control is the
-    // high half of the capability's first dword).
-    uint32_t mc = pci_read32(a.bus, a.dev, a.func, cap);
-    mc &= ~((uint32_t)MSIX_MC_FUNC_MASK << 16);
-    mc |= (uint32_t)MSIX_MC_ENABLE << 16;
-    pci_write32(a.bus, a.dev, a.func, cap, mc);
     return true;
 }
 

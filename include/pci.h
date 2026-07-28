@@ -42,4 +42,9 @@ void pci_enable_bus_master(pci_addr a);
 // MSI-X); returns its config-space byte offset, or 0 if absent.
 uint8_t pci_find_capability(pci_addr a, uint8_t cap_id);
 
+// Program MSI-X vector table entry 0 to deliver `vector` to this core's LAPIC
+// and enable MSI-X on the function. Returns false if the device advertises no
+// MSI-X capability (caller falls back to polling / line interrupts).
+bool pci_msix_setup(pci_addr a, uint8_t vector);
+
 #endif
