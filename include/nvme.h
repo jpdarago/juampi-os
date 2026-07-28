@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <blockdev.h>
 
 // Minimal polled NVMe driver: brings up the first NVMe controller found on PCI,
 // identifies namespace 1, and reads logical blocks by polling the completion
@@ -26,8 +27,14 @@ const char* nvme_model(void);
 bool nvme_irq_driven(void);
 uint64_t nvme_irq_count(void);
 
-// Read `count` logical blocks starting at LBA `lba` into `buf`. Returns false
-// on timeout, controller error, or when no controller is present.
+// Read/write `count` logical blocks starting at LBA `lba`. Returns false on
+// timeout, controller error, or when no controller is present.
 bool nvme_read(uint64_t lba, uint32_t count, void* buf);
+bool nvme_write(uint64_t lba, uint32_t count, const void* buf);
+
+// The namespace as a generic block device (blockdev.h), for ext2_mount. Only a
+// 512-byte-logical-block namespace maps onto the interface's 512-byte sectors;
+// otherwise its sectors() is 0 and the mount fails cleanly.
+const blockdev* nvme_blockdev(void);
 
 #endif

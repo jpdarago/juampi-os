@@ -4,13 +4,16 @@
 // physical frames reached through the HHDM; caller buffers are serviced through
 // a one-page bounce buffer, so they need not be physically contiguous.
 //
-// Milestone 2: I/O completions are delivered by MSI-X — the controller writes
-// the LAPIC message address programmed into its vector table, raising an
-// interrupt on a free vector; the handler drains the I/O completion queue and
-// wakes the reader (which naps on hlt instead of busy-polling). Admin commands
-// (init-time only) stay polled, and the whole driver falls back to polling if
-// the controller advertises no MSI-X. Still read-only; writes and wiring ext2
-// onto the block device come later. BSP-only, like the other drivers.
+// I/O completions are delivered by MSI-X — the controller writes the LAPIC
+// message address programmed into its vector table, raising an interrupt on a
+// free vector; the handler drains the I/O completion queue and wakes the reader
+// (which naps on hlt instead of busy-polling). Admin commands (init-time only)
+// stay polled, and the whole driver falls back to polling if the controller
+// advertises no MSI-X.
+//
+// Reads and writes are both supported; nvme_blockdev() exposes the namespace as
+// a generic blockdev so ext2 can mount on NVMe (see blockdev.h). BSP-only, like
+// the other drivers.
 
 #include <nvme.h>
 #include <pci.h>
@@ -60,6 +63,7 @@
 #define ADMIN_CREATE_IO_CQ 0x05
 #define ADMIN_IDENTIFY 0x06
 // I/O opcodes.
+#define IO_WRITE 0x01
 #define IO_READ 0x02
 
 #define CNS_NAMESPACE 0x00 // IDENTIFY: this namespace
@@ -491,4 +495,46 @@ bool nvme_read(uint64_t lba, uint32_t count, void* buf)
         count -= n;
     }
     return true;
+}
+
+bool nvme_write(uint64_t lba, uint32_t count, const void* buf)
+{
+    if (!g_present || count == 0) {
+        return false;
+    }
+    uint32_t per_chunk = PAGE_SZ / g_block_size;
+    const uint8_t* in = buf;
+    while (count > 0) {
+        uint32_t n = count < per_chunk ? count : per_chunk;
+        memcpy(bounce_va, in,
+               (size_t)n * g_block_size); // stage into the bounce
+        struct nvme_command cmd = {0};
+        cmd.opcode = IO_WRITE;
+        cmd.nsid = 1;
+        cmd.prp1 = bounce_pa;
+        cmd.cdw10 = (uint32_t)lba;
+        cmd.cdw11 = (uint32_t)(lba >> 32);
+        cmd.cdw12 = n - 1; // NLB is 0-based
+        if (submit_io(&cmd) != 0) {
+            return false;
+        }
+        in += (size_t)n * g_block_size;
+        lba += n;
+        count -= n;
+    }
+    return true;
+}
+
+// The block-device view (blockdev.h): 512-byte sectors. Only namespaces with a
+// 512-byte logical block map 1:1, so a differently-formatted namespace reports
+// zero sectors (unusable as a block device) rather than corrupting addressing.
+static uint64_t nvme_bd_sectors(void)
+{
+    return (g_present && g_block_size == 512) ? g_blocks : 0;
+}
+static const blockdev nvme_dev = {nvme_read, nvme_write, nvme_bd_sectors};
+
+const blockdev* nvme_blockdev(void)
+{
+    return &nvme_dev;
 }

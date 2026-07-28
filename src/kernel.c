@@ -340,22 +340,18 @@ void kmain(void)
     console_print(hz > 100000000ull ? "\njuampiOS: timekeeping OK\n"
                                     : "\njuampiOS: timekeeping FAILED\n");
 
-    // --- Block device + filesystem: ATA data disk and a read-only ext2. -----
-    // ata_init() polls with a timeout, so it must run after ktime_init(). The
-    // data disk (primary IDE slave) is separate from the Limine boot disk; a
-    // valid ext2 there backs the `disk`/`fs` Lua libraries and run()-from-disk.
+    // --- Block devices + filesystem. Both bring-ups poll with timeouts, so
+    // they run after ktime_init(). ext2 then mounts on whichever device carries
+    // a valid filesystem, preferring NVMe — the modern path, and the only disk
+    // on NVMe-only machines like the target laptop; the ATA data disk (primary
+    // IDE slave, separate from the Limine boot master) is the fallback.
     ata_init();
-    bool fs_ok = ext2_mount(ata_blockdev(), &heap);
     if (ata_present()) {
-        console_printf("juampiOS: ata sectors=%lu", ata_sectors());
+        console_printf("juampiOS: ata sectors=%lu\n", ata_sectors());
     } else {
-        console_print("juampiOS: ata absent");
+        console_print("juampiOS: ata absent\n");
     }
-    console_printf(", ext2 %s", fs_ok ? "mounted\n" : "not mounted\n");
 
-    // --- Milestone 10: NVMe (polled). Bring up the first NVMe controller and,
-    // if present, read logical block 0 back as a smoke test of the queue /
-    // doorbell / PRP path. Additive: absent NVMe just prints "absent".
     nvme_init();
     if (nvme_present()) {
         static uint8_t nvme_blk[4096]; // >= any supported block size
@@ -376,6 +372,15 @@ void kmain(void)
     } else {
         console_print("juampiOS: nvme absent\n");
     }
+
+    // Mount ext2, preferring an NVMe namespace over the ATA disk.
+    const char* fs_where = "not mounted";
+    if (nvme_present() && ext2_mount(nvme_blockdev(), &heap)) {
+        fs_where = "mounted (nvme)";
+    } else if (ext2_mount(ata_blockdev(), &heap)) {
+        fs_where = "mounted (ata)";
+    }
+    console_printf("juampiOS: ext2 %s\n", fs_where);
 
     // --- Networking: bring up the e1000 NIC and a minimal IPv4 stack
     // --- (Ethernet/ARP/IPv4/ICMP), exposed to Lua as `net` (net.ping).
