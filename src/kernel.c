@@ -21,6 +21,7 @@
 #include <gfx.h>
 #include <ata.h>
 #include <nvme.h>
+#include <xhci.h>
 #include <ext2.h>
 #include <smp.h>
 #include <parallel.h>
@@ -381,6 +382,15 @@ void kmain(void)
         fs_where = "mounted (ata)";
     }
     console_printf("juampiOS: ext2 %s\n", fs_where);
+
+    // --- USB: bring up the xHCI host controller (M1: ring machinery). --------
+    xhci_init();
+    if (xhci_present()) {
+        console_printf("juampiOS: xhci up, %u ports (NO-OP command OK)\n",
+                       xhci_ports());
+    } else {
+        console_print("juampiOS: xhci absent\n");
+    }
 
     // --- Networking: bring up the e1000 NIC and a minimal IPv4 stack
     // --- (Ethernet/ARP/IPv4/ICMP), exposed to Lua as `net` (net.ping).
