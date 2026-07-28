@@ -44,11 +44,12 @@ void idt_init(void);
 void idt_load(void);
 // Register a C handler for an interrupt vector (0-255).
 void register_interrupt_handler(uint32_t vector, interrupt_handler h);
-// Bring up the IDT, the 8259 PICs and the PIT timer (IRQ0 @ ~100 Hz).
+// Bring up the IDT and the APIC (Local + I/O), masking off the legacy 8259 PIC.
+// The LAPIC timer tick is started separately (lapic_timer_start).
 void interrupts_init(void);
-// Clear the PIC mask bit for the given IRQ line (0-15).
+// Route legacy ISA IRQ line `irq` (0-15) to vector 32+irq via the I/O APIC.
 void irq_unmask(uint32_t irq);
-// Timer ticks since boot.
+// Timer ticks since boot (from the LAPIC timer).
 uint64_t timer_ticks(void);
 
 // The 48 assembly entry stubs (exceptions 0-31, IRQs 32-47), as an address

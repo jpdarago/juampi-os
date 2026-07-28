@@ -1,28 +1,21 @@
 // Interrupt handling for the x86-64 port: the C side of the assembly stubs in
-// isr.asm. Dispatches CPU exceptions and remapped PIC IRQs, drives the 8259
-// PICs and the PIT timer, and reports unhandled faults over the serial console.
-// The rich VGA fault screen and the scheduler tick return once scrn and the
-// task subsystem are ported.
+// isr.asm. Dispatches CPU exceptions and device IRQs, and reports unhandled
+// faults over the serial console. Interrupts run on the modern APIC
+// (src/apic.c): the Local APIC timer drives the tick, the I/O APIC routes
+// device lines to vectors, and EOI goes to the LAPIC. The legacy 8259 PIC is
+// fully masked off.
 
 #include <idt.h>
 #include <ports.h>
 #include <console.h>
 #include <ksym.h>
 #include <fault.h>
+#include <apic.h>
+#include <acpi.h>
 
-// 8259 PIC ports and commands.
-#define PIC1_CMD 0x20
-#define PIC1_DATA 0x21
-#define PIC2_CMD 0xA0
-#define PIC2_DATA 0xA1
-#define PIC_EOI 0x20
-#define ICW1_INIT 0x11 // init + ICW4 present
-#define ICW4_8086 0x01
-
-// PIT (8253/8254) ports.
-#define PIT_CH0 0x40
-#define PIT_CMD 0x43
-#define PIT_FREQUENCY 1193182
+// The spurious-interrupt vector (LAPIC SVR); reuses stub 0x2F (IRQ15, unused).
+// It takes no EOI.
+#define SPURIOUS_VECTOR 0x2F
 
 static interrupt_handler handlers[256];
 static volatile uint64_t ticks;
@@ -39,63 +32,34 @@ uint64_t timer_ticks(void)
     return ticks;
 }
 
-static void io_wait(void)
-{
-    outb(0x80, 0);
-}
-
-static void pic_remap(void)
-{
-    // Start init, remap master to vectors 0x20-0x27 and slave to 0x28-0x2F so
-    // the IRQs no longer collide with the CPU exception vectors.
-    outb(PIC1_CMD, ICW1_INIT);
-    io_wait();
-    outb(PIC2_CMD, ICW1_INIT);
-    io_wait();
-    outb(PIC1_DATA, 0x20);
-    io_wait();
-    outb(PIC2_DATA, 0x28);
-    io_wait();
-    outb(PIC1_DATA, 0x04); // tell master: slave at IRQ2
-    io_wait();
-    outb(PIC2_DATA, 0x02); // tell slave: cascade identity
-    io_wait();
-    outb(PIC1_DATA, ICW4_8086);
-    io_wait();
-    outb(PIC2_DATA, ICW4_8086);
-    io_wait();
-    // Mask everything for now; interrupts_init unmasks the timer.
-    outb(PIC1_DATA, 0xFF);
-    outb(PIC2_DATA, 0xFF);
-}
-
-static void pic_eoi(uint32_t irq)
-{
-    if (irq >= 8) {
-        outb(PIC2_CMD, PIC_EOI);
-    }
-    outb(PIC1_CMD, PIC_EOI);
-}
-
-void irq_unmask(uint32_t irq)
-{
-    uint16_t port = irq < 8 ? PIC1_DATA : PIC2_DATA;
-    uint8_t bit = 1 << (irq & 7);
-    outb(port, inb(port) & ~bit);
-}
-
-static void pit_init(uint32_t hz)
-{
-    uint32_t divisor = PIT_FREQUENCY / hz;
-    outb(PIT_CMD, 0x36); // channel 0, lobyte/hibyte, mode 3 (square wave)
-    outb(PIT_CH0, divisor & 0xFF);
-    outb(PIT_CH0, (divisor >> 8) & 0xFF);
-}
-
 static void timer_handler(interrupt_frame* f)
 {
     (void)f;
     ticks++;
+}
+
+static void spurious_handler(interrupt_frame* f)
+{
+    (void)f; // a LAPIC spurious interrupt: nothing to do, and no EOI
+}
+
+// Route a legacy ISA IRQ line (0-15) to its vector (32 + irq) on the BSP
+// through the I/O APIC, applying the ACPI interrupt-source override. Replaces
+// the old PIC unmask; keyboard.c / mouse.c call this unchanged.
+void irq_unmask(uint32_t irq)
+{
+    uint32_t gsi;
+    uint16_t flags;
+    acpi_irq_to_gsi(irq, &gsi, &flags);
+    ioapic_route(gsi, (uint8_t)(32 + irq), lapic_id(), flags);
+}
+
+// Fully disable the legacy 8259 PIC by masking all of its lines (so it can't
+// deliver a stray interrupt now that the APIC is in charge).
+static void pic_disable(void)
+{
+    outb(0x21, 0xFF);
+    outb(0xA1, 0xFF);
 }
 
 // Unhandled CPU exception. If the shell has armed fault recovery (it is
@@ -145,7 +109,11 @@ void interrupt_dispatch(interrupt_frame* f)
         if (h) {
             h(f);
         }
-        pic_eoi(f->vector - 32);
+        // The LAPIC spurious vector must NOT be acknowledged; everything else
+        // (timer + IOAPIC-routed device IRQs) EOIs to the Local APIC.
+        if (f->vector != SPURIOUS_VECTOR) {
+            lapic_eoi();
+        }
         return;
     }
 
@@ -161,9 +129,9 @@ void interrupt_dispatch(interrupt_frame* f)
 void interrupts_init(void)
 {
     idt_init();
-    pic_remap();
-    pit_init(100); // ~100 Hz
+    pic_disable(); // retire the legacy 8259 before enabling the APIC
+    apic_init();   // Local APIC (x2APIC/xAPIC) — the tick starts in kmain
+    ioapic_init(); // I/O APIC — irq_unmask() routes device lines through it
+    register_interrupt_handler(SPURIOUS_VECTOR, spurious_handler);
     register_interrupt_handler(32, timer_handler);
-    outb(PIC1_DATA, 0xFE); // unmask IRQ0 (timer) only
-    outb(PIC2_DATA, 0xFF);
 }

@@ -24,6 +24,7 @@
 #include <smp.h>
 #include <parallel.h>
 #include <acpi.h>
+#include <apic.h>
 #include <net.h>
 #include <tls.h>
 
@@ -298,23 +299,47 @@ void kmain(void)
         console_print("juampiOS: memory subsystem OK\n");
     }
 
-    // --- Milestone 2: interrupts (IDT, exceptions, PIC, PIT timer) -----------
-    // Install our own GDT + TSS first (kernel + user segments); the IDT gates
-    // then reference its kernel code selector, and the TSS supplies the ring-0
-    // stack used on the ring-3 -> ring-0 transition in milestone 4.
+    // --- Milestone 2: interrupts on the modern APIC (no legacy 8259/PIT) -----
+    // Install our own GDT + TSS first (the IDT gates reference its kernel code
+    // selector). Then, in dependency order: parse the ACPI tables (the MADT
+    // gives the Local/I-O APIC bases, the FADT the PM timer); bring up the IDT
+    // + LAPIC + IOAPIC (interrupts_init masks the 8259); calibrate the clock;
+    // and start the per-core LAPIC timer that drives the tick.
     gdt_init(mem);
-    interrupts_init();
-    keyboard_init(); // PS/2 keyboard on IRQ 1 feeds the console input path
-    mouse_init();    // PS/2 mouse on IRQ 12 drives the microui popups
+
+    acpi_init(rsdp_request.response != NULL
+                      ? (uint64_t)(uintptr_t)rsdp_request.response->address
+                      : 0);
+
+    interrupts_init();      // IDT + LAPIC + IOAPIC; 8259 masked off
+    ktime_init();           // TSC via CPUID / ACPI PM timer (PIT-free)
+    lapic_timer_start(100); // ~100 Hz periodic tick -> vector 32
+
+    { // diagnostic: confirm the MADT gave us an I/O APIC to route device IRQs
+        uint64_t iob = 0;
+        uint32_t gb = 0;
+        console_print("juampiOS: ioapic ");
+        if (acpi_ioapic(&iob, &gb)) {
+            console_print("base=");
+            console_hex(iob);
+            console_print(" gsi_base=");
+            console_dec(gb);
+        } else {
+            console_print("ABSENT");
+        }
+        console_print("\n");
+    }
+
+    keyboard_init(); // PS/2 keyboard on IRQ 1, routed through the IOAPIC
+    mouse_init();    // PS/2 mouse on IRQ 12, routed through the IOAPIC
     register_interrupt_handler(3, breakpoint_handler); // int3 -> non-fatal
     __asm__ __volatile__("sti");
 
     // A breakpoint trap must be caught and returned from cleanly...
     __asm__ __volatile__("int3");
-    // ...and the timer IRQ must fire and return, advancing the tick count.
-    // Bound the wait by a TSC budget (spinning, not hlt, so it can time out) so
-    // a dead legacy PIT on real hardware can't hang boot — the shell still runs
-    // off the keyboard IRQ and the CPUID-derived clock.
+    // ...and the LAPIC timer IRQ must fire, advancing the tick count. Bound the
+    // wait by a TSC budget (spinning, not hlt, so it can time out) so a
+    // mis-programmed timer can't hang boot.
     uint64_t irq_guard = rdtsc() + 20000000000ull; // ~4-6 s
     while (timer_ticks() < 3 && rdtsc() < irq_guard) {
         __asm__ __volatile__("pause");
@@ -326,19 +351,10 @@ void kmain(void)
     console_dec(timer_ticks());
     console_print("\n");
     if (bp_hits == 1 && timer_ticks() >= 3) {
-        console_print("juampiOS: interrupts OK\n");
+        console_print("juampiOS: interrupts OK (LAPIC timer + IOAPIC)\n");
     }
 
-    // --- ACPI: parse the firmware tables (power off/reset, and the
-    // APIC/PM-timer
-    // --- topology). Must precede ktime_init: the TSC calibration falls back to
-    // --- the ACPI PM timer when CPUID does not report the frequency.
-    acpi_init(rsdp_request.response != NULL
-                      ? (uint64_t)(uintptr_t)rsdp_request.response->address
-                      : 0);
-
-    // --- Timekeeping: calibrate the TSC and expose a monotonic clock. --------
-    ktime_init();
+    // --- Timekeeping report (calibrated above). ------------------------------
     uint64_t hz = tsc_hz();
     console_print("juampiOS: TSC ");
     console_dec(hz / 1000000);

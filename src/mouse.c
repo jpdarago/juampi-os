@@ -14,8 +14,7 @@
 #define PS2_DATA 0x60
 #define PS2_STATUS 0x64 // read: status; write: command
 #define MOUSE_IRQ 12
-#define CASCADE_IRQ 2   // slave PIC feeds the master here; must be unmasked too
-#define MOUSE_VECTOR 44 // PIC remap base 0x20 + IRQ 12
+#define MOUSE_VECTOR 44 // vector 32 + IRQ 12 (routed via the IOAPIC)
 
 // i8042 status-register bits.
 #define ST_OUTPUT_FULL                                                         \
@@ -138,8 +137,7 @@ void mouse_init(void)
     }
 
     register_interrupt_handler(MOUSE_VECTOR, mouse_irq);
-    irq_unmask(CASCADE_IRQ); // let the slave PIC reach the CPU
-    irq_unmask(MOUSE_IRQ);
+    irq_unmask(MOUSE_IRQ); // route IRQ 12 via the IOAPIC (no PIC cascade now)
     present = true;
 }
 
