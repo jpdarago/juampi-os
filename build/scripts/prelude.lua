@@ -68,17 +68,20 @@ pp = dump
 local DESC = {
     k = "kernel introspection: time, memory, cpuid, peek/poke, shutdown, random",
     fb = "framebuffer graphics, resolution, and a parallel canvas",
-    fs = "ext2 filesystem on the data disk (read + write)",
-    disk = "raw ATA block access",
+    fs = "ext2 filesystem (read + write) on NVMe, USB or ATA storage",
+    disk = "raw block access: ATA, NVMe and USB storage (read + write)",
     pci = "PCI configuration space",
+    usb = "USB (xHCI): device tree, HID keyboard/mouse status",
     thread = "parallel Lua across CPU cores",
     mem = "shared-memory buffers",
     net = "IPv4 networking: DHCP, DNS (net.resolve), ping, UDP/TCP sockets",
-    http = "HTTP/1.1 client: http.get(url) -> status, body",
+    http = "HTTP/1.1 client (http and https): http.get(url) -> status, body",
     ui = "graphical popups & windows: ui.window, ui.popup, ui.confirm",
 }
-local LIBS =
-    { "k", "fb", "fs", "disk", "pci", "thread", "mem", "net", "http", "ui" }
+local LIBS = {
+    "k", "fb", "fs", "disk", "pci", "usb",
+    "thread", "mem", "net", "http", "ui",
+}
 
 local OVERVIEW = [==[juampiOS - a scriptable ring-0 kernel with an embedded
 Lua 5.4 shell. Everything runs in one address space at ring 0.

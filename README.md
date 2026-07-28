@@ -17,32 +17,46 @@ Features
 
 * **Core:** 64-bit (x86-64 long mode), booted by [Limine](https://github.com/limine-bootloader/limine);
   higher-half kernel with 4-level paging over Limine's direct map (HHDM).
-* **Interrupts & time:** 64-bit IDT, PIC + PIT, TSC timekeeping, and serial
-  fault dumps with symbolized stack backtraces.
+* **Interrupts & time:** the modern **APIC** stack — Local APIC timer (the
+  tick), I/O APIC device routing, and **MSI-X** for NVMe and xHCI — everything
+  discovered from ACPI/CPUID, with the legacy 8259 PIC/PIT fully retired.
+  PIT-free TSC timekeeping (CPUID or the ACPI PM timer), serial fault dumps
+  with symbolized stack backtraces.
 * **SMP:** brings up all cores (Limine's MP request), per-CPU GDT/TSS, spinlocks,
   and spin-polled cross-core work dispatch.
 * **Scheduling:** software context switching with cooperative kernel threads;
   SSE/x87 floating-point state saved across switches.
 * **User mode:** ring 3 with an `int 0x80` syscall ABI and validated user
   pointers, and an ELF64 loader that runs real user programs.
-* **Storage:** ATA PIO disk and a read/write **ext2** filesystem.
-* **Graphics:** framebuffer console (flanterm) with runtime mode-setting, a
-  drawing library, QOI image decoding, and a boot logo; PS/2 keyboard.
+* **Storage:** **NVMe** (zero-copy PRP transfers, MSI-X completions), **USB
+  mass storage** (SCSI over Bulk-Only Transport), and ATA PIO — all behind one
+  block-device interface, with a read/write **ext2** filesystem that mounts
+  from whichever is present.
+* **USB:** an **xHCI** driver that enumerates every port — recursing through
+  **hubs** — with **HID keyboard and mouse** support, so input needs no legacy
+  i8042 (PS/2 still works when present).
+* **Graphics & UI:** framebuffer console (flanterm) with runtime mode-setting,
+  a drawing library, QOI image decoding — and a windowed **desktop** (microui):
+  the REPL in a draggable terminal, a vim-style editor window, a file browser,
+  and graphics demos in windows.
 * **Networking:** an Intel **e1000** NIC driver and a small IPv4 stack —
-  Ethernet/ARP/IPv4/ICMP plus **UDP** and **TCP** (client *and* server) — over
-  QEMU user-mode networking.
+  Ethernet/ARP/IPv4/ICMP, **UDP** and **TCP** (client *and* server), **DHCP**,
+  **DNS**, and an **HTTP/HTTPS** client (TLS 1.2 via BearSSL with a curated
+  root set) — over QEMU user-mode networking.
 * **Platform:** PCI enumeration, ACPI shutdown/reboot, hardware RNG (RDRAND).
 * **Lua 5.4 in ring 0:** boots to a syntax-highlighted REPL with history and
-  in-line editing, a full-screen text editor, and libraries — `k` (kernel
-  introspection), `fb` (graphics), `fs`/`disk` (storage), `pci`, `net`,
-  `thread`/`mem` (parallelism) — plus `run()` and `bench()`.
+  in-line editing, typed self-documenting libraries (`help()` shows real
+  signatures) — `k` (kernel introspection), `fb` (graphics), `fs`/`disk`
+  (filesystem + raw NVMe/USB/ATA blocks), `pci`, `usb`, `net`/`http`,
+  `thread`/`mem` (parallelism), `ui` (windows) — plus `run()` and `bench()`.
 * **Parallel Lua:** one interpreter per core, each with its own heap, with
   `thread.spawn`/`join` and shared-memory buffers for genuine multicore Lua.
 
 The x86-64 port is documented milestone by milestone in `docs/x86-64-port.md`;
 `docs/lua-shell.md` and `docs/networking.md` cover the parallel Lua shell and
 the network stack. The kernel now runs well past the original 32-bit project —
-SMP, parallel Lua, a read/write filesystem, and a TCP/IP stack are all in place.
+SMP, parallel Lua, a read/write filesystem on modern storage, a TCP/IP stack
+with HTTPS, and a fully legacy-free interrupt and input path are all in place.
 
 Building and running
 --------------------
@@ -93,10 +107,13 @@ The `docs/` folder is an [Obsidian](https://obsidian.md) vault of design notes:
 TODOs
 ------
 
-* Interrupt-driven NIC receive (RX is polled today) and DHCP/DNS.
-* Preemptive scheduling (kernel threads are cooperative).
+* Boot on real hardware (a Dell XPS 15) — the NVMe, xHCI and APIC work all
+  point here.
+* Preemptive scheduling (kernel threads are cooperative) and LAPIC IPIs.
 * Processes and `fork`/copy-on-write on the 64-bit base.
-* DMA disk I/O (the ATA driver is PIO) and more block/device drivers.
+* Interrupt-driven NIC receive (RX is polled today).
+* USB polish: host-side key repeat, transaction translators (low/full-speed
+  devices behind high-speed hubs).
 * Port a libc (musl) for a richer ring-3 userland.
 
 License
@@ -105,8 +122,9 @@ License
 The kernel is licensed under the MIT License (see `LICENSE`). Bundled
 third-party components keep their own permissive licenses: flanterm
 (BSD-2-Clause, `src/flanterm/`), eyalroz/printf (MIT, `src/printf/`), Lua 5.4
-(MIT, `src/lua/`), and the Limine boot protocol header (0BSD,
-`include/limine.h`).
+(MIT, `src/lua/`), microui (MIT, `src/microui/`), BearSSL (MIT,
+`src/bearssl/`), picohttpparser (MIT, `src/http/`), and the Limine boot
+protocol header (0BSD, `include/limine.h`).
 
 Acknowledgements
 ---------------
