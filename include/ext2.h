@@ -5,10 +5,12 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <memory.h>
+#include <blockdev.h>
 
-// A small read-only ext2 reader over the ATA data disk (ata.h). Enough to load
-// scripts and browse files from Lua: superblock parse, inode lookup, path
-// resolution, whole-file reads, and directory listing. No writes.
+// A small ext2 driver over a generic block device (blockdev.h) — the ATA data
+// disk today, any 512-byte-sector device tomorrow. Enough to load scripts and
+// browse files from Lua: superblock parse, inode lookup, path resolution,
+// whole-file reads, directory listing, and read-modify-write updates.
 
 typedef struct {
     uint64_t size;
@@ -17,11 +19,12 @@ typedef struct {
     bool is_dir;
 } ext2_stat;
 
-// Mount the filesystem: read and validate the superblock. `heap` is the fs's
-// scratch/result allocator (injected here so the module never calls
-// heap_default()). Returns true on a valid ext2 fs. Safe to call with no disk
-// attached (returns false); every other call then reports "not mounted".
-bool ext2_mount(heap_allocator* heap);
+// Mount the filesystem on block device `dev`: read and validate the superblock.
+// `heap` is the fs's scratch/result allocator (injected here so the module
+// never calls heap_default()). Returns true on a valid ext2 fs. Safe to call
+// with a NULL or empty device (returns false); every other call then reports
+// "not mounted".
+bool ext2_mount(const blockdev* dev, heap_allocator* heap);
 bool ext2_mounted(void);
 
 // Read a whole regular file by path (leading '/' optional; resolved from the

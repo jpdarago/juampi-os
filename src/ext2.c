@@ -110,6 +110,10 @@ static bool has_filetype;
 // is released by the caller via ext2_free().
 static heap_allocator* fs_heap;
 
+// The block device this filesystem is mounted on (set by ext2_mount). All
+// sector I/O goes through it, so ext2 is decoupled from any one driver.
+static const blockdev* fs_dev;
+
 static allocator* mem(void)
 {
     return &fs_heap->base;
@@ -120,7 +124,7 @@ static allocator* mem(void)
 static bool read_block(uint32_t blk, void* buf)
 {
     uint32_t spb = block_size / 512;
-    return ata_read((uint64_t)blk * spb, spb, buf);
+    return fs_dev->read((uint64_t)blk * spb, spb, buf);
 }
 
 static bool read_group_desc(uint32_t group, struct group_desc* out)
@@ -327,16 +331,17 @@ static bool resolve(const char* path, uint32_t* out_ino, struct inode* out)
 
 // --- Public API ------------------------------------------------------------
 
-bool ext2_mount(heap_allocator* heap)
+bool ext2_mount(const blockdev* dev, heap_allocator* heap)
 {
     mounted = false;
     fs_heap = heap; // must be set before any mem()/read below
-    if (!ata_present()) {
-        return false;
+    fs_dev = dev;
+    if (dev == NULL || dev->sectors() == 0) {
+        return false; // no device / no media
     }
     // The superblock sits at byte offset 1024 -> LBA 2, and is 1024 bytes.
     uint8_t buf[1024];
-    if (!ata_read(2, 2, buf)) {
+    if (!dev->read(2, 2, buf)) {
         return false;
     }
     memcpy(&sb, buf, sizeof(sb));
@@ -459,7 +464,7 @@ static uint32_t roundup4(uint32_t x)
 static bool write_block(uint32_t blk, const void* buf)
 {
     uint32_t spb = block_size / 512;
-    return ata_write((uint64_t)blk * spb, spb, buf);
+    return fs_dev->write((uint64_t)blk * spb, spb, buf);
 }
 
 static bool write_group_desc(uint32_t group, const struct group_desc* gd)
@@ -501,11 +506,11 @@ static bool write_inode(uint32_t ino, const struct inode* in)
 static bool write_superblock(void)
 {
     uint8_t buf[1024];
-    if (!ata_read(2, 2, buf)) {
+    if (!fs_dev->read(2, 2, buf)) {
         return false;
     }
     memcpy(buf, &sb, sizeof(sb));
-    return ata_write(2, 2, buf);
+    return fs_dev->write(2, 2, buf);
 }
 
 // Set the first free bit (< nbits) in a bitmap block; return its index or -1.
