@@ -97,3 +97,22 @@ void pci_enable_bus_master(pci_addr a)
     cmd |= (1u << 2) | (1u << 1); // bus master + memory-space decode
     pci_write32(a.bus, a.dev, a.func, 0x04, cmd);
 }
+
+uint8_t pci_find_capability(pci_addr a, uint8_t cap_id)
+{
+    // Status register bit 4 says a capability list is present.
+    uint32_t status = pci_read32(a.bus, a.dev, a.func, 0x04) >> 16;
+    if (!(status & (1u << 4))) {
+        return 0;
+    }
+    // Walk the singly-linked list from the capabilities pointer (offset 0x34).
+    uint8_t ptr = pci_read32(a.bus, a.dev, a.func, 0x34) & 0xFF;
+    for (int guard = 0; ptr != 0 && guard < 48; guard++) {
+        uint32_t cap = pci_read32(a.bus, a.dev, a.func, ptr & 0xFC);
+        if ((cap & 0xFF) == cap_id) {
+            return ptr;
+        }
+        ptr = (cap >> 8) & 0xFF; // next-capability pointer
+    }
+    return 0;
+}

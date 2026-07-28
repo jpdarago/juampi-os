@@ -38,4 +38,8 @@ uint64_t pci_bar64(pci_addr a, int n);
 // Set the bus-master bit in the command register so the device can issue DMA.
 void pci_enable_bus_master(pci_addr a);
 
+// Walk the capability list for the capability with the given id (e.g. 0x11 =
+// MSI-X); returns its config-space byte offset, or 0 if absent.
+uint8_t pci_find_capability(pci_addr a, uint8_t cap_id);
+
 #endif
