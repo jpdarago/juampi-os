@@ -10,11 +10,10 @@
 #include <highlight.h>
 #include <str.h>
 #include <ui.h>
+#include <lineedit.h>
 
 #include <stddef.h>
 #include <stdint.h>
-
-#define LINE_MAX 256
 
 // Boot logo, decoded once from the logo.qoi Limine module and kept resident so
 // it can be re-blitted cheaply. The text console (flanterm) keeps its own
@@ -50,7 +49,6 @@ static void logo_draw(void)
 // A ring of recent commands, recalled with the up/down arrows (which arrive as
 // VT100 escape sequences from both the serial line and the PS/2 keyboard).
 
-#define HIST_MAX 32
 static char history[HIST_MAX][LINE_MAX];
 static int hist_count; // number of stored entries (<= HIST_MAX)
 static int hist_next;  // ring index of the next slot to write

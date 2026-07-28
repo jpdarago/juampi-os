@@ -3,6 +3,7 @@
 #include <idt.h>
 #include <console.h>
 #include <ktime.h>
+#include <sched.h> // KERNEL_STACK_SZ
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -20,7 +21,6 @@ void ap_main(struct limine_smp_info* info);
 extern void ap_entry(struct limine_smp_info* info);
 
 #define IA32_GS_BASE 0xC0000101u
-#define AP_STACK_SZ 0x4000 // interrupt stack per core (only used on a fault)
 
 static cpu* cpus;
 static uint64_t ncpus = 1;
@@ -91,7 +91,7 @@ void smp_init(allocator* mem)
         cpus[i].mbox = CPU_MBOX_IDLE;
         cpus[i].ready = 0;
         cpus[i].kstack_top =
-                (uint64_t)new (mem, char, AP_STACK_SZ) + AP_STACK_SZ;
+                (uint64_t)new (mem, char, KERNEL_STACK_SZ) + KERNEL_STACK_SZ;
         if (r && r->cpus[i]->lapic_id == r->bsp_lapic_id) {
             bsp_index = (uint32_t)i;
         }

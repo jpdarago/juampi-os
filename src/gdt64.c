@@ -1,4 +1,5 @@
 #include <gdt64.h>
+#include <sched.h> // KERNEL_STACK_SZ
 
 // GDT: null, kernel code/data, user code/data, and a 16-byte (two-slot) TSS
 // descriptor. In long mode the code/data segment bases and limits are ignored;
@@ -6,8 +7,6 @@
 // code) matter.
 static uint64_t gdt[7];
 static tss64 tss;
-
-#define KERNEL_STACK_SZ 0x4000
 
 void tss_set_rsp0(uint64_t rsp0)
 {

@@ -5,9 +5,7 @@
 #ifndef __FONT8X16_H
 #define __FONT8X16_H
 #include <stdint.h>
-
-#define FONT_W 8
-#define FONT_H 16
+#include <font.h> // FONT_W / FONT_H metrics
 
 static const uint8_t font8x16[256 * 16] = {
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,

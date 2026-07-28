@@ -25,6 +25,8 @@
 #include <highlight.h>
 #include <ext2.h>
 #include <ui.h> // windowed vim editor: ui_text_ansi
+#include <font.h>
+#include <theme.h>
 
 #include <printf/printf.h> // snprintf for the status bar
 #include <stddef.h>
@@ -728,9 +730,6 @@ int editor_run(editor* e)
 // ============================================================================
 // Vim-style modal layer for the windowed editor (ui_edit in ui.c).
 // ============================================================================
-
-#define VGW 8
-#define VGH 16
 
 static bool ed_isword(char c)
 {
@@ -1586,10 +1585,10 @@ void editor_vim_draw(editor* e, mu_Context* ctx)
         return;
     }
     mu_Rect b = cnt->body;
-    mu_draw_rect(ctx, b, vrgb(0x0e1116)); // dark editor background
+    mu_draw_rect(ctx, b, vrgb(THEME_BG)); // dark editor background
 
-    int cols = b.w / VGW;
-    int rows = b.h / VGH;
+    int cols = b.w / FONT_W;
+    int rows = b.h / FONT_H;
     if (cols < 1) {
         cols = 1;
     }
@@ -1614,28 +1613,28 @@ void editor_vim_draw(editor* e, mu_Context* ctx)
                 vis = width;
             }
             highlight_lua(e->lines[row] + e->coloff, vis, e->hl, ED_HL_MAX);
-            ui_text_ansi(ctx, e->hl, b.x, b.y + y * VGH);
+            ui_text_ansi(ctx, e->hl, b.x, b.y + y * FONT_H);
         }
     }
 
     // Cursor: block in NORMAL, thin bar in INSERT.
     int cxs = (int)(e->cx - e->coloff);
     int cys = (int)(e->cy - e->rowoff);
-    int px = b.x + cxs * VGW;
-    int py = b.y + cys * VGH;
+    int px = b.x + cxs * FONT_W;
+    int py = b.y + cys * FONT_H;
     if (e->vmode == M_INSERT) {
-        mu_draw_rect(ctx, mu_rect(px, py, 2, VGH), vrgb(0x9ecbff));
+        mu_draw_rect(ctx, mu_rect(px, py, 2, FONT_H), vrgb(THEME_CURSOR));
     } else if (e->vmode == M_NORMAL) {
-        mu_draw_rect(ctx, mu_rect(px, py, VGW, VGH), vrgb(0x9ecbff));
+        mu_draw_rect(ctx, mu_rect(px, py, FONT_W, FONT_H), vrgb(THEME_CURSOR));
         if (e->cy < e->nlines && e->cx < e->line_len[e->cy]) {
             char ch[1] = {e->lines[e->cy][e->cx]};
-            mu_draw_text(ctx, NULL, ch, 1, mu_vec2(px, py), vrgb(0x0e1116));
+            mu_draw_text(ctx, NULL, ch, 1, mu_vec2(px, py), vrgb(THEME_BG));
         }
     }
 
     // Status bar.
-    int sy = b.y + textrows * VGH;
-    mu_draw_rect(ctx, mu_rect(b.x, sy, b.w, VGH), vrgb(0x24406a));
+    int sy = b.y + textrows * FONT_H;
+    mu_draw_rect(ctx, mu_rect(b.x, sy, b.w, FONT_H), vrgb(0x24406a));
     char st[256];
     if (e->vmode == M_COMMAND) {
         snprintf(st, sizeof st, ":%.*s", (int)e->vcmd_len, e->vcmd);

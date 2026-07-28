@@ -20,15 +20,14 @@
 #include <net.h>
 #include <editor.h>
 #include <arena.h>
+#include <font.h>
+#include <theme.h>
 
 #include <printf/printf.h> // snprintf for the editor window title
 #include <stdint.h>
 #include <stddef.h>
 
 #include "microui/microui.h"
-
-#define GLYPH_W 8
-#define GLYPH_H 16
 
 static size_t ui_strlen(const char* s)
 {
@@ -93,12 +92,12 @@ static int text_width_cb(mu_Font font, const char* str, int len)
     if (len < 0) {
         len = (int)ui_strlen(str);
     }
-    return len * GLYPH_W;
+    return len * FONT_W;
 }
 static int text_height_cb(mu_Font font)
 {
     (void)font;
-    return GLYPH_H;
+    return FONT_H;
 }
 
 static mu_Color col(int r, int g, int b)
@@ -227,8 +226,7 @@ static mu_Color colu(uint32_t c)
 // lines.
 void ui_text_ansi(mu_Context* ctx, const char* s, int x, int y)
 {
-    static const uint32_t pal[5] = {0xd4d4d4, 0x6ac46a, 0xd4c46a, 0xc46ac4,
-                                    0x808080};
+    static const uint32_t pal[THEME_HL_COUNT] = THEME_HL_PALETTE;
     int color = 0, esc = 0, csi_len = 0, n = 0, col = 0;
     char csi[16], run[256];
     for (int i = 0; s[i] != '\0'; i++) {
@@ -241,7 +239,7 @@ void ui_text_ansi(mu_Context* ctx, const char* s, int x, int y)
                 if (ch == 'm') {
                     if (n > 0) {
                         mu_draw_text(ctx, NULL, run, n,
-                                     mu_vec2(x + (col - n) * GLYPH_W, y),
+                                     mu_vec2(x + (col - n) * FONT_W, y),
                                      colu(pal[color]));
                         n = 0;
                     }
@@ -267,7 +265,7 @@ void ui_text_ansi(mu_Context* ctx, const char* s, int x, int y)
         }
     }
     if (n > 0) {
-        mu_draw_text(ctx, NULL, run, n, mu_vec2(x + (col - n) * GLYPH_W, y),
+        mu_draw_text(ctx, NULL, run, n, mu_vec2(x + (col - n) * FONT_W, y),
                      colu(pal[color]));
     }
 }
@@ -293,8 +291,8 @@ static void draw_icon(gfx_surface* s, int id, mu_Rect r, mu_Color c)
     default:
         return;
     }
-    int gx = r.x + (r.w - GLYPH_W) / 2;
-    int gy = r.y + (r.h - GLYPH_H) / 2;
+    int gx = r.x + (r.w - FONT_W) / 2;
+    int gy = r.y + (r.h - FONT_H) / 2;
     gfx_glyph(s, gx, gy, (unsigned char)ch, rgb(c));
 }
 
@@ -380,9 +378,9 @@ static void feed_byte(mu_Context* ctx, int c, bool* want_close)
     if (esc_state == 2) {
         if (c >= 0x40 && c <= 0x7E) { // final byte of the sequence
             if (c == 'A') {
-                mu_input_scroll(ctx, 0, -GLYPH_H * 3);
+                mu_input_scroll(ctx, 0, -FONT_H * 3);
             } else if (c == 'B') {
-                mu_input_scroll(ctx, 0, GLYPH_H * 3);
+                mu_input_scroll(ctx, 0, FONT_H * 3);
             }
             esc_state = 0;
         }

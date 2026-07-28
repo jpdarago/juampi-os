@@ -6,8 +6,7 @@
 #include <stdbool.h>
 
 #define MAX_THREADS 8
-#define STACK_SZ 0x4000 // 16 KiB kernel stack per thread
-#define FXSAVE_SZ 512   // fxsave/fxrstor area, must be 16-byte aligned
+#define FXSAVE_SZ 512 // fxsave/fxrstor area, must be 16-byte aligned
 
 typedef struct {
     uint64_t rsp; // saved stack pointer when the thread is not running
@@ -59,7 +58,9 @@ int thread_create(allocator* mem, void (*entry)(void))
     // boundary so that after that `ret` the thread starts with rsp % 16 == 8,
     // exactly as a normal SysV call leaves it (required now that SSE is on).
     uint64_t top =
-            (((uint64_t)new (mem, char, STACK_SZ) + STACK_SZ) & ~0xFull) - 8;
+            (((uint64_t)new (mem, char, KERNEL_STACK_SZ) + KERNEL_STACK_SZ) &
+             ~0xFull) -
+            8;
     uint64_t* sp = (uint64_t*)top;
     *--sp = (uint64_t)entry; // ret target
     *--sp = 0;               // rbx

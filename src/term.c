@@ -19,6 +19,9 @@
 #include <fault.h>
 #include <highlight.h>
 #include <gfx.h>
+#include <font.h>
+#include <theme.h>
+#include <lineedit.h>
 
 #include <stdint.h>
 #include <stddef.h>
@@ -28,17 +31,11 @@
 
 #define TCOLS 220
 #define TROWS 1000
-#define LINE_MAX 256
-#define HIST_MAX 32
-#define GW 8
-#define GH 16
 
 // Palette indices stored per cell; index 0 is the default foreground.
 enum { C_DEF, C_GREEN, C_YELLOW, C_MAGENTA, C_GREY, C_N };
-static const uint32_t palette[C_N] = {
-        0xd4d4d4, 0x6ac46a, 0xd4c46a, 0xc46ac4, 0x808080,
-};
-#define TERM_BG 0x0e1116
+static const uint32_t palette[C_N] = THEME_HL_PALETTE;
+_Static_assert(C_N == THEME_HL_COUNT, "palette size must match the theme");
 
 typedef struct {
     char ch;
@@ -545,7 +542,7 @@ static void draw_grid_line(term* t, mu_Context* ctx, int abs_row, int x, int y,
             run[n++] = l[c].ch ? l[c].ch : ' ';
             c++;
         }
-        mu_draw_text(ctx, NULL, run, n, mu_vec2(x + start * GW, y),
+        mu_draw_text(ctx, NULL, run, n, mu_vec2(x + start * FONT_W, y),
                      rgb(palette[color < C_N ? color : 0]));
     }
 }
@@ -573,7 +570,7 @@ static void draw_ansi(mu_Context* ctx, const char* s, int x, int y)
                     csi[csi_len] = '\0';
                     if (n > 0) {
                         mu_draw_text(ctx, NULL, run, n,
-                                     mu_vec2(x + (col - n) * GW, y),
+                                     mu_vec2(x + (col - n) * FONT_W, y),
                                      rgb(palette[color]));
                         n = 0;
                     }
@@ -595,7 +592,7 @@ static void draw_ansi(mu_Context* ctx, const char* s, int x, int y)
         }
     }
     if (n > 0) {
-        mu_draw_text(ctx, NULL, run, n, mu_vec2(x + (col - n) * GW, y),
+        mu_draw_text(ctx, NULL, run, n, mu_vec2(x + (col - n) * FONT_W, y),
                      rgb(palette[color]));
     }
 }
@@ -613,11 +610,11 @@ void term_build(term* t, mu_Context* ctx)
     }
     mu_Container* cnt = mu_get_current_container(ctx);
     mu_Rect b = cnt->body;
-    mu_draw_rect(ctx, b, rgb(TERM_BG));
+    mu_draw_rect(ctx, b, rgb(THEME_BG));
     mu_push_clip_rect(ctx, b);
 
-    int cols = b.w / GW;
-    int rows = b.h / GH;
+    int cols = b.w / FONT_W;
+    int rows = b.h / FONT_H;
     if (rows < 2) {
         rows = 2;
     }
@@ -632,20 +629,20 @@ void term_build(term* t, mu_Context* ctx)
         start = 0;
     }
     int y = b.y;
-    for (int L = start; L <= bottom; L++, y += GH) {
+    for (int L = start; L <= bottom; L++, y += FONT_H) {
         draw_grid_line(t, ctx, L, b.x, y, cols);
     }
 
     // Input line pinned to the bottom row of the window body.
-    int iy = b.y + text_rows * GH;
+    int iy = b.y + text_rows * FONT_H;
     int plen = slen(t->prompt);
     mu_draw_text(ctx, NULL, t->prompt, plen, mu_vec2(b.x, iy),
                  rgb(palette[C_DEF]));
     char hl[LINE_MAX * 8];
     highlight_lua(t->in, (size_t)t->in_len, hl, sizeof hl);
-    draw_ansi(ctx, hl, b.x + plen * GW, iy);
-    int cx = b.x + (plen + t->in_cur) * GW;
-    mu_draw_rect(ctx, mu_rect(cx, iy, 2, GH), rgb(0x9ecbff));
+    draw_ansi(ctx, hl, b.x + plen * FONT_W, iy);
+    int cx = b.x + (plen + t->in_cur) * FONT_W;
+    mu_draw_rect(ctx, mu_rect(cx, iy, 2, FONT_H), rgb(THEME_CURSOR));
 
     mu_pop_clip_rect(ctx);
     mu_end_window(ctx);
