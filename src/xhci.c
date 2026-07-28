@@ -22,7 +22,8 @@
 #include <frames.h>
 #include <dma.h>
 #include <ktime.h>
-#include <idt.h> // register_interrupt_handler, interrupt_frame
+#include <idt.h>      // register_interrupt_handler, interrupt_frame
+#include <keyboard.h> // keyboard_inject: HID keyboard feeds the input ring
 #include <utils.h>
 #include <blockdev.h>
 
@@ -99,6 +100,7 @@
 #define EP_TYPE_CONTROL (4u << 3)
 #define EP_TYPE_BULK_OUT (2u << 3)
 #define EP_TYPE_BULK_IN (6u << 3)
+#define EP_TYPE_INT_IN (7u << 3)
 #define COMPLETION_CODE(status) (((status) >> 24) & 0xFF)
 #define CC_SUCCESS 1
 #define CC_STALL 6
@@ -112,9 +114,14 @@
 #define DESC_ENDPOINT 5
 #define USB_CLASS_MSC 8
 #define USB_CLASS_HUB 9
+#define USB_CLASS_HID 3
 #define MSC_SUBCLASS_SCSI 6
 #define MSC_PROTO_BOT 0x50
+#define HID_SUBCLASS_BOOT 1
+#define HID_PROTO_KBD 1
+#define HID_PROTO_MOUSE 2
 #define EP_ATTR_BULK 2 // bmAttributes transfer type
+#define EP_ATTR_INT 3  // interrupt endpoint
 
 #define RING_TRBS 256 // one page of 16-byte TRBs
 
@@ -210,6 +217,22 @@ static struct {
     dma_buf cbw, csw; // Bulk-Only-Transport command/status wrappers
     dma_buf bounce;   // one-page staging buffer for data
 } msc;
+
+// A HID boot-protocol input device: its interrupt IN endpoint and the single
+// in-flight report. Reports arrive asynchronously — hid_dispatch() consumes
+// their transfer events wherever the event ring is drained (sync waits skip
+// past them; xhci_poll() drains them from the idle loops).
+typedef struct {
+    bool present;
+    uint32_t slot;
+    usb_endpoint ep;           // interrupt IN
+    dma_buf report;            // report buffer (one page; reports are <= 8 B)
+    uint8_t last[8];           // previous keyboard report, for key-down diff
+    volatile uint64_t reports; // reports received (test/diagnostic counter)
+} hid_dev;
+static hid_dev hid_kbd;
+
+static bool hid_dispatch(const struct trb* ev);
 
 static uint32_t r32(volatile uint8_t* base, uint32_t o)
 {
@@ -309,8 +332,8 @@ static bool next_event(struct trb* out, uint64_t deadline)
 }
 
 // Drain events until one of `want_type` arrives (port-status-change and other
-// events share the ring and must be skipped). One deadline bounds the whole
-// wait, no matter how many unrelated events arrive meanwhile.
+// events share the ring and must be skipped; asynchronous HID completions are
+// dispatched, not lost). One deadline bounds the whole wait.
 static bool wait_event(uint32_t want_type, struct trb* out, uint64_t timeout_ms)
 {
     uint64_t deadline = ktime_ms() + timeout_ms;
@@ -320,6 +343,32 @@ static bool wait_event(uint32_t want_type, struct trb* out, uint64_t timeout_ms)
         }
         if (TRB_TYPE_OF(out->control) == want_type) {
             return true;
+        }
+        if (TRB_TYPE_OF(out->control) == TRB_TRANSFER_EVENT) {
+            hid_dispatch(out); // a HID report landing mid-wait
+        }
+    }
+    return false;
+}
+
+// Wait for the Transfer Event of (slot, dci) specifically — with HID endpoints
+// live, a keypress completion can land during a bulk or control wait and must
+// be dispatched rather than mistaken for the awaited completion.
+static bool wait_transfer(uint32_t slot, uint32_t dci, struct trb* out,
+                          uint64_t timeout_ms)
+{
+    uint64_t deadline = ktime_ms() + timeout_ms;
+    for (int i = 0; i < 64; i++) {
+        if (!next_event(out, deadline)) {
+            return false;
+        }
+        if (TRB_TYPE_OF(out->control) == TRB_TRANSFER_EVENT) {
+            uint32_t es = (out->control >> 24) & 0xFF;
+            uint32_t ed = (out->control >> 16) & 0x1F;
+            if (es == slot && ed == dci) {
+                return true;
+            }
+            hid_dispatch(out);
         }
     }
     return false;
@@ -360,7 +409,7 @@ static bool control_in(usb_device* d, uint64_t setup, uintptr_t data_pa,
     __asm__ __volatile__("" ::: "memory");
     db[d->slot] = 1; // EP0 doorbell (DCI 1)
     struct trb ev;
-    if (!wait_event(TRB_TRANSFER_EVENT, &ev, 1000)) {
+    if (!wait_transfer(d->slot, 1, &ev, 1000)) {
         return false;
     }
     uint8_t cc = COMPLETION_CODE(ev.status);
@@ -376,7 +425,7 @@ static bool control_no_data(usb_device* d, uint64_t setup)
     __asm__ __volatile__("" ::: "memory");
     db[d->slot] = 1;
     struct trb ev;
-    if (!wait_event(TRB_TRANSFER_EVENT, &ev, 1000)) {
+    if (!wait_transfer(d->slot, 1, &ev, 1000)) {
         return false;
     }
     uint8_t cc = COMPLETION_CODE(ev.status);
@@ -403,7 +452,7 @@ static uint8_t bulk_xfer(usb_endpoint* ep, uintptr_t data_pa, uint32_t len)
     __asm__ __volatile__("" ::: "memory");
     db[msc.slot] = ep->dci;
     struct trb ev;
-    if (!wait_event(TRB_TRANSFER_EVENT, &ev, 2000)) {
+    if (!wait_transfer(msc.slot, ep->dci, &ev, 2000)) {
         return CC_TIMEOUT;
     }
     return COMPLETION_CODE(ev.status);
@@ -729,6 +778,185 @@ static bool msc_setup(usb_device* d)
     return true;
 }
 
+// --- HID boot-protocol keyboard ---------------------------------------------
+
+// HID usage -> ASCII for usages 0x04..0x38 (letters, digits, and the
+// punctuation of the boot keyboard), unshifted and shifted.
+static const char hid_keys[] = "abcdefghijklmnopqrstuvwxyz"
+                               "1234567890"
+                               "\n\x1b\b\t -=[]\\#;'`,./";
+static const char hid_keys_shift[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                                     "!@#$%^&*()"
+                                     "\n\x1b\b\t _+{}|~:\"~<>?";
+
+// Post the next interrupt-IN TRB so the device can deliver a report.
+static void hid_post(hid_dev* h)
+{
+    ring_push(&h->ep.r, h->report.pa, 8,
+              TRB_TYPE(TRB_NORMAL) | TRB_IOC | TRB_ISP);
+    __asm__ __volatile__("" ::: "memory");
+    db[h->slot] = h->ep.dci;
+}
+
+// Translate one 8-byte boot keyboard report ([modifiers][rsvd][keys x6]) into
+// key-down characters for the shared input ring. A usage present now but not
+// in the previous report is a fresh press; boot keyboards handle repeat on
+// change only (host-side typematic repeat is not implemented).
+static void hid_kbd_report(const uint8_t* r)
+{
+    bool shifted = (r[0] & 0x22) != 0; // left/right shift
+    bool ctrl = (r[0] & 0x11) != 0;    // left/right control
+    for (int i = 2; i < 8; i++) {
+        uint8_t u = r[i];
+        if (u < 4) {
+            continue; // no key / error rollover
+        }
+        bool held = false;
+        for (int j = 2; j < 8; j++) {
+            held |= hid_kbd.last[j] == u;
+        }
+        if (held) {
+            continue;
+        }
+        if (u >= 0x4F && u <= 0x52) { // right/left/down/up arrows
+            keyboard_inject_seq("CDBA"[u - 0x4F]);
+            continue;
+        }
+        if (u - 4 < (uint8_t)sizeof(hid_keys)) {
+            char c = (shifted ? hid_keys_shift : hid_keys)[u - 4];
+            if (ctrl && c >= 'a' && c <= 'z') {
+                c &= 0x1F; // control characters, as the PS/2 path does
+            }
+            if (c != 0) {
+                keyboard_inject(c);
+            }
+        }
+    }
+    memcpy(hid_kbd.last, r, 8);
+}
+
+// Consume an asynchronous transfer event if it belongs to a HID endpoint:
+// handle the report and re-arm the endpoint. Returns false for events that
+// belong to someone else (the synchronous waiters).
+static bool hid_dispatch(const struct trb* ev)
+{
+    uint32_t slot = (ev->control >> 24) & 0xFF;
+    uint32_t dci = (ev->control >> 16) & 0x1F;
+    if (hid_kbd.present && slot == hid_kbd.slot && dci == hid_kbd.ep.dci) {
+        hid_kbd_report(hid_kbd.report.va);
+        hid_kbd.reports++;
+        hid_post(&hid_kbd);
+        return true;
+    }
+    return false;
+}
+
+// Configure the boot-protocol HID interface with `proto` (1=keyboard) on
+// device `d` into `h`: find its interrupt IN endpoint, bring it up, select the
+// configuration, switch the interface to the fixed boot report format, and arm
+// the first report.
+static bool hid_setup(usb_device* d, uint8_t proto, hid_dev* h)
+{
+    if (h->present) {
+        return false; // already bound to an earlier device
+    }
+    dma_buf cfg_mem = dma_page_alloc();
+    uint8_t* cfg = cfg_mem.va;
+    if (!get_descriptor(d, (uint16_t)(DESC_CONFIG << 8), cfg_mem.pa, PAGE_SZ)) {
+        dma_page_free(cfg_mem);
+        return false;
+    }
+    uint16_t total = (uint16_t)(cfg[2] | (cfg[3] << 8));
+    uint8_t config_value = cfg[5];
+    if (total > PAGE_SZ) {
+        total = PAGE_SZ;
+    }
+    bool in_hid = false, found = false;
+    uint8_t iface = 0, ep_addr = 0, interval = 10;
+    uint16_t mps = 8;
+    for (uint32_t o = 0; o + 2 <= total;) {
+        uint8_t blen = cfg[o], btype = cfg[o + 1];
+        if (blen < 2) {
+            break;
+        }
+        if (btype == DESC_INTERFACE) {
+            in_hid = cfg[o + 5] == USB_CLASS_HID &&
+                     cfg[o + 6] == HID_SUBCLASS_BOOT && cfg[o + 7] == proto;
+            if (in_hid) {
+                iface = cfg[o + 2];
+            }
+        } else if (btype == DESC_ENDPOINT && in_hid && !found) {
+            if ((cfg[o + 3] & 0x3) == EP_ATTR_INT && (cfg[o + 2] & 0x80)) {
+                ep_addr = cfg[o + 2];
+                mps = (uint16_t)(cfg[o + 4] | (cfg[o + 5] << 8));
+                interval = cfg[o + 6];
+                found = true;
+            }
+        }
+        o += blen;
+    }
+    dma_page_free(cfg_mem);
+    if (!found) {
+        return false; // no boot-protocol interface with this protocol
+    }
+
+    h->ep.dci = (uint32_t)((ep_addr & 0x0F) * 2 + 1);
+    h->ep.mps = mps;
+    ring_init(&h->ep.r);
+
+    // xHCI interval: LS/FS express bInterval in ms (field = 2^(v-3) ms >= it);
+    // HS/SS in 2^(bInterval-1) microframes (field = bInterval - 1).
+    uint32_t ival;
+    if (d->speed == 3 || d->speed == 4) {
+        ival = interval > 0 ? (uint32_t)interval - 1 : 0;
+    } else {
+        ival = 3;
+        while ((1u << (ival - 3)) < interval && ival < 10) {
+            ival++;
+        }
+    }
+
+    dma_buf input_mem = dma_page_alloc();
+    uint32_t* input = input_mem.va;
+    uint32_t dwpc = ctx_sz / 4;
+    input[1] = 1u | (1u << h->ep.dci); // A0 (slot) + the endpoint
+    uint32_t* slot_ctx = input + dwpc;
+    slot_ctx[0] = d->route | (d->speed << 20) | (h->ep.dci << 27);
+    slot_ctx[1] = (d->root_port << 16);
+    uint32_t* ec = input + (h->ep.dci + 1) * dwpc;
+    ec[0] = ival << 16;
+    ec[1] = EP_TYPE_INT_IN | (3u << 1) | ((uint32_t)mps << 16);
+    ec[2] = (uint32_t)(h->ep.r.pa | 1);
+    ec[3] = (uint32_t)(h->ep.r.pa >> 32);
+    ec[4] = mps;
+
+    struct trb ev;
+    bool ok = run_command(input_mem.pa,
+                          TRB_TYPE(TRB_CONFIGURE_ENDPOINT) | (d->slot << 24),
+                          &ev) &&
+              COMPLETION_CODE(ev.status) == CC_SUCCESS;
+    dma_page_free(input_mem);
+    if (!ok) {
+        return false;
+    }
+    if (!control_no_data(d, (uint64_t)0x00 | ((uint64_t)0x09 << 8) |
+                                    ((uint64_t)config_value << 16))) {
+        return false;
+    }
+    // SET_PROTOCOL(boot) then SET_IDLE(0): the fixed boot report format, sent
+    // only when the state changes (which suits a poll-and-repost consumer).
+    control_no_data(d, (uint64_t)0x21 | ((uint64_t)0x0B << 8) |
+                               ((uint64_t)iface << 32));
+    control_no_data(d, (uint64_t)0x21 | ((uint64_t)0x0A << 8) |
+                               ((uint64_t)iface << 32));
+
+    h->slot = d->slot;
+    h->report = dma_page_alloc();
+    h->present = true;
+    hid_post(h);
+    return true;
+}
+
 static void enumerate_device(uint32_t root_port, uint32_t speed, uint32_t route,
                              uint32_t depth);
 
@@ -918,7 +1146,10 @@ static void enumerate_device(uint32_t root_port, uint32_t speed, uint32_t route,
     if (d->usb_class == USB_CLASS_HUB) {
         hub_setup(d);
     } else {
-        msc_setup(d); // binds the first BOT storage device; no-op otherwise
+        // Class functions live in the interfaces; each probe binds its first
+        // match and no-ops otherwise.
+        msc_setup(d);
+        hid_setup(d, HID_PROTO_KBD, &hid_kbd);
     }
 
 out:
@@ -1106,4 +1337,30 @@ bool xhci_irq_driven(void)
 uint64_t xhci_irq_count(void)
 {
     return evt_irq.count;
+}
+
+// Non-blocking event drain, called from the kernel's idle loops: HID report
+// completions are handled (and their endpoints re-armed); anything else
+// pending outside a synchronous wait is noise (e.g. port changes) and is
+// discarded.
+void xhci_poll(void)
+{
+    if (!g_present) {
+        return;
+    }
+    struct trb ev;
+    while (next_event(&ev, 0)) {
+        if (TRB_TYPE_OF(ev.control) == TRB_TRANSFER_EVENT) {
+            hid_dispatch(&ev);
+        }
+    }
+}
+
+bool xhci_kbd_present(void)
+{
+    return hid_kbd.present;
+}
+uint64_t xhci_kbd_reports(void)
+{
+    return hid_kbd.reports;
 }

@@ -71,6 +71,17 @@ static void kpush_seq(char final)
     kpush(final);
 }
 
+// Feed a translated character from another input source (the USB HID keyboard)
+// into the same ring the PS/2 IRQ fills, so consumers see one stream.
+void keyboard_inject(char c)
+{
+    kpush(c);
+}
+void keyboard_inject_seq(char final)
+{
+    kpush_seq(final);
+}
+
 static void kbd_irq(interrupt_frame* f)
 {
     (void)f;

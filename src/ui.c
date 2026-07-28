@@ -18,6 +18,7 @@
 #include <luashell.h>
 #include <fault.h>
 #include <net.h>
+#include <xhci.h>
 #include <editor.h>
 #include <arena.h>
 #include <font.h>
@@ -450,6 +451,7 @@ static void feed_mouse(mu_Context* ctx)
 static bool pump_input(mu_Context* ctx)
 {
     bool want_close = false;
+    xhci_poll(); // pump USB HID input into the keyboard ring first
     feed_mouse(ctx);
     int c;
     while ((c = keyboard_poll()) >= 0) {
@@ -757,6 +759,7 @@ void ui_desktop_run(void)
     }
 
     for (;;) {
+        xhci_poll(); // pump USB HID input into the keyboard ring first
         feed_mouse(ctx);
         int c;
         while ((c = keyboard_poll()) >= 0) {

@@ -7,5 +7,9 @@
 void keyboard_init(void);
 // Next decoded character, or -1 if none is pending.
 int keyboard_poll(void);
+// Feed a character (or an ESC [ <final> arrow sequence) from another input
+// source — the USB HID keyboard — into the same ring the PS/2 IRQ fills.
+void keyboard_inject(char c);
+void keyboard_inject_seq(char final);
 
 #endif

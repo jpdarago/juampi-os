@@ -37,4 +37,13 @@ const char* xhci_fail_reason(void);
 bool xhci_irq_driven(void);
 uint64_t xhci_irq_count(void);
 
+// Non-blocking event drain for the idle loops: handles pending HID input
+// reports (keystrokes land in the keyboard ring) and re-arms their endpoints.
+void xhci_poll(void);
+
+// Whether a USB HID boot-protocol keyboard is live, and how many input reports
+// it has delivered (test/diagnostic counter).
+bool xhci_kbd_present(void);
+uint64_t xhci_kbd_reports(void);
+
 #endif
