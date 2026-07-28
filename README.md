@@ -5,9 +5,20 @@
 <h1 align="center">juampi-os</h1>
 
 <p align="center">
-  <img src="assets/demo.gif" alt="juampi-os cold-booting through its self-tests to the Lua shell, then running the Boing Ball demo" width="700"><br>
-  <em>Cold boot → kernel self-tests (SMP, networking, parallel Lua) → the ring-0 Lua shell → <code>run("boing.lua")</code>, the Amiga Boing Ball on the framebuffer.</em>
+  <img src="assets/demo.gif" alt="juampiOS windowed desktop: the ring-0 Lua shell enumerating the live USB tree, window controls, the native raytracer, and the animated Boing Ball" width="760"><br>
+  <em>The windowed ring-0 desktop — the Lua shell enumerating the live USB device tree, maximize/minimize/resize window controls, the native multicore raytracer (<code>run("raytracer.elf")</code>), and the Amiga Boing Ball. &nbsp;<a href="assets/demo.mp4">▶&nbsp;full-quality&nbsp;MP4</a></em>
 </p>
+
+<!--
+  For an inline video player on github.com (instead of the GIF above), drag
+  assets/demo.mp4 into the README editor or a PR comment on GitHub; that yields a
+  https://github.com/.../assets/... URL you can drop into a <video> tag, e.g.:
+    <video src="https://github.com/USER/juampi-os/assets/ID/UUID.mp4"
+           autoplay loop muted playsinline width="760"></video>
+  A committed relative path (assets/demo.mp4) renders as a link, not a player,
+  which is why the GIF stays as the inline preview.
+-->
+
 
 My kernel — originally the final project for *Organización del Computador II*
 (UBA - FCEyN), since ported to x86-64.
