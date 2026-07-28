@@ -148,6 +148,11 @@ void mu_begin(mu_Context *ctx) {
 }
 
 
+void mu_set_screen_size(mu_Context *ctx, int w, int h) {
+  ctx->screen_size = mu_vec2(w, h);
+}
+
+
 static int compare_zindex(const void *a, const void *b) {
   return (*(mu_Container**) a)->zindex - (*(mu_Container**) b)->zindex;
 }
@@ -1102,20 +1107,12 @@ int mu_begin_window_ex(mu_Context *ctx, const char *title, mu_Rect rect, int opt
     tr.h = ctx->style->title_height;
     ctx->draw_frame(ctx, tr, MU_COLOR_TITLEBG);
 
-    /* do title text */
-    if (~opt & MU_OPT_NOTITLE) {
-      mu_Id id = mu_get_id(ctx, "!title", 6);
-      mu_update_control(ctx, id, tr, opt);
-      mu_draw_control_text(ctx, title, tr, MU_COLOR_TITLETEXT, opt);
-      if (id == ctx->focus && ctx->mouse_down == MU_MOUSE_LEFT) {
-        cnt->rect.x += ctx->mouse_delta.x;
-        cnt->rect.y += ctx->mouse_delta.y;
-      }
-      body.y += tr.h;
-      body.h -= tr.h;
-    }
+    body.y += tr.h;
+    body.h -= tr.h;
 
-    /* do `close` button */
+    /* title-bar buttons, laid out from the right: close, then (for zoomable
+       windows) maximize/restore and minimize. Each consumes tr.h off the
+       right, shrinking the space the title text is drawn into. */
     if (~opt & MU_OPT_NOCLOSE) {
       mu_Id id = mu_get_id(ctx, "!close", 6);
       mu_Rect r = mu_rect(tr.x + tr.w - tr.h, tr.y, tr.h, tr.h);
@@ -1126,15 +1123,70 @@ int mu_begin_window_ex(mu_Context *ctx, const char *title, mu_Rect rect, int opt
         cnt->open = 0;
       }
     }
+    /* a resizable window is also zoomable: it gets maximize + minimize */
+    if (~opt & MU_OPT_NORESIZE) {
+      /* maximize / restore */
+      mu_Id id = mu_get_id(ctx, "!max", 4);
+      mu_Rect r = mu_rect(tr.x + tr.w - tr.h, tr.y, tr.h, tr.h);
+      tr.w -= r.w;
+      mu_draw_icon(ctx, cnt->zoomed ? MU_ICON_RESTORE : MU_ICON_MAXIMIZE, r,
+        ctx->style->colors[MU_COLOR_TITLETEXT]);
+      mu_update_control(ctx, id, r, opt);
+      if (ctx->mouse_pressed == MU_MOUSE_LEFT && id == ctx->focus) {
+        if (cnt->zoomed || cnt->collapsed) {
+          cnt->rect = cnt->restore;             /* restore from either state */
+          cnt->zoomed = cnt->collapsed = 0;
+        } else if (ctx->screen_size.x > 0) {
+          cnt->restore = cnt->rect;
+          cnt->rect = mu_rect(0, 0, ctx->screen_size.x, ctx->screen_size.y);
+          cnt->zoomed = 1;
+        }
+      }
+      /* minimize / roll-up to the title bar */
+      id = mu_get_id(ctx, "!min", 4);
+      r = mu_rect(tr.x + tr.w - tr.h, tr.y, tr.h, tr.h);
+      tr.w -= r.w;
+      mu_draw_icon(ctx, MU_ICON_MINIMIZE, r,
+        ctx->style->colors[MU_COLOR_TITLETEXT]);
+      mu_update_control(ctx, id, r, opt);
+      if (ctx->mouse_pressed == MU_MOUSE_LEFT && id == ctx->focus) {
+        if (cnt->collapsed) {
+          cnt->rect = cnt->restore;
+          cnt->collapsed = 0;
+        } else {
+          if (cnt->zoomed) { cnt->rect = cnt->restore; cnt->zoomed = 0; }
+          cnt->restore = cnt->rect;
+          cnt->rect.h = ctx->style->title_height; /* only the bar remains */
+          cnt->collapsed = 1;
+        }
+      }
+    }
+
+    /* collapsing left body.h negative; clamp so the body is simply empty */
+    if (cnt->collapsed && body.h < 0) { body.h = 0; }
+
+    /* title text + drag, in the space left of the buttons */
+    {
+      mu_Id id = mu_get_id(ctx, "!title", 6);
+      mu_update_control(ctx, id, tr, opt);
+      mu_draw_control_text(ctx, title, tr, MU_COLOR_TITLETEXT, opt);
+      if (id == ctx->focus && ctx->mouse_down == MU_MOUSE_LEFT) {
+        cnt->rect.x += ctx->mouse_delta.x;
+        cnt->rect.y += ctx->mouse_delta.y;
+      }
+    }
   }
 
   push_container_body(ctx, cnt, body, opt);
 
-  /* do `resize` handle */
-  if (~opt & MU_OPT_NORESIZE) {
+  /* do `resize` handle (not while maximized or rolled up). The grip is drawn
+     in mu_end_window so it lands on top of the window's body content. */
+  cnt->show_grip = 0;
+  if (~opt & MU_OPT_NORESIZE && !cnt->zoomed && !cnt->collapsed) {
     int sz = ctx->style->title_height;
     mu_Id id = mu_get_id(ctx, "!resize", 7);
     mu_Rect r = mu_rect(rect.x + rect.w - sz, rect.y + rect.h - sz, sz, sz);
+    cnt->show_grip = 1;
     mu_update_control(ctx, id, r, opt);
     if (id == ctx->focus && ctx->mouse_down == MU_MOUSE_LEFT) {
       cnt->rect.w = mu_max(96, cnt->rect.w + ctx->mouse_delta.x);
@@ -1160,6 +1212,15 @@ int mu_begin_window_ex(mu_Context *ctx, const char *title, mu_Rect rect, int opt
 
 
 void mu_end_window(mu_Context *ctx) {
+  /* draw the resize grip last, so it sits above the window's body content
+     (still inside the body clip that mu_pop_clip_rect is about to remove) */
+  mu_Container *cnt = mu_get_current_container(ctx);
+  if (cnt->show_grip) {
+    int sz = ctx->style->title_height;
+    mu_Rect r = mu_rect(cnt->rect.x + cnt->rect.w - sz,
+                        cnt->rect.y + cnt->rect.h - sz, sz, sz);
+    mu_draw_icon(ctx, MU_ICON_RESIZE, r, ctx->style->colors[MU_COLOR_BORDER]);
+  }
   mu_pop_clip_rect(ctx);
   end_root_container(ctx);
 }

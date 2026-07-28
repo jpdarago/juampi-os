@@ -66,6 +66,10 @@ enum {
   MU_ICON_CHECK,
   MU_ICON_COLLAPSED,
   MU_ICON_EXPANDED,
+  MU_ICON_MAXIMIZE,
+  MU_ICON_RESTORE,
+  MU_ICON_MINIMIZE,
+  MU_ICON_RESIZE,
   MU_ICON_MAX
 };
 
@@ -155,6 +159,10 @@ typedef struct {
   mu_Vec2 scroll;
   int zindex;
   int open;
+  int zoomed;       /* maximized to the screen */
+  int collapsed;    /* minimized: rolled up to the title bar */
+  int show_grip;    /* draw the resize grip in mu_end_window (on top of body) */
+  mu_Rect restore;  /* rect to return to when un-maximized / un-minimized */
 } mu_Container;
 
 typedef struct {
@@ -181,6 +189,7 @@ struct mu_Context {
   mu_Id focus;
   mu_Id last_id;
   mu_Rect last_rect;
+  mu_Vec2 screen_size; /* framebuffer extent, for maximizing windows */
   int last_zindex;
   int updated_focus;
   int frame;
@@ -220,6 +229,7 @@ mu_Color mu_color(int r, int g, int b, int a);
 void mu_init(mu_Context *ctx);
 void mu_begin(mu_Context *ctx);
 void mu_end(mu_Context *ctx);
+void mu_set_screen_size(mu_Context *ctx, int w, int h);
 void mu_set_focus(mu_Context *ctx, mu_Id id);
 mu_Id mu_get_id(mu_Context *ctx, const void *data, int size);
 void mu_push_id(mu_Context *ctx, const void *data, int size);

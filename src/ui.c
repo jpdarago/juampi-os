@@ -273,8 +273,55 @@ void ui_text_ansi(mu_Context* ctx, const char* s, int x, int y)
 
 // microui icons drawn as centered glyphs (no atlas): a close cross, a checkbox
 // tick, and treenode collapse/expand markers.
+// Stroke a rectangle outline `t` pixels thick — the window-control icons are
+// drawn from these rather than glyphs so they read as buttons, not letters.
+static void stroke_rect(gfx_surface* s, int x, int y, int w, int h, int t,
+                        uint32_t col)
+{
+    gfx_fill(s, x, y, w, t, col);         // top
+    gfx_fill(s, x, y + h - t, w, t, col); // bottom
+    gfx_fill(s, x, y, t, h, col);         // left
+    gfx_fill(s, x + w - t, y, t, h, col); // right
+}
+
 static void draw_icon(gfx_surface* s, int id, mu_Rect r, mu_Color c)
 {
+    uint32_t col = rgb(c);
+    switch (id) {
+    case MU_ICON_MAXIMIZE: {
+        // a hollow square filling the button's centre
+        int m = r.w / 3;
+        stroke_rect(s, r.x + m, r.y + m, r.w - 2 * m, r.h - 2 * m, 2, col);
+        return;
+    }
+    case MU_ICON_RESTORE: {
+        // two overlapping squares: the "return to previous size" glyph
+        int m = r.w / 3;
+        int w = r.w - 2 * m - 3, h = r.h - 2 * m - 3;
+        int x = r.x + m, y = r.y + m;
+        stroke_rect(s, x + 3, y, w, h, 2, col); // rear square (up-right)
+        stroke_rect(s, x, y + 3, w, h, 2, col); // front square (down-left)
+        return;
+    }
+    case MU_ICON_MINIMIZE: {
+        // a short bar along the bottom
+        int m = r.w / 3;
+        gfx_fill(s, r.x + m, r.y + r.h - m - 2, r.w - 2 * m, 2, col);
+        return;
+    }
+    case MU_ICON_RESIZE: {
+        // a diagonal grip in the window's bottom-right corner (r's corner)
+        int cx = r.x + r.w, cy = r.y + r.h;
+        for (int row = 1; row <= 3; row++) {
+            for (int i = 0; i < row; i++) {
+                gfx_fill(s, cx - 4 * (row - i), cy - 4 * (i + 1), 2, 2, col);
+            }
+        }
+        return;
+    }
+    default:
+        break;
+    }
     char ch = '?';
     switch (id) {
     case MU_ICON_CLOSE:
@@ -294,7 +341,7 @@ static void draw_icon(gfx_surface* s, int id, mu_Rect r, mu_Color c)
     }
     int gx = r.x + (r.w - FONT_W) / 2;
     int gy = r.y + (r.h - FONT_H) / 2;
-    gfx_glyph(s, gx, gy, (unsigned char)ch, rgb(c));
+    gfx_glyph(s, gx, gy, (unsigned char)ch, col);
 }
 
 static void render(mu_Context* ctx)
@@ -493,6 +540,7 @@ void ui_run(ui_frame_fn build, void* ud)
         bool close = pump_input(ctx);
 
         mu_begin(ctx);
+        mu_set_screen_size(ctx, (int)gfx_width(), (int)gfx_height());
         ui_build_enter(ctx);
         bool keep = build(ctx, ud);
         ui_build_leave();
@@ -770,6 +818,7 @@ void ui_desktop_run(void)
         }
 
         mu_begin(ctx);
+        mu_set_screen_size(ctx, (int)gfx_width(), (int)gfx_height());
         ui_build_enter(ctx);
         term_build(desk_term, ctx);
         desktop_windows(ctx);
@@ -842,6 +891,7 @@ int ui_edit(const char* path)
         }
 
         mu_begin(ctx);
+        mu_set_screen_size(ctx, (int)gfx_width(), (int)gfx_height());
         ui_build_enter(ctx);
         if (fresh) {
             mu_Container* cc = mu_get_container(ctx, title);
