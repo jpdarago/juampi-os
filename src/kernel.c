@@ -385,11 +385,15 @@ void kmain(void)
 
     // --- USB: bring up the xHCI host controller (M1: ring machinery). --------
     xhci_init();
-    if (xhci_present()) {
-        console_printf("juampiOS: xhci up, %u ports (NO-OP command OK)\n",
-                       xhci_ports());
-    } else {
+    if (!xhci_present()) {
         console_print("juampiOS: xhci absent\n");
+    } else if (xhci_device_found()) {
+        console_printf(
+                "juampiOS: xhci up, %u ports; device %04x:%04x class=%u\n",
+                xhci_ports(), xhci_vid(), xhci_pid(), xhci_class());
+    } else {
+        console_printf("juampiOS: xhci up, %u ports (no device enumerated)\n",
+                       xhci_ports());
     }
 
     // --- Networking: bring up the e1000 NIC and a minimal IPv4 stack
