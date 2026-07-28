@@ -65,6 +65,14 @@ void* paging_init(uintptr_t hhdm, uintptr_t usable_phys_base,
 // Map va -> pa in the given address space with the given PAGEF_* flags,
 // allocating intermediate tables from the frame allocator as needed.
 void map_page(page_directory* pd, uintptr_t va, uintptr_t pa, uint32_t flags);
+
+// Reserve a fresh device-MMIO window: map `len` bytes of physical memory
+// starting at `pa` (page-aligned; the sub-page offset is preserved) into a
+// bump-allocated higher-half virtual region with the given PAGEF_* flags, and
+// return the usable pointer. Drivers use this instead of hand-picking VA
+// windows, so device MMIO can't collide (a NIC BAR + PAGEF_UC, the
+// LAPIC/IOAPIC, the framebuffer aperture cached, ...).
+void* iomap(uintptr_t pa, size_t len, uint32_t flags);
 // Physical address backing va, or (uintptr_t)-1 if unmapped.
 uintptr_t physical_address(page_directory* pd, uintptr_t va);
 

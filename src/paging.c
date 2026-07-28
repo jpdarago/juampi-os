@@ -62,6 +62,30 @@ void map_page(page_directory* pd, uintptr_t va, uintptr_t pa, uint32_t flags)
     __asm__ __volatile__("invlpg (%0)" ::"r"(va) : "memory");
 }
 
+// Device-MMIO virtual windows are bump-allocated from a dedicated higher-half
+// region (PML4 slot 448, clear of the HHDM, the kernel heap at slot 384, and
+// the kernel image), so drivers never hand-pick — and can't collide on — VA
+// windows.
+#define IOMAP_BASE 0xffffe00000000000ull
+#define IOMAP_END 0xffffe00040000000ull // 1 GiB of device MMIO space
+static uintptr_t iomap_next = IOMAP_BASE;
+
+void* iomap(uintptr_t pa, size_t len, uint32_t flags)
+{
+    uintptr_t off = pa & (PAGE_SZ - 1); // preserve any sub-page BAR offset
+    uintptr_t base = pa - off;
+    size_t pages = (len + off + PAGE_SZ - 1) / PAGE_SZ;
+    uintptr_t va = iomap_next;
+    if (va + pages * PAGE_SZ > IOMAP_END) {
+        kernel_panic("iomap: device MMIO window space exhausted");
+    }
+    for (size_t i = 0; i < pages; i++) {
+        map_page(kernel_dir, va + i * PAGE_SZ, base + i * PAGE_SZ, flags);
+    }
+    iomap_next = va + pages * PAGE_SZ;
+    return (void*)(va + off);
+}
+
 uintptr_t physical_address(page_directory* pd, uintptr_t va)
 {
     page_table* t = (page_table*)phys_to_virt(pd->pml4_phys);

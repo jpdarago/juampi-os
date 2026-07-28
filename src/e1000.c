@@ -58,9 +58,8 @@
 #define N_TX 8
 #define RX_BUFSZ 2048
 
-// Register window: a private higher-half VA clear of the framebuffer window
-// (gfx.c's FBWIN at ...0000000, 16 MiB). 128 KiB covers the e1000 BAR0.
-#define NICWIN_VA 0xffffe00002000000ull
+// Bytes of BAR0 register space to map (the e1000 register file fits well under
+// this); the VA window is bump-allocated by iomap().
 #define NICWIN_SZ 0x20000ull
 
 // Legacy receive descriptor. The card owns it until it sets status.DD, then the
@@ -181,12 +180,7 @@ bool e1000_init(void)
     }
     pci_enable_bus_master(a);
 
-    uintptr_t bar0 = pci_bar(a, 0);
-    for (uint64_t off = 0; off < NICWIN_SZ; off += PAGE_SZ) {
-        map_page(kernel_dir, NICWIN_VA + off, bar0 + off,
-                 PAGEF_P | PAGEF_RW | PAGEF_UC);
-    }
-    mmio = (volatile uint8_t*)NICWIN_VA;
+    mmio = iomap(pci_bar(a, 0), NICWIN_SZ, PAGEF_P | PAGEF_RW | PAGEF_UC);
 
     // Reset, then wait for it to self-clear.
     reg_write(REG_IMC, 0xFFFFFFFF); // mask all interrupts (we poll)

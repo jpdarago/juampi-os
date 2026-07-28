@@ -32,11 +32,6 @@
 #define SPURIOUS_VECTOR 0x2F
 #define TIMER_VECTOR 32
 
-// Dedicated uncached VA windows for xAPIC / IOAPIC MMIO (clear of the gfx
-// framebuffer window at ...0000000 and the e1000 window at ...2000000).
-#define LAPIC_VA 0xffffe00003000000ull
-#define IOAPIC_VA 0xffffe00003001000ull
-
 static bool x2mode;
 static volatile uint32_t* lapic; // xAPIC MMIO base (NULL in x2APIC mode)
 
@@ -94,9 +89,7 @@ void apic_init(void)
         if (phys == 0) {
             phys = 0xFEE00000ull; // architectural default
         }
-        map_page(kernel_dir, LAPIC_VA, (uintptr_t)phys,
-                 PAGEF_P | PAGEF_RW | PAGEF_UC);
-        lapic = (volatile uint32_t*)LAPIC_VA;
+        lapic = iomap((uintptr_t)phys, PAGE_SZ, PAGEF_P | PAGEF_RW | PAGEF_UC);
     }
 
     // Enable the LAPIC in the base MSR (and enter x2APIC mode if supported).
@@ -162,9 +155,7 @@ void ioapic_init(void)
     if (!acpi_ioapic(&phys, &gsi_base)) {
         return;
     }
-    map_page(kernel_dir, IOAPIC_VA, (uintptr_t)phys,
-             PAGEF_P | PAGEF_RW | PAGEF_UC);
-    ioapic = (volatile uint32_t*)IOAPIC_VA;
+    ioapic = iomap((uintptr_t)phys, PAGE_SZ, PAGEF_P | PAGEF_RW | PAGEF_UC);
     ioapic_gsi_base = gsi_base;
 
     // Mask every redirection entry to start from a known, quiet state.

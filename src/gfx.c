@@ -452,13 +452,12 @@ void gfx_image(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
 #define DISPI_ENABLED 0x01
 #define DISPI_LFB_ENABLED 0x40
 
-// A dedicated VA window for the linear framebuffer aperture (16 MiB, enough for
-// modes up to ~2048x2048x32). Clear of KHEAP (0xffffc…) and the other fixed
-// VAs.
-#define FBWIN_VA 0xffffe00000000000ull
+// Bytes of the linear framebuffer aperture to map (16 MiB, enough for modes up
+// to ~2048x2048x32); the VA window is bump-allocated by iomap() (cached — the
+// framebuffer wants fast writes, not the uncached device-register default).
 #define FBWIN_SZ 0x1000000ull
 
-static bool win_mapped;
+static uint8_t* fbwin; // iomap'd LFB aperture, NULL until the first mode change
 
 static void dispi_write(uint16_t idx, uint16_t val)
 {
@@ -505,16 +504,12 @@ bool gfx_set_mode(uint32_t w, uint32_t h)
     }
 
     // Map the LFB aperture once, then reuse it for every mode.
-    if (!win_mapped) {
+    if (fbwin == NULL) {
         uintptr_t phys = vga_lfb_phys();
         if (phys == 0) {
             return false;
         }
-        for (uint64_t off = 0; off < FBWIN_SZ; off += PAGE_SZ) {
-            map_page(kernel_dir, FBWIN_VA + off, phys + off,
-                     PAGEF_P | PAGEF_RW);
-        }
-        win_mapped = true;
+        fbwin = iomap(phys, FBWIN_SZ, PAGEF_P | PAGEF_RW); // cached
     }
 
     dispi_write(DISPI_ENABLE, 0);
@@ -529,7 +524,7 @@ bool gfx_set_mode(uint32_t w, uint32_t h)
         heap_free(heap_default(), back);
         back = NULL;
     }
-    fb = (uint8_t*)FBWIN_VA;
+    fb = fbwin;
     width = w;
     height = h;
     pitch = (uint64_t)w * 4;
