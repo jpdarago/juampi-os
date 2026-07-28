@@ -20,6 +20,7 @@
 #include <pci.h>
 #include <paging.h>
 #include <frames.h>
+#include <dma.h>
 #include <ktime.h>
 #include <utils.h>
 #include <blockdev.h>
@@ -126,48 +127,54 @@ typedef struct {
     uint32_t cycle;
 } ring;
 
+// A bulk endpoint: its transfer ring, its doorbell target (the device context
+// index), and its max packet size.
+typedef struct {
+    ring r;
+    uint32_t dci;
+    uint16_t mps;
+} usb_endpoint;
+
 static volatile uint8_t* cap; // capability registers (BAR base)
 static volatile uint8_t* op;  // operational registers
 static volatile uint8_t* rt;  // runtime registers
 static volatile uint32_t* db; // doorbell array
 static bool g_present;
 static uint32_t g_ports;
-static uint32_t g_slots;
 static uint32_t ctx_sz; // bytes per context entry (32 or 64, from HCCPARAMS1)
 
 static ring cmd; // command ring
 static ring ep0; // the enumerated device's control endpoint ring
 
 static uint64_t* dcbaa; // device context base array
-static uintptr_t dcbaa_pa;
 
-static struct trb* evt_ring;
-static uintptr_t evt_ring_pa;
-static uint32_t evt_deq;   // consumer index
-static uint32_t evt_cycle; // consumer cycle state
+// The event ring: the controller produces, we consume by cycle bit.
+static struct {
+    struct trb* trb;
+    uintptr_t pa;
+    uint32_t deq;   // consumer index
+    uint32_t cycle; // consumer cycle state
+} evt;
 
-// Enumerated device (milestone 1 stops at the device descriptor).
-static bool g_dev_found;
-static uint16_t g_vid, g_pid;
-static uint8_t g_class;
-static uint32_t g_speed, g_port; // of the enumerated device (for CONFIGURE_EP)
+// The enumerated device (one, on the first enabled root port).
+static struct {
+    bool found;
+    uint32_t slot;
+    uint32_t speed, port; // PORTSC speed code + root-hub port number
+    uint16_t vid, pid;
+    uint8_t usb_class;
+} dev;
 
-// A configured Bulk-Only-Transport mass-storage device (milestone 2): its slot,
-// the two bulk endpoints (each a transfer ring + doorbell target DCI + max
-// packet size), and whether setup succeeded.
-static uint32_t msc_slot;
-static ring bulk_in, bulk_out;
-static uint32_t bulk_in_dci, bulk_out_dci;
-static uint16_t bulk_in_mps, bulk_out_mps;
-static bool msc_ready;
-static uint64_t msc_blocks;     // capacity, in logical blocks
-static uint32_t msc_block_size; // bytes per logical block
-static uint8_t* cbw_va;         // Bulk-Only-Transport command/status/data DMA
-static uintptr_t cbw_pa;
-static uint8_t* csw_va;
-static uintptr_t csw_pa;
-static uint8_t* msc_bounce_va; // one-page DMA staging buffer for data
-static uintptr_t msc_bounce_pa;
+// The configured Bulk-Only-Transport mass-storage function on `dev`.
+static struct {
+    bool ready;
+    uint64_t blocks;     // capacity, in logical blocks
+    uint32_t block_size; // bytes per logical block
+    uint32_t tag;        // rolling CBW/CSW transaction tag
+    usb_endpoint in, out;
+    dma_buf cbw, csw; // Bulk-Only-Transport command/status wrappers
+    dma_buf bounce;   // one-page staging buffer for data
+} msc;
 
 static uint32_t r32(volatile uint8_t* base, uint32_t o)
 {
@@ -182,18 +189,11 @@ static void w64(volatile uint8_t* base, uint32_t o, uint64_t v)
     *(volatile uint64_t*)(base + o) = v;
 }
 
-static void* dma_page(uintptr_t* pa)
-{
-    uintptr_t p = frame_alloc();
-    void* v = phys_to_virt(p);
-    memset(v, 0, PAGE_SZ);
-    *pa = p;
-    return v;
-}
-
 static void ring_init(ring* r)
 {
-    r->trb = dma_page(&r->pa);
+    dma_buf b = dma_page_alloc();
+    r->trb = b.va;
+    r->pa = b.pa;
     struct trb* link = &r->trb[RING_TRBS - 1];
     link->param = r->pa; // LINK back to the start
     link->control = TRB_TYPE(TRB_LINK) | TRB_LINK_TC;
@@ -225,17 +225,16 @@ static void ring_push(ring* r, uint64_t param, uint32_t status,
 static bool next_event(struct trb* out, uint64_t deadline)
 {
     for (;;) {
-        volatile struct trb* e = &evt_ring[evt_deq];
-        if ((e->control & TRB_CYCLE) == evt_cycle) {
+        volatile struct trb* e = &evt.trb[evt.deq];
+        if ((e->control & TRB_CYCLE) == evt.cycle) {
             out->param = e->param;
             out->status = e->status;
             out->control = e->control;
-            uint64_t consumed =
-                    evt_ring_pa + (uint64_t)evt_deq * sizeof(struct trb);
-            evt_deq++;
-            if (evt_deq == RING_TRBS) {
-                evt_deq = 0;
-                evt_cycle ^= 1;
+            uint64_t consumed = evt.pa + (uint64_t)evt.deq * sizeof(struct trb);
+            evt.deq++;
+            if (evt.deq == RING_TRBS) {
+                evt.deq = 0;
+                evt.cycle ^= 1;
             }
             w64(rt, IR0 + IR_ERDP, consumed | ERDP_EHB);
             return true;
@@ -331,13 +330,14 @@ static bool get_descriptor(uint32_t slot, uint16_t value, uintptr_t buf_pa,
     return control_in(slot, setup, buf_pa, len);
 }
 
-// One bulk transfer: a Normal TRB on ring `r`, ring the endpoint doorbell, wait
-// for its Transfer Event. Interrupt on completion and on a short packet.
-static bool bulk_xfer(ring* r, uint32_t dci, uintptr_t data_pa, uint32_t len)
+// One bulk transfer on endpoint `ep`: a Normal TRB on its ring, ring its
+// doorbell, wait for its Transfer Event. Interrupt on completion + short
+// packet.
+static bool bulk_xfer(usb_endpoint* ep, uintptr_t data_pa, uint32_t len)
 {
-    ring_push(r, data_pa, len, TRB_TYPE(TRB_NORMAL) | TRB_IOC | TRB_ISP);
+    ring_push(&ep->r, data_pa, len, TRB_TYPE(TRB_NORMAL) | TRB_IOC | TRB_ISP);
     __asm__ __volatile__("" ::: "memory");
-    db[msc_slot] = dci;
+    db[dev.slot] = ep->dci;
     struct trb ev;
     if (!wait_event(TRB_TRANSFER_EVENT, &ev, 2000)) {
         return false;
@@ -351,55 +351,54 @@ static bool bulk_xfer(ring* r, uint32_t dci, uintptr_t data_pa, uint32_t len)
 static bool bot_command(const uint8_t* cdb, uint8_t cdb_len, bool dir_in,
                         uintptr_t data_pa, uint32_t data_len)
 {
-    static uint32_t tag;
-    tag++;
-    memset(cbw_va, 0, 31);
-    cbw_va[0] = 0x55; // dCBWSignature "USBC" (little-endian 0x43425355)
-    cbw_va[1] = 0x53;
-    cbw_va[2] = 0x42;
-    cbw_va[3] = 0x43;
-    memcpy(cbw_va + 4, &tag, 4);       // dCBWTag
-    memcpy(cbw_va + 8, &data_len, 4);  // dCBWDataTransferLength
-    cbw_va[12] = dir_in ? 0x80 : 0x00; // bmCBWFlags
-    cbw_va[13] = 0;                    // bCBWLUN
-    cbw_va[14] = cdb_len;              // bCBWCBLength
-    memcpy(cbw_va + 15, cdb, cdb_len); // CBWCB
+    msc.tag++;
+    uint8_t* cbw = msc.cbw.va;
+    memset(cbw, 0, 31);
+    cbw[0] = 0x55; // dCBWSignature "USBC" (little-endian 0x43425355)
+    cbw[1] = 0x53;
+    cbw[2] = 0x42;
+    cbw[3] = 0x43;
+    memcpy(cbw + 4, &msc.tag, 4);   // dCBWTag
+    memcpy(cbw + 8, &data_len, 4);  // dCBWDataTransferLength
+    cbw[12] = dir_in ? 0x80 : 0x00; // bmCBWFlags
+    cbw[13] = 0;                    // bCBWLUN
+    cbw[14] = cdb_len;              // bCBWCBLength
+    memcpy(cbw + 15, cdb, cdb_len); // CBWCB
 
-    if (!bulk_xfer(&bulk_out, bulk_out_dci, cbw_pa, 31)) {
+    if (!bulk_xfer(&msc.out, msc.cbw.pa, 31)) {
         return false;
     }
     if (data_len > 0) {
-        ring* r = dir_in ? &bulk_in : &bulk_out;
-        uint32_t dci = dir_in ? bulk_in_dci : bulk_out_dci;
-        if (!bulk_xfer(r, dci, data_pa, data_len)) {
+        if (!bulk_xfer(dir_in ? &msc.in : &msc.out, data_pa, data_len)) {
             return false;
         }
     }
-    if (!bulk_xfer(&bulk_in, bulk_in_dci, csw_pa, 13)) {
+    if (!bulk_xfer(&msc.in, msc.csw.pa, 13)) {
         return false;
     }
     // dCSWSignature "USBS", dCSWTag echoing our dCBWTag (catches a desynced
     // command/status pairing), and bCSWStatus == 0 (command passed).
+    const uint8_t* csw = msc.csw.va;
     uint32_t csw_tag;
-    memcpy(&csw_tag, csw_va + 4, 4);
-    return csw_va[0] == 0x55 && csw_va[1] == 0x53 && csw_va[2] == 0x42 &&
-           csw_va[3] == 0x53 && csw_tag == tag && csw_va[12] == 0;
+    memcpy(&csw_tag, csw + 4, 4);
+    return csw[0] == 0x55 && csw[1] == 0x53 && csw[2] == 0x42 &&
+           csw[3] == 0x53 && csw_tag == msc.tag && csw[12] == 0;
 }
 
 // SCSI READ CAPACITY(10): last LBA + block size, both big-endian.
 static bool scsi_read_capacity(void)
 {
     uint8_t cdb[10] = {0x25};
-    if (!bot_command(cdb, 10, true, msc_bounce_pa, 8)) {
+    if (!bot_command(cdb, 10, true, msc.bounce.pa, 8)) {
         return false;
     }
-    const uint8_t* d = msc_bounce_va;
+    const uint8_t* d = msc.bounce.va;
     uint32_t last = ((uint32_t)d[0] << 24) | ((uint32_t)d[1] << 16) |
                     ((uint32_t)d[2] << 8) | d[3];
-    msc_block_size = ((uint32_t)d[4] << 24) | ((uint32_t)d[5] << 16) |
+    msc.block_size = ((uint32_t)d[4] << 24) | ((uint32_t)d[5] << 16) |
                      ((uint32_t)d[6] << 8) | d[7];
-    msc_blocks = (uint64_t)last + 1;
-    return msc_block_size != 0;
+    msc.blocks = (uint64_t)last + 1;
+    return msc.block_size != 0;
 }
 
 // SCSI READ(10)/WRITE(10) of `blocks` logical blocks at `lba` to/from the
@@ -414,24 +413,24 @@ static bool scsi_rw(uint64_t lba, uint32_t blocks, bool write)
     cdb[5] = (uint8_t)lba;
     cdb[7] = (uint8_t)(blocks >> 8);
     cdb[8] = (uint8_t)blocks;
-    return bot_command(cdb, 10, !write, msc_bounce_pa, blocks * msc_block_size);
+    return bot_command(cdb, 10, !write, msc.bounce.pa, blocks * msc.block_size);
 }
 
 // blockdev read/write: chunk the request through the one-page bounce buffer.
 static bool msc_read(uint64_t lba, uint32_t count, void* buf)
 {
-    if (!msc_ready || msc_block_size == 0) {
+    if (!msc.ready || msc.block_size == 0) {
         return false;
     }
-    uint32_t per = PAGE_SZ / msc_block_size;
+    uint32_t per = PAGE_SZ / msc.block_size;
     uint8_t* out = buf;
     while (count > 0) {
         uint32_t n = count < per ? count : per;
         if (!scsi_rw(lba, n, false)) {
             return false;
         }
-        memcpy(out, msc_bounce_va, (size_t)n * msc_block_size);
-        out += (size_t)n * msc_block_size;
+        memcpy(out, msc.bounce.va, (size_t)n * msc.block_size);
+        out += (size_t)n * msc.block_size;
         lba += n;
         count -= n;
     }
@@ -439,18 +438,18 @@ static bool msc_read(uint64_t lba, uint32_t count, void* buf)
 }
 static bool msc_write(uint64_t lba, uint32_t count, const void* buf)
 {
-    if (!msc_ready || msc_block_size == 0) {
+    if (!msc.ready || msc.block_size == 0) {
         return false;
     }
-    uint32_t per = PAGE_SZ / msc_block_size;
+    uint32_t per = PAGE_SZ / msc.block_size;
     const uint8_t* in = buf;
     while (count > 0) {
         uint32_t n = count < per ? count : per;
-        memcpy(msc_bounce_va, in, (size_t)n * msc_block_size);
+        memcpy(msc.bounce.va, in, (size_t)n * msc.block_size);
         if (!scsi_rw(lba, n, true)) {
             return false;
         }
-        in += (size_t)n * msc_block_size;
+        in += (size_t)n * msc.block_size;
         lba += n;
         count -= n;
     }
@@ -459,7 +458,7 @@ static bool msc_write(uint64_t lba, uint32_t count, const void* buf)
 // 512-byte-sector count for the block-device view (0 unless 512-byte blocks).
 static uint64_t msc_sectors(void)
 {
-    return (msc_ready && msc_block_size == 512) ? msc_blocks : 0;
+    return (msc.ready && msc.block_size == 512) ? msc.blocks : 0;
 }
 static const blockdev msc_dev = {msc_read, msc_write, msc_sectors};
 
@@ -478,9 +477,10 @@ static bool msc_setup(uint32_t slot, uint16_t dev_max_packet0)
     // Request a full page: the device returns min(wTotalLength, wLength), so
     // the walk below can never run past bytes that were actually transferred
     // (composite devices easily exceed the 255 bytes a short request returns).
-    uintptr_t cfg_pa;
-    uint8_t* cfg = dma_page(&cfg_pa);
-    if (!get_descriptor(slot, (uint16_t)(DESC_CONFIG << 8), cfg_pa, PAGE_SZ)) {
+    dma_buf cfg_mem = dma_page_alloc();
+    uint8_t* cfg = cfg_mem.va;
+    if (!get_descriptor(slot, (uint16_t)(DESC_CONFIG << 8), cfg_mem.pa,
+                        PAGE_SZ)) {
         return false;
     }
     uint16_t total = (uint16_t)(cfg[2] | (cfg[3] << 8));
@@ -508,11 +508,11 @@ static bool msc_setup(uint32_t slot, uint16_t dev_max_packet0)
                 if (addr & 0x80) {
                     have_in = true;
                     in_ep = addr;
-                    bulk_in_mps = mps;
+                    msc.in.mps = mps;
                 } else {
                     have_out = true;
                     out_ep = addr;
-                    bulk_out_mps = mps;
+                    msc.out.mps = mps;
                 }
             }
         }
@@ -522,38 +522,37 @@ static bool msc_setup(uint32_t slot, uint16_t dev_max_packet0)
         return false; // not a BOT mass-storage device
     }
     // Doorbell context index for an endpoint: number*2 + (IN ? 1 : 0).
-    bulk_in_dci = (uint32_t)((in_ep & 0x0F) * 2 + 1);
-    bulk_out_dci = (uint32_t)((out_ep & 0x0F) * 2);
-    ring_init(&bulk_in);
-    ring_init(&bulk_out);
+    msc.in.dci = (uint32_t)((in_ep & 0x0F) * 2 + 1);
+    msc.out.dci = (uint32_t)((out_ep & 0x0F) * 2);
+    ring_init(&msc.in.r);
+    ring_init(&msc.out.r);
 
     // Input context: add the slot + both bulk endpoints, describe each
     // endpoint.
-    uintptr_t input_pa;
-    uint32_t* input = dma_page(&input_pa);
+    dma_buf input_mem = dma_page_alloc();
+    uint32_t* input = input_mem.va;
     uint32_t dwpc = ctx_sz / 4;
-    uint32_t max_dci = bulk_in_dci > bulk_out_dci ? bulk_in_dci : bulk_out_dci;
-    input[1] =
-            1u | (1u << bulk_in_dci) | (1u << bulk_out_dci); // A0 + endpoints
+    uint32_t max_dci = msc.in.dci > msc.out.dci ? msc.in.dci : msc.out.dci;
+    input[1] = 1u | (1u << msc.in.dci) | (1u << msc.out.dci); // A0 + endpoints
     uint32_t* slot_ctx = input + dwpc;
-    slot_ctx[0] = (g_speed << 20) | (max_dci << 27);
-    slot_ctx[1] = (g_port << 16);
+    slot_ctx[0] = (dev.speed << 20) | (max_dci << 27);
+    slot_ctx[1] = (dev.port << 16);
     // The endpoint context for DCI n sits at input index n+1 (the input control
     // context occupies index 0, shifting the device context up by one).
-    uint32_t* oc = input + (bulk_out_dci + 1) * dwpc;
-    oc[1] = EP_TYPE_BULK_OUT | (3u << 1) | ((uint32_t)bulk_out_mps << 16);
-    oc[2] = (uint32_t)(bulk_out.pa | 1);
-    oc[3] = (uint32_t)(bulk_out.pa >> 32);
-    oc[4] = bulk_out_mps;
-    uint32_t* ic = input + (bulk_in_dci + 1) * dwpc;
-    ic[1] = EP_TYPE_BULK_IN | (3u << 1) | ((uint32_t)bulk_in_mps << 16);
-    ic[2] = (uint32_t)(bulk_in.pa | 1);
-    ic[3] = (uint32_t)(bulk_in.pa >> 32);
-    ic[4] = bulk_in_mps;
+    uint32_t* oc = input + (msc.out.dci + 1) * dwpc;
+    oc[1] = EP_TYPE_BULK_OUT | (3u << 1) | ((uint32_t)msc.out.mps << 16);
+    oc[2] = (uint32_t)(msc.out.r.pa | 1);
+    oc[3] = (uint32_t)(msc.out.r.pa >> 32);
+    oc[4] = msc.out.mps;
+    uint32_t* ic = input + (msc.in.dci + 1) * dwpc;
+    ic[1] = EP_TYPE_BULK_IN | (3u << 1) | ((uint32_t)msc.in.mps << 16);
+    ic[2] = (uint32_t)(msc.in.r.pa | 1);
+    ic[3] = (uint32_t)(msc.in.r.pa >> 32);
+    ic[4] = msc.in.mps;
 
     struct trb ev;
-    if (!run_command(input_pa, TRB_TYPE(TRB_CONFIGURE_ENDPOINT) | (slot << 24),
-                     &ev) ||
+    if (!run_command(input_mem.pa,
+                     TRB_TYPE(TRB_CONFIGURE_ENDPOINT) | (slot << 24), &ev) ||
         COMPLETION_CODE(ev.status) != CC_SUCCESS) {
         return false;
     }
@@ -564,13 +563,12 @@ static bool msc_setup(uint32_t slot, uint16_t dev_max_packet0)
     if (!control_no_data(slot, setup)) {
         return false;
     }
-    msc_slot = slot;
 
     // Bulk-Only-Transport buffers, then read the capacity. A freshly attached
     // device may fail the first command with a unit-attention, so retry.
-    cbw_va = dma_page(&cbw_pa);
-    csw_va = dma_page(&csw_pa);
-    msc_bounce_va = dma_page(&msc_bounce_pa);
+    msc.cbw = dma_page_alloc();
+    msc.csw = dma_page_alloc();
+    msc.bounce = dma_page_alloc();
     bool cap_ok = false;
     for (int i = 0; i < 4 && !cap_ok; i++) {
         cap_ok = scsi_read_capacity();
@@ -578,7 +576,7 @@ static bool msc_setup(uint32_t slot, uint16_t dev_max_packet0)
     if (!cap_ok) {
         return false;
     }
-    msc_ready = true;
+    msc.ready = true;
     return true;
 }
 
@@ -608,8 +606,8 @@ static void enumerate(void)
     if (port == 0) {
         return; // nothing connected/enabled
     }
-    g_speed = speed;
-    g_port = port;
+    dev.speed = speed;
+    dev.port = port;
 
     struct trb ev;
     if (!run_command(0, TRB_TYPE(TRB_ENABLE_SLOT), &ev) ||
@@ -617,15 +615,14 @@ static void enumerate(void)
         return;
     }
     uint32_t slot = (ev.control >> 24) & 0xFF;
+    dev.slot = slot;
 
     // Output device context (controller-written); publish it in the DCBAA.
-    uintptr_t devctx_pa;
-    (void)dma_page(&devctx_pa);
-    dcbaa[slot] = devctx_pa;
+    dcbaa[slot] = dma_page_alloc().pa;
 
     // Input context: enable the slot + EP0, describe the port and control EP.
-    uintptr_t input_pa;
-    uint32_t* input = dma_page(&input_pa);
+    dma_buf input_mem = dma_page_alloc();
+    uint32_t* input = input_mem.va;
     uint32_t dwpc = ctx_sz / 4;               // dwords per context entry
     input[1] = 0x3;                           // add flags: A0 (slot) + A1 (EP0)
     uint32_t* slot_ctx = input + dwpc;        // slot context (index 1)
@@ -640,7 +637,7 @@ static void enumerate(void)
     ep0_ctx[3] = (uint32_t)(ep0.pa >> 32);
     ep0_ctx[4] = 8; // average TRB length
 
-    if (!run_command(input_pa, TRB_TYPE(TRB_ADDRESS_DEVICE) | (slot << 24),
+    if (!run_command(input_mem.pa, TRB_TYPE(TRB_ADDRESS_DEVICE) | (slot << 24),
                      &ev) ||
         COMPLETION_CODE(ev.status) != CC_SUCCESS) {
         return;
@@ -649,17 +646,17 @@ static void enumerate(void)
     // GET_DESCRIPTOR (device): bmRequestType=0x80, bRequest=6, wValue=0x0100,
     // wLength=18. The setup packet's 8 bytes travel as the TRB's immediate
     // data.
-    uintptr_t buf_pa;
-    uint8_t* buf = dma_page(&buf_pa);
+    dma_buf desc = dma_page_alloc();
+    uint8_t* buf = desc.va;
     uint64_t setup = (uint64_t)0x80 | ((uint64_t)0x06 << 8) |
                      ((uint64_t)0x0100 << 16) | ((uint64_t)18 << 48);
-    if (!control_in(slot, setup, buf_pa, 18)) {
+    if (!control_in(slot, setup, desc.pa, 18)) {
         return;
     }
-    g_class = buf[4];
-    g_vid = (uint16_t)(buf[8] | (buf[9] << 8));
-    g_pid = (uint16_t)(buf[10] | (buf[11] << 8));
-    g_dev_found = true;
+    dev.usb_class = buf[4];
+    dev.vid = (uint16_t)(buf[8] | (buf[9] << 8));
+    dev.pid = (uint16_t)(buf[10] | (buf[11] << 8));
+    dev.found = true;
 
     // If it is a Bulk-Only-Transport mass-storage device, configure it.
     msc_setup(slot, buf[7]);
@@ -681,7 +678,7 @@ void xhci_init(void)
     db = (volatile uint32_t*)(cap + (r32(cap, CAP_DBOFF) & ~0x3u));
 
     uint32_t hcs1 = r32(cap, CAP_HCSPARAMS1);
-    g_slots = hcs1 & 0xFF;
+    uint32_t slots = hcs1 & 0xFF;
     g_ports = (hcs1 >> 24) & 0xFF;
     ctx_sz = (r32(cap, CAP_HCCPARAMS1) & (1u << 2)) ? 64 : 32;
 
@@ -709,9 +706,10 @@ void xhci_init(void)
     }
 
     // Advertise all device slots and hand the controller its context array.
-    w32(op, OP_CONFIG, g_slots);
-    dcbaa = dma_page(&dcbaa_pa);
-    w64(op, OP_DCBAAP, dcbaa_pa);
+    w32(op, OP_CONFIG, slots);
+    dma_buf dcbaa_mem = dma_page_alloc();
+    dcbaa = dcbaa_mem.va;
+    w64(op, OP_DCBAAP, dcbaa_mem.pa);
 
     // Command ring.
     ring_init(&cmd);
@@ -719,16 +717,18 @@ void xhci_init(void)
 
     // Event ring: one segment described by a one-entry ERST. Program size and
     // dequeue pointer before the base address (which arms the interrupter).
-    uintptr_t erst_pa;
-    struct erst_entry* erst = dma_page(&erst_pa);
-    evt_ring = dma_page(&evt_ring_pa);
-    evt_deq = 0;
-    evt_cycle = 1;
-    erst[0].base = evt_ring_pa;
+    dma_buf erst_mem = dma_page_alloc();
+    struct erst_entry* erst = erst_mem.va;
+    dma_buf evt_mem = dma_page_alloc();
+    evt.trb = evt_mem.va;
+    evt.pa = evt_mem.pa;
+    evt.deq = 0;
+    evt.cycle = 1;
+    erst[0].base = evt.pa;
     erst[0].size = RING_TRBS;
     w32(rt, IR0 + IR_ERSTSZ, 1);
-    w64(rt, IR0 + IR_ERDP, evt_ring_pa | ERDP_EHB);
-    w64(rt, IR0 + IR_ERSTBA, erst_pa);
+    w64(rt, IR0 + IR_ERDP, evt.pa | ERDP_EHB);
+    w64(rt, IR0 + IR_ERSTBA, erst_mem.pa);
 
     // Run, then confirm the ring machinery with a NO-OP command round-trip.
     w32(op, OP_USBCMD, USBCMD_RUN);
@@ -758,29 +758,29 @@ uint32_t xhci_ports(void)
 }
 bool xhci_device_found(void)
 {
-    return g_dev_found;
+    return dev.found;
 }
 uint16_t xhci_vid(void)
 {
-    return g_vid;
+    return dev.vid;
 }
 uint16_t xhci_pid(void)
 {
-    return g_pid;
+    return dev.pid;
 }
 uint8_t xhci_class(void)
 {
-    return g_class;
+    return dev.usb_class;
 }
 bool xhci_msc_ready(void)
 {
-    return msc_ready;
+    return msc.ready;
 }
 uint64_t xhci_msc_blocks(void)
 {
-    return msc_blocks;
+    return msc.blocks;
 }
 uint32_t xhci_msc_block_size(void)
 {
-    return msc_block_size;
+    return msc.block_size;
 }

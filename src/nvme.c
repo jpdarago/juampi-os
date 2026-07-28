@@ -19,6 +19,7 @@
 #include <pci.h>
 #include <paging.h>
 #include <frames.h>
+#include <dma.h>
 #include <ktime.h>
 #include <apic.h> // lapic_id for the MSI-X message address
 #include <idt.h>  // register_interrupt_handler, interrupt_frame
@@ -35,8 +36,6 @@
 #define PCI_CAP_MSIX 0x11
 #define MSIX_MC_ENABLE (1u << 15)    // message control: MSI-X enable
 #define MSIX_MC_FUNC_MASK (1u << 14) // message control: mask all vectors
-#define MSIX_ENTRY_DWORDS 4          // addr_lo, addr_hi, data, vector-control
-#define MSIX_VCTRL_MASK (1u << 0)    // per-vector mask bit
 // LAPIC message address (physical destination, fixed delivery).
 #define MSI_ADDR_BASE 0xFEE00000u
 // A free IDT vector (32-47 have stubs; 34-43/45/46 are unused) for completions.
@@ -127,10 +126,13 @@ struct nvme_id_ns {
 } __attribute__((packed));
 
 // A submission/completion queue pair driven synchronously (one command in
-// flight at a time), addressed through its two doorbell registers.
+// flight at a time), addressed through its two doorbell registers. The ring
+// physical addresses live here too, so creating the queue needs no side
+// channel to hand them to the controller.
 typedef struct {
     struct nvme_command* sq;             // submission ring (in a DMA frame)
     volatile struct nvme_completion* cq; // completion ring (in a DMA frame)
+    uintptr_t sq_pa, cq_pa;              // ring physical addresses
     volatile uint32_t* sq_tail_db;       // submission-queue tail doorbell
     volatile uint32_t* cq_head_db;       // completion-queue head doorbell
     uint16_t depth;
@@ -142,24 +144,30 @@ typedef struct {
 
 static volatile uint8_t* regs; // iomap'd BAR0
 static uint32_t db_stride;     // doorbell stride in bytes (from CAP.DSTRD)
-static bool g_present;
-static uint64_t g_blocks;
-static uint32_t g_block_size;
-static char g_model[41];
+
+// The namespace this driver serves (namespace 1 of the first controller).
+static struct {
+    bool present;
+    uint64_t blocks;
+    uint32_t block_size;
+    char model[41];
+} ns;
 
 static nvme_queue admin_q;
 static nvme_queue io_q;
 
-static uint8_t* bounce_va; // one-page DMA bounce buffer
-static uintptr_t bounce_pa;
+static dma_buf bounce; // one-page DMA staging buffer for reads/writes
 
 // MSI-X interrupt state. When the controller advertises MSI-X, I/O completions
 // arrive as interrupts instead of being polled: the ISR drains the I/O CQ and
-// signals the reader. Falls back to polling when MSI-X is unavailable.
-static bool use_irq;
-static volatile bool io_done;       // set by the ISR when an I/O command posts
-static volatile int io_status;      // that completion's status code
-static volatile uint64_t irq_count; // I/O completions the ISR has handled
+// signals the reader. `done`/`status` describe the single command in flight —
+// the synchronous submit path is what makes one flag sufficient.
+static struct {
+    bool enabled;                  // MSI-X up; false = polled fallback
+    volatile bool done;            // set by the ISR when the command posts
+    volatile int status;           // that completion's status code
+    volatile uint64_t completions; // total completions the ISR has handled
+} io_irq;
 
 static uint32_t reg32(uint32_t off)
 {
@@ -183,17 +191,6 @@ static volatile uint32_t* doorbell(uint32_t qid, int is_cq)
 {
     uint32_t off = REG_DOORBELL + (2 * qid + (uint32_t)is_cq) * db_stride;
     return (volatile uint32_t*)(regs + off);
-}
-
-// Allocate a zeroed DMA frame; returns its HHDM virtual pointer and physical
-// address. Queues and identify buffers fit in a single page.
-static void* dma_frame(uintptr_t* pa_out)
-{
-    uintptr_t pa = frame_alloc();
-    void* va = phys_to_virt(pa);
-    memset(va, 0, PAGE_SZ);
-    *pa_out = pa;
-    return va;
 }
 
 // Submit `cmd` on `q` and busy-wait (bounded) for its completion. Returns the
@@ -233,14 +230,14 @@ static void nvme_irq(interrupt_frame* f)
     (void)f;
     volatile struct nvme_completion* c = &io_q.cq[io_q.cq_head];
     while ((c->status & 1) == io_q.phase) {
-        io_status = (c->status >> 1) & 0x3FF;
+        io_irq.status = (c->status >> 1) & 0x3FF;
         io_q.cq_head = (uint16_t)((io_q.cq_head + 1) % io_q.depth);
         if (io_q.cq_head == 0) {
             io_q.phase ^= 1;
         }
         *io_q.cq_head_db = io_q.cq_head;
-        irq_count++;
-        io_done = true;
+        io_irq.completions++;
+        io_irq.done = true;
         c = &io_q.cq[io_q.cq_head];
     }
 }
@@ -255,15 +252,15 @@ static int submit_io_irq(struct nvme_command* cmd)
     cmd->cid = io_q.cid++;
     io_q.sq[io_q.sq_tail] = *cmd;
     io_q.sq_tail = (uint16_t)((io_q.sq_tail + 1) % io_q.depth);
-    io_done = false;
-    io_status = -1;
+    io_irq.done = false;
+    io_irq.status = -1;
     // Compiler barrier: the SQ entry + flag stores must precede the doorbell.
     __asm__ __volatile__("" ::: "memory");
     *io_q.sq_tail_db = io_q.sq_tail;
 
     uint64_t deadline = ktime_ms() + 5000;
     __asm__ __volatile__("cli");
-    while (!io_done) {
+    while (!io_irq.done) {
         if (ktime_ms() > deadline || (reg32(REG_CSTS) & CSTS_CFS)) {
             __asm__ __volatile__("sti");
             return -1;
@@ -271,13 +268,13 @@ static int submit_io_irq(struct nvme_command* cmd)
         __asm__ __volatile__("sti; hlt; cli");
     }
     __asm__ __volatile__("sti");
-    return io_status;
+    return io_irq.status;
 }
 
 // One command on the I/O queue: interrupt-driven when MSI-X is up, else polled.
 static int submit_io(struct nvme_command* cmd)
 {
-    return use_irq ? submit_io_irq(cmd) : submit(&io_q, cmd);
+    return io_irq.enabled ? submit_io_irq(cmd) : submit(&io_q, cmd);
 }
 
 // Program MSI-X table entry 0 to deliver NVME_VECTOR to this core's LAPIC and
@@ -329,11 +326,14 @@ static bool wait_ready(uint32_t want)
 }
 
 // Point `q` at freshly allocated SQ/CQ frames and its doorbells.
-static void queue_init(nvme_queue* q, uint32_t qid, uintptr_t* sq_pa,
-                       uintptr_t* cq_pa)
+static void queue_init(nvme_queue* q, uint32_t qid)
 {
-    q->sq = dma_frame(sq_pa);
-    q->cq = dma_frame(cq_pa);
+    dma_buf sq = dma_page_alloc();
+    dma_buf cq = dma_page_alloc();
+    q->sq = sq.va;
+    q->sq_pa = sq.pa;
+    q->cq = cq.va;
+    q->cq_pa = cq.pa;
     q->sq_tail_db = doorbell(qid, 0);
     q->cq_head_db = doorbell(qid, 1);
     q->depth = QUEUE_DEPTH;
@@ -343,39 +343,41 @@ static void queue_init(nvme_queue* q, uint32_t qid, uintptr_t* sq_pa,
     q->phase = 1;
 }
 
-// Run IDENTIFY (`cns`, `nsid`) into a DMA page; returns the page VA or NULL.
-static void* identify(uint32_t cns, uint32_t nsid, uintptr_t* pa)
+// Run IDENTIFY (`cns`, `nsid`) into a DMA page; returns the page ({NULL, 0} on
+// failure). The caller frees it with dma_page_free() when done.
+static dma_buf identify(uint32_t cns, uint32_t nsid)
 {
-    void* buf = dma_frame(pa);
+    dma_buf buf = dma_page_alloc();
     struct nvme_command cmd = {0};
     cmd.opcode = ADMIN_IDENTIFY;
     cmd.nsid = nsid;
-    cmd.prp1 = *pa;
+    cmd.prp1 = buf.pa;
     cmd.cdw10 = cns;
     if (submit(&admin_q, &cmd) != 0) {
-        return NULL;
+        dma_page_free(buf);
+        return (dma_buf){0};
     }
     return buf;
 }
 
 // Create the I/O completion then submission queue (order matters: the SQ names
 // its CQ). Returns false on any controller error.
-static bool create_io_queues(uintptr_t sq_pa, uintptr_t cq_pa)
+static bool create_io_queues(void)
 {
     struct nvme_command cq = {0};
     cq.opcode = ADMIN_CREATE_IO_CQ;
-    cq.prp1 = cq_pa;
+    cq.prp1 = io_q.cq_pa;
     cq.cdw10 = ((QUEUE_DEPTH - 1) << 16) | IO_QID;
     // PC (bit 0). With MSI-X up, also enable interrupts (IEN bit 1) and point
     // at vector table entry 0 (IV, bits 31:16); otherwise the CQ is polled.
-    cq.cdw11 = use_irq ? 0x3u : 0x1u;
+    cq.cdw11 = io_irq.enabled ? 0x3u : 0x1u;
     if (submit(&admin_q, &cq) != 0) {
         return false;
     }
 
     struct nvme_command sq = {0};
     sq.opcode = ADMIN_CREATE_IO_SQ;
-    sq.prp1 = sq_pa;
+    sq.prp1 = io_q.sq_pa;
     sq.cdw10 = ((QUEUE_DEPTH - 1) << 16) | IO_QID;
     sq.cdw11 = (IO_QID << 16) | 1; // posts completions to CQ IO_QID; PC
     return submit(&admin_q, &sq) == 0;
@@ -405,102 +407,101 @@ void nvme_init(void)
     }
 
     // Admin queue pair, then point the controller at it and re-enable.
-    uintptr_t asq_pa, acq_pa;
-    queue_init(&admin_q, 0, &asq_pa, &acq_pa);
+    queue_init(&admin_q, 0);
     wreg32(REG_AQA, ((QUEUE_DEPTH - 1) << 16) | (QUEUE_DEPTH - 1));
-    wreg64(REG_ASQ, asq_pa);
-    wreg64(REG_ACQ, acq_pa);
+    wreg64(REG_ASQ, admin_q.sq_pa);
+    wreg64(REG_ACQ, admin_q.cq_pa);
     wreg32(REG_CC, CC_IOSQES | CC_IOCQES | CC_EN); // MPS=0 (4 KiB), NVM cmd set
     if (!wait_ready(CSTS_RDY)) {
         return;
     }
 
     // IDENTIFY the controller for the model string.
-    uintptr_t pa;
-    struct nvme_id_ctrl* ctrl = identify(CNS_CONTROLLER, 0, &pa);
-    if (ctrl == NULL) {
+    dma_buf id = identify(CNS_CONTROLLER, 0);
+    if (id.va == NULL) {
         return;
     }
-    memcpy(g_model, ctrl->mn, 40);
-    g_model[40] = '\0';
-    for (int i = 39; i >= 0 && g_model[i] == ' '; i--) {
-        g_model[i] = '\0'; // trim the space padding
+    struct nvme_id_ctrl* ctrl = id.va;
+    memcpy(ns.model, ctrl->mn, 40);
+    ns.model[40] = '\0';
+    for (int i = 39; i >= 0 && ns.model[i] == ' '; i--) {
+        ns.model[i] = '\0'; // trim the space padding
     }
-    frame_free(pa);
+    dma_page_free(id);
 
     // IDENTIFY namespace 1 for its size and block size.
-    struct nvme_id_ns* ns = identify(CNS_NAMESPACE, 1, &pa);
-    if (ns == NULL) {
+    id = identify(CNS_NAMESPACE, 1);
+    if (id.va == NULL) {
         return;
     }
-    g_blocks = ns->nsze;
-    uint32_t fmt = ns->lbaf[ns->flbas & 0xF];
-    g_block_size = 1u << ((fmt >> 16) & 0xFF);
-    frame_free(pa);
-    if (g_block_size == 0 || g_block_size > PAGE_SZ) {
+    struct nvme_id_ns* idns = id.va;
+    ns.blocks = idns->nsze;
+    uint32_t fmt = idns->lbaf[idns->flbas & 0xF];
+    ns.block_size = 1u << ((fmt >> 16) & 0xFF);
+    dma_page_free(id);
+    if (ns.block_size == 0 || ns.block_size > PAGE_SZ) {
         return; // unsupported format for the one-page bounce path
     }
 
     // Set up MSI-X (if advertised) before creating the I/O CQ, so the CQ can be
     // created with interrupts enabled; otherwise the queue stays polled.
-    use_irq = msix_setup(a);
+    io_irq.enabled = msix_setup(a);
 
     // The single I/O queue pair, plus the bounce buffer reads land in.
-    uintptr_t iosq_pa, iocq_pa;
-    queue_init(&io_q, IO_QID, &iosq_pa, &iocq_pa);
-    if (!create_io_queues(iosq_pa, iocq_pa)) {
+    queue_init(&io_q, IO_QID);
+    if (!create_io_queues()) {
         return;
     }
-    bounce_va = dma_frame(&bounce_pa);
-    g_present = true;
+    bounce = dma_page_alloc();
+    ns.present = true;
 }
 
 bool nvme_present(void)
 {
-    return g_present;
+    return ns.present;
 }
 uint64_t nvme_blocks(void)
 {
-    return g_blocks;
+    return ns.blocks;
 }
 uint32_t nvme_block_size(void)
 {
-    return g_block_size;
+    return ns.block_size;
 }
 const char* nvme_model(void)
 {
-    return g_present ? g_model : "";
+    return ns.present ? ns.model : "";
 }
 bool nvme_irq_driven(void)
 {
-    return use_irq;
+    return io_irq.enabled;
 }
 uint64_t nvme_irq_count(void)
 {
-    return irq_count;
+    return io_irq.completions;
 }
 
 bool nvme_read(uint64_t lba, uint32_t count, void* buf)
 {
-    if (!g_present || count == 0) {
+    if (!ns.present || count == 0) {
         return false;
     }
-    uint32_t per_chunk = PAGE_SZ / g_block_size; // blocks that fit the bounce
+    uint32_t per_chunk = PAGE_SZ / ns.block_size; // blocks that fit the bounce
     uint8_t* out = buf;
     while (count > 0) {
         uint32_t n = count < per_chunk ? count : per_chunk;
         struct nvme_command cmd = {0};
         cmd.opcode = IO_READ;
         cmd.nsid = 1;
-        cmd.prp1 = bounce_pa; // one page, page-aligned: PRP1 alone suffices
+        cmd.prp1 = bounce.pa; // one page, page-aligned: PRP1 alone suffices
         cmd.cdw10 = (uint32_t)lba;
         cmd.cdw11 = (uint32_t)(lba >> 32);
         cmd.cdw12 = n - 1; // NLB is 0-based
         if (submit_io(&cmd) != 0) {
             return false;
         }
-        memcpy(out, bounce_va, (size_t)n * g_block_size);
-        out += (size_t)n * g_block_size;
+        memcpy(out, bounce.va, (size_t)n * ns.block_size);
+        out += (size_t)n * ns.block_size;
         lba += n;
         count -= n;
     }
@@ -509,26 +510,26 @@ bool nvme_read(uint64_t lba, uint32_t count, void* buf)
 
 bool nvme_write(uint64_t lba, uint32_t count, const void* buf)
 {
-    if (!g_present || count == 0) {
+    if (!ns.present || count == 0) {
         return false;
     }
-    uint32_t per_chunk = PAGE_SZ / g_block_size;
+    uint32_t per_chunk = PAGE_SZ / ns.block_size;
     const uint8_t* in = buf;
     while (count > 0) {
         uint32_t n = count < per_chunk ? count : per_chunk;
-        memcpy(bounce_va, in,
-               (size_t)n * g_block_size); // stage into the bounce
+        memcpy(bounce.va, in,
+               (size_t)n * ns.block_size); // stage into the bounce
         struct nvme_command cmd = {0};
         cmd.opcode = IO_WRITE;
         cmd.nsid = 1;
-        cmd.prp1 = bounce_pa;
+        cmd.prp1 = bounce.pa;
         cmd.cdw10 = (uint32_t)lba;
         cmd.cdw11 = (uint32_t)(lba >> 32);
         cmd.cdw12 = n - 1; // NLB is 0-based
         if (submit_io(&cmd) != 0) {
             return false;
         }
-        in += (size_t)n * g_block_size;
+        in += (size_t)n * ns.block_size;
         lba += n;
         count -= n;
     }
@@ -540,7 +541,7 @@ bool nvme_write(uint64_t lba, uint32_t count, const void* buf)
 // zero sectors (unusable as a block device) rather than corrupting addressing.
 static uint64_t nvme_bd_sectors(void)
 {
-    return (g_present && g_block_size == 512) ? g_blocks : 0;
+    return (ns.present && ns.block_size == 512) ? ns.blocks : 0;
 }
 static const blockdev nvme_dev = {nvme_read, nvme_write, nvme_bd_sectors};
 
