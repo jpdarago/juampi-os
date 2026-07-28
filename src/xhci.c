@@ -22,6 +22,7 @@
 #include <frames.h>
 #include <dma.h>
 #include <ktime.h>
+#include <idt.h> // register_interrupt_handler, interrupt_frame
 #include <utils.h>
 #include <blockdev.h>
 
@@ -47,6 +48,7 @@
 
 #define USBCMD_RUN (1u << 0)
 #define USBCMD_HCRST (1u << 1)
+#define USBCMD_INTE (1u << 2) // master interrupt enable
 #define USBSTS_HCH (1u << 0)  // HC halted
 #define USBSTS_CNR (1u << 11) // controller not ready
 #define CRCR_RCS (1u << 0)    // ring cycle state
@@ -59,10 +61,16 @@
 
 // Runtime registers: interrupter 0 lives at RTSOFF + 0x20.
 #define IR0 0x20
+#define IR_IMAN 0x00       // interrupter management
 #define IR_ERSTSZ 0x08     // event ring segment table size
 #define IR_ERSTBA 0x10     // ...base address (64-bit)
 #define IR_ERDP 0x18       // event ring dequeue pointer (64-bit)
+#define IMAN_IP (1u << 0)  // interrupt pending (write 1 to clear)
+#define IMAN_IE (1u << 1)  // interrupt enable
 #define ERDP_EHB (1u << 3) // event handler busy (write 1 to clear)
+
+// A free IDT vector (32-47 have stubs) for MSI-X event delivery.
+#define XHCI_VECTOR 46
 
 // TRB types (control bits 15:10), flags, and completion codes we act on.
 #define TRB_NORMAL 1
@@ -160,6 +168,14 @@ static struct {
     uint32_t cycle; // consumer cycle state
 } evt;
 
+// MSI-X interrupt state for interrupter 0. When enabled, event-ring waits nap
+// on hlt (woken by the interrupt) instead of busy-polling; consumption itself
+// stays with the synchronous waiter — the ISR's only job is the wakeup.
+static struct {
+    bool enabled;            // MSI-X up; false = polled fallback
+    volatile uint64_t count; // interrupts the ISR has taken
+} evt_irq;
+
 // The enumerated device (one, on the first enabled root port).
 static struct {
     bool found;
@@ -223,11 +239,28 @@ static void ring_push(ring* r, uint64_t param, uint32_t status,
     }
 }
 
+// MSI-X handler: clear the interrupt-pending flag (RW1C; auto-cleared for
+// MSI-X per spec, written defensively for quirky controllers) and count. The
+// waiter consumes the event ring itself — the interrupt's job is to end its
+// hlt nap.
+static void xhci_irq(interrupt_frame* f)
+{
+    (void)f;
+    w32(rt, IR0 + IR_IMAN, IMAN_IP | IMAN_IE);
+    evt_irq.count++;
+}
+
 // Wait for the next event TRB (until the absolute `deadline`, in ktime_ms
 // time) and copy it out, advancing the dequeue pointer and acknowledging it via
-// ERDP. Returns false on timeout.
+// ERDP. Returns false on timeout. When MSI-X is up the wait naps on `sti; hlt`
+// with the ring checked under cli — the STI shadow makes enable-and-halt
+// atomic, so an event landing between check and sleep still wakes us; the
+// polled fallback spins on pause.
 static bool next_event(struct trb* out, uint64_t deadline)
 {
+    if (evt_irq.enabled) {
+        __asm__ __volatile__("cli");
+    }
     for (;;) {
         volatile struct trb* e = &evt.trb[evt.deq];
         if ((e->control & TRB_CYCLE) == evt.cycle) {
@@ -241,12 +274,22 @@ static bool next_event(struct trb* out, uint64_t deadline)
                 evt.cycle ^= 1;
             }
             w64(rt, IR0 + IR_ERDP, consumed | ERDP_EHB);
+            if (evt_irq.enabled) {
+                __asm__ __volatile__("sti");
+            }
             return true;
         }
         if (ktime_ms() > deadline) {
+            if (evt_irq.enabled) {
+                __asm__ __volatile__("sti");
+            }
             return false;
         }
-        __asm__ __volatile__("pause");
+        if (evt_irq.enabled) {
+            __asm__ __volatile__("sti; hlt; cli");
+        } else {
+            __asm__ __volatile__("pause");
+        }
     }
 }
 
@@ -759,8 +802,16 @@ void xhci_init(void)
     w64(rt, IR0 + IR_ERDP, evt.pa | ERDP_EHB);
     w64(rt, IR0 + IR_ERSTBA, erst_mem.pa);
 
+    // MSI-X: deliver interrupter-0 events as interrupts so event waits can
+    // sleep on hlt; without it the waits fall back to polling.
+    evt_irq.enabled = pci_msix_setup(a, XHCI_VECTOR);
+    if (evt_irq.enabled) {
+        register_interrupt_handler(XHCI_VECTOR, xhci_irq);
+        w32(rt, IR0 + IR_IMAN, IMAN_IP | IMAN_IE); // enable interrupter 0
+    }
+
     // Run, then confirm the ring machinery with a NO-OP command round-trip.
-    w32(op, OP_USBCMD, USBCMD_RUN);
+    w32(op, OP_USBCMD, USBCMD_RUN | (evt_irq.enabled ? USBCMD_INTE : 0));
     deadline = ktime_ms() + 1000;
     while (r32(op, OP_USBSTS) & USBSTS_HCH) {
         if (ktime_ms() > deadline) {
@@ -831,4 +882,12 @@ uint32_t xhci_msc_block_size(void)
 const char* xhci_fail_reason(void)
 {
     return fail_reason;
+}
+bool xhci_irq_driven(void)
+{
+    return evt_irq.enabled;
+}
+uint64_t xhci_irq_count(void)
+{
+    return evt_irq.count;
 }

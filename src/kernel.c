@@ -386,13 +386,15 @@ void kmain(void)
             console_print("juampiOS: xhci absent\n");
         }
     } else if (xhci_device_found()) {
-        console_printf(
-                "juampiOS: xhci up, %u ports; device %04x:%04x class=%u\n",
-                xhci_ports(), xhci_vid(), xhci_pid(), xhci_class());
+        console_printf("juampiOS: xhci up, %u ports irq=%s; device %04x:%04x "
+                       "class=%u\n",
+                       xhci_ports(), xhci_irq_driven() ? "msix" : "polled",
+                       xhci_vid(), xhci_pid(), xhci_class());
         if (xhci_msc_ready()) {
-            console_printf(
-                    "juampiOS: usb mass storage: %lu blocks x %u bytes\n",
-                    xhci_msc_blocks(), xhci_msc_block_size());
+            console_printf("juampiOS: usb mass storage: %lu blocks x %u bytes "
+                           "(events=%lu)\n",
+                           xhci_msc_blocks(), xhci_msc_block_size(),
+                           xhci_irq_count());
         } else if (xhci_fail_reason() != NULL) {
             console_printf("juampiOS: usb mass storage FAILED (%s)\n",
                            xhci_fail_reason());

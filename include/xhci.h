@@ -35,4 +35,9 @@ const blockdev* xhci_msc_blockdev(void);
 // Surfaced in the boot report so a real-hardware failure isn't silent.
 const char* xhci_fail_reason(void);
 
+// Whether event-ring waits are woken by MSI-X interrupts (false: the polled
+// fallback), and the count of interrupts taken (0 in polled mode).
+bool xhci_irq_driven(void);
+uint64_t xhci_irq_count(void);
+
 #endif
