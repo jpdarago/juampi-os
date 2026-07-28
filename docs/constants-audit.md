@@ -1,7 +1,7 @@
 ---
 title: Hardcoded-constants audit
-tags: [audit, cleanup, magic-numbers, needs-work]
-status: in progress
+tags: [audit, cleanup, magic-numbers, done]
+status: done
 milestone: M11
 related: ["[[reentrancy-audit]]", "[[Index]]"]
 ---
@@ -75,7 +75,14 @@ separate — it's the heap, not device MMIO). → *fix (b1)*
   (`0xd4d4d4,0x6ac46a,…`) is in both `term.c` and `ui.c`; `0x0e1116` (bg) and
   `0x9ecbff` (cursor) recur in `term.c`+`editor.c`. → one `theme.h`.
 
-## 4. POLISH — name the magic (readability, not correctness)
+## 4. POLISH — name the magic (readability, not correctness) — ☑ done
+
+> [!note] Resolved in `4d69557`. Named the network ports, DHCP cookie /
+> BOOTREQUEST-REPLY, e1000 PCI IDs + TX bit-packing, ELF magic, 16550 UART
+> setup bytes, i8042 commands, and the CPUID leaves. Deliberately left with
+> their existing comments (a name wouldn't beat them): the GDT descriptor
+> composites, the x2APIC `0x800 + off/16` index math, the 2MiB/1GiB
+> page-offset masks, and the QOI hash coefficients (already in `QOI_HASH`).
 
 Stable spec values used raw; often commented, so low urgency:
 - **Ports:** DHCP 67/68, DNS 53, HTTP/HTTPS 80/443; DHCP magic cookie
@@ -106,7 +113,9 @@ Stable spec values used raw; often commented, so low urgency:
 3. ☑ DNS/QOI header structs (same family as b2, smaller). *(commit `f262b94`)*
 4. ☑ The dedup pass (§3) — `font.h`, `theme.h`, `lineedit.h`, and
    `KERNEL_STACK_SZ` in `sched.h`. Pure refactor. *(commit `54ae5c9`)*
-5. ☐ Opportunistic naming (§4).
+5. ☑ Opportunistic naming (§4). *(commit `4d69557`)*
+
+All five fix-order items are complete; this audit is closed.
 
 ## Related
 
