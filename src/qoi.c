@@ -20,6 +20,16 @@
 // A pixel's slot in the 64-entry running cache.
 #define QOI_HASH(r, g, b, a) ((r) * 3 + (g) * 5 + (b) * 7 + (a) * 11)
 
+// The 14-byte file header. QOI stores its multi-byte integers big-endian, so
+// width/height are read through be32() rather than as native loads.
+struct qoi_header {
+    char magic[4];      // "qoif"
+    uint32_t width;     // big-endian
+    uint32_t height;    // big-endian
+    uint8_t channels;   // 3 = RGB, 4 = RGBA
+    uint8_t colorspace; // 0 = sRGB with linear alpha, 1 = all linear
+} __attribute__((packed));
+
 static uint32_t be32(const uint8_t* p)
 {
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
@@ -30,13 +40,15 @@ uint32_t* qoi_decode(allocator* mem, const void* data, size_t size,
                      qoi_image* img)
 {
     const uint8_t* p = data;
-    // Header (14 bytes) + 8-byte end marker is the smallest possible file.
-    if (size < 14 + 8 || p[0] != 'q' || p[1] != 'o' || p[2] != 'i' ||
-        p[3] != 'f') {
+    // Header + 8-byte end marker is the smallest possible file.
+    const struct qoi_header* hdr = data;
+    if (size < sizeof(struct qoi_header) + 8 || hdr->magic[0] != 'q' ||
+        hdr->magic[1] != 'o' || hdr->magic[2] != 'i' || hdr->magic[3] != 'f') {
         return NULL;
     }
-    uint32_t w = be32(p + 4), h = be32(p + 8);
-    uint8_t channels = p[12];
+    uint32_t w = be32((const uint8_t*)&hdr->width);
+    uint32_t h = be32((const uint8_t*)&hdr->height);
+    uint8_t channels = hdr->channels;
     if (w == 0 || h == 0 || (channels != 3 && channels != 4)) {
         return NULL;
     }
@@ -52,7 +64,7 @@ uint32_t* qoi_decode(allocator* mem, const void* data, size_t size,
     uint8_t r = 0, g = 0, b = 0, a = 255;
     uint8_t cache[64][4] = {{0}};
     uint64_t run = 0;
-    size_t pos = 14;
+    size_t pos = sizeof(struct qoi_header);
     size_t chunks_end = size - 8; // don't read into the end marker
 
     for (uint64_t px = 0; px < npixels; px++) {

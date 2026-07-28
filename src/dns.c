@@ -5,9 +5,39 @@
 
 #include <dns.h>
 #include <net.h>
+#include <net_internal.h> // htons / ntohs
 #include <str.h>
 
 #include <stddef.h> // NULL
+
+// DNS message layout (RFC 1035). The header is fixed; questions and resource
+// records that follow it carry variable-length names, so only their fixed parts
+// are structs. All multi-byte fields are big-endian (htons/ntohs).
+struct dns_header {
+    uint16_t id;
+    uint16_t flags;
+    uint16_t qdcount; // questions
+    uint16_t ancount; // answer RRs
+    uint16_t nscount; // authority RRs
+    uint16_t arcount; // additional RRs
+} __attribute__((packed));
+
+struct dns_question { // the fixed trailer after a question's name
+    uint16_t qtype;
+    uint16_t qclass;
+} __attribute__((packed));
+
+struct dns_rr { // the fixed part of a resource record, after its name
+    uint16_t type;
+    uint16_t rclass;
+    uint32_t ttl;
+    uint16_t rdlength;
+} __attribute__((packed));
+
+#define DNS_TYPE_A 1       // IPv4 address record
+#define DNS_CLASS_IN 1     // Internet class
+#define DNS_FLAG_RD 0x0100 // recursion desired
+#define DNS_RCODE_MASK 0x000F
 
 static uint16_t nonce16(void)
 {
@@ -20,14 +50,14 @@ static uint16_t nonce16(void)
 // name.
 static int build_query(uint8_t* q, uint16_t id, const char* host)
 {
-    q[0] = (uint8_t)(id >> 8);
-    q[1] = (uint8_t)id;
-    q[2] = 0x01; // RD (recursion desired)
-    q[3] = 0x00;
-    q[4] = 0x00;
-    q[5] = 0x01; // qdcount = 1
-    q[6] = q[7] = q[8] = q[9] = q[10] = q[11] = 0;
-    int o = 12;
+    struct dns_header* h = (struct dns_header*)q;
+    h->id = htons(id);
+    h->flags = htons(DNS_FLAG_RD);
+    h->qdcount = htons(1);
+    h->ancount = 0;
+    h->nscount = 0;
+    h->arcount = 0;
+    int o = sizeof(struct dns_header);
     str rest = str_from(host);
     while (rest.len > 0) {
         str label;
@@ -40,12 +70,11 @@ static int build_query(uint8_t* q, uint16_t id, const char* host)
             q[o++] = (uint8_t)label.data[i];
         }
     }
-    q[o++] = 0;    // root label
-    q[o++] = 0x00; // QTYPE = A
-    q[o++] = 0x01;
-    q[o++] = 0x00; // QCLASS = IN
-    q[o++] = 0x01;
-    return o;
+    q[o++] = 0; // root label
+    struct dns_question* qn = (struct dns_question*)(q + o);
+    qn->qtype = htons(DNS_TYPE_A);
+    qn->qclass = htons(DNS_CLASS_IN);
+    return o + (int)sizeof(struct dns_question);
 }
 
 // Advance past a DNS name at offset `o` (labels or a compression pointer).
@@ -67,37 +96,42 @@ static int skip_name(const uint8_t* m, int len, int o)
 static bool parse_answer(const uint8_t* m, int len, uint16_t id,
                          uint32_t* out_ip)
 {
-    if (len < 12 || (((uint16_t)m[0] << 8) | m[1]) != id) {
+    if (len < (int)sizeof(struct dns_header)) {
         return false;
     }
-    if ((m[3] & 0x0F) != 0) {
+    const struct dns_header* h = (const struct dns_header*)m;
+    if (ntohs(h->id) != id) {
+        return false;
+    }
+    if ((ntohs(h->flags) & DNS_RCODE_MASK) != 0) {
         return false; // non-zero RCODE (e.g. NXDOMAIN)
     }
-    int qd = (m[4] << 8) | m[5];
-    int an = (m[6] << 8) | m[7];
-    int o = 12;
+    int qd = ntohs(h->qdcount);
+    int an = ntohs(h->ancount);
+    int o = sizeof(struct dns_header);
     for (int i = 0; i < qd; i++) {
         o = skip_name(m, len, o);
-        if (o < 0 || o + 4 > len) {
+        if (o < 0 || o + (int)sizeof(struct dns_question) > len) {
             return false;
         }
-        o += 4; // QTYPE + QCLASS
+        o += sizeof(struct dns_question); // QTYPE + QCLASS
     }
     for (int i = 0; i < an; i++) {
         o = skip_name(m, len, o);
-        if (o < 0 || o + 10 > len) {
+        if (o < 0 || o + (int)sizeof(struct dns_rr) > len) {
             return false;
         }
-        int type = (m[o] << 8) | m[o + 1];
-        int rdlen = (m[o + 8] << 8) | m[o + 9];
-        o += 10;
+        const struct dns_rr* rr = (const struct dns_rr*)(m + o);
+        int type = ntohs(rr->type);
+        int rdlen = ntohs(rr->rdlength);
+        o += sizeof(struct dns_rr);
         if (o + rdlen > len) {
             return false;
         }
-        if (type == 1 && rdlen == 4) { // A record
-            // Assemble the 4 big-endian RDATA bytes into a host-order address
-            // (an ntohl by hand — endian-agnostic and no unaligned 4-byte load;
-            // matches the byte-wise ntohs reads used for the 16-bit fields).
+        if (type == DNS_TYPE_A && rdlen == 4) { // A record
+            // Assemble the 4 big-endian RDATA bytes into a host-order address by
+            // hand — an ntohl that stays endian-agnostic and avoids an unaligned
+            // 4-byte load into the middle of the packet buffer.
             *out_ip = ((uint32_t)m[o] << 24) | ((uint32_t)m[o + 1] << 16) |
                       ((uint32_t)m[o + 2] << 8) | (uint32_t)m[o + 3];
             return true;
@@ -144,7 +178,7 @@ bool net_resolve(const char* host, uint32_t timeout_ms, uint32_t* out_ip)
             }
             uint8_t r[512];
             int n = net_udp_recvfrom(sock, slot, r, sizeof r, NULL, NULL);
-            if (n >= 12) {
+            if (n >= (int)sizeof(struct dns_header)) {
                 ok = parse_answer(r, n, id, out_ip);
             }
         }
