@@ -23,6 +23,8 @@
 #include <arena.h>
 #include <font.h>
 #include <theme.h>
+#include <qoi.h>
+#include <kmodule.h>
 
 #include <printf/printf.h> // snprintf for the editor window title
 #include <stdint.h>
@@ -775,11 +777,40 @@ void ui_fullscreen_end(void)
     console_set_sink(term_write, desk_term);
 }
 
+// The desktop wallpaper logo: the checked-in boot QOI (its background is
+// flood-filled transparent, so gfx_blit composes it over the desktop colour).
+// Decoded once; NULL if the module is missing or the decode fails.
+static uint32_t* logo_pixels;
+static qoi_image logo_img;
+
+static void desktop_logo_load(void)
+{
+    size_t size = 0;
+    const void* data = kmodule_find("logo.qoi", &size);
+    if (data != NULL) {
+        logo_pixels = qoi_decode(&heap_default()->base, data, size, &logo_img);
+    }
+}
+
+// Blit the logo centred on the screen, behind the windows (drawn each frame
+// right after the background fill, so windows compose on top of it).
+static void desktop_logo_draw(void)
+{
+    if (logo_pixels == NULL) {
+        return;
+    }
+    int lx = ((int)gfx_width() - (int)logo_img.width) / 2;
+    int ly = ((int)gfx_height() - (int)logo_img.height) / 2;
+    gfx_blit(gfx_screen(), lx, ly, logo_img.width, logo_img.height,
+             logo_pixels);
+}
+
 void ui_desktop_run(void)
 {
     if (!gfx_available()) {
         return; // headless: caller falls back to the classic text REPL
     }
+    desktop_logo_load();
     mu_Context* ctx = ui_loop_ctx();
     ui_arena ta = ui_arena_new(TERM_ARENA_SIZE); // desktop-lifetime, not freed
     desk_term = term_open(&ta.a.base);
@@ -828,6 +859,7 @@ void ui_desktop_run(void)
         gfx_clip_reset(gfx_screen());
         gfx_fill(gfx_screen(), 0, 0, (int)gfx_width(), (int)gfx_height(),
                  DESKTOP_BG);
+        desktop_logo_draw(); // centred wallpaper, behind the windows
         render(ctx);
         gfx_clip_reset(gfx_screen());
         draw_cursor(cur_x, cur_y);
