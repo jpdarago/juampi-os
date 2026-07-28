@@ -699,7 +699,7 @@ bool parallel_selftest(void)
     const char* code = lua_tolstring(Lb, -1, &len);
 
     for (uint32_t c = 0; c < nworkers; c++) {
-        if (c == bsp) {
+        if (c == bsp || !smp_online(c)) { // skip cores that never came up
             continue;
         }
         mval a = {.type = M_INT, .u.i = c};
@@ -707,7 +707,7 @@ bool parallel_selftest(void)
     }
     bool ok = true;
     for (uint32_t c = 0; c < nworkers; c++) {
-        if (c == bsp) {
+        if (c == bsp || !smp_online(c)) { // don't join a core that never started
             continue;
         }
         mval r;

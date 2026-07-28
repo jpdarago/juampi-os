@@ -140,6 +140,11 @@ void smp_init(allocator* mem)
     console_print(" cores online\n");
 }
 
+bool smp_online(uint32_t index)
+{
+    return index < ncpus && cpus[index].ready != 0;
+}
+
 void smp_run_on(uint32_t index, void (*fn)(void* arg), void* arg)
 {
     cpu* c = &cpus[index];

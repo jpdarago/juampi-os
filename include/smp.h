@@ -5,6 +5,7 @@
 #include <gdt64.h>
 
 #include <stdint.h>
+#include <stdbool.h>
 
 // Symmetric multiprocessing: bring up the application processors (APs) that
 // Limine started for us and park them on a work mailbox. This is the M8
@@ -38,9 +39,12 @@ typedef struct cpu {
 // uniprocessor / when Limine reports no MP response (records one core).
 void smp_init(allocator* mem);
 
-uint64_t smp_cpu_count(void);   // number of cores online (>= 1)
+uint64_t smp_cpu_count(void);   // number of cores enumerated (>= 1)
 uint32_t smp_bsp_index(void);   // index of the bootstrap processor
 struct cpu* smp_this_cpu(void); // the core executing this call
+// Whether core `index` actually checked in during bring-up. Dispatch/join only
+// to online cores — an AP that never started would spin smp_join() forever.
+bool smp_online(uint32_t index);
 
 // Post fn(arg) to core `index` (must not be the caller's own core) and, later,
 // block until it has finished. One outstanding job per core.
