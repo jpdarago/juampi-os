@@ -80,10 +80,23 @@
 #define TRB_IDT (1u << 6)     // immediate data (setup stage)
 #define TRB_DIR_IN (1u << 16) // data/status stage: device-to-host
 #define TRT_IN (3u << 16)     // setup stage: an IN data stage follows
+#define TRB_CONFIGURE_ENDPOINT 12
 #define EP_TYPE_CONTROL (4u << 3)
+#define EP_TYPE_BULK_OUT (2u << 3)
+#define EP_TYPE_BULK_IN (6u << 3)
 #define COMPLETION_CODE(status) (((status) >> 24) & 0xFF)
 #define CC_SUCCESS 1
 #define CC_SHORT_PACKET 13
+
+// USB descriptor types and the mass-storage (Bulk-Only Transport) class codes.
+#define DESC_DEVICE 1
+#define DESC_CONFIG 2
+#define DESC_INTERFACE 4
+#define DESC_ENDPOINT 5
+#define USB_CLASS_MSC 8
+#define MSC_SUBCLASS_SCSI 6
+#define MSC_PROTO_BOT 0x50
+#define EP_ATTR_BULK 2 // bmAttributes transfer type
 
 #define RING_TRBS 256 // one page of 16-byte TRBs
 
@@ -134,6 +147,16 @@ static uint32_t evt_cycle; // consumer cycle state
 static bool g_dev_found;
 static uint16_t g_vid, g_pid;
 static uint8_t g_class;
+static uint32_t g_speed, g_port; // of the enumerated device (for CONFIGURE_EP)
+
+// A configured Bulk-Only-Transport mass-storage device (milestone 2): its slot,
+// the two bulk endpoints (each a transfer ring + doorbell target DCI + max
+// packet size), and whether setup succeeded.
+static uint32_t msc_slot;
+static ring bulk_in, bulk_out;
+static uint32_t bulk_in_dci, bulk_out_dci;
+static uint16_t bulk_in_mps, bulk_out_mps;
+static bool msc_ready;
 
 static uint32_t r32(volatile uint8_t* base, uint32_t o)
 {
@@ -270,6 +293,127 @@ static bool control_in(uint32_t slot, uint64_t setup, uintptr_t data_pa,
     return cc == CC_SUCCESS || cc == CC_SHORT_PACKET;
 }
 
+// A no-data control transfer (e.g. SET_CONFIGURATION): SETUP then a STATUS
+// stage in the IN direction. Returns false on timeout/non-success.
+static bool control_no_data(uint32_t slot, uint64_t setup)
+{
+    ring_push(&ep0, setup, 8, TRB_TYPE(TRB_SETUP_STAGE) | TRB_IDT);
+    ring_push(&ep0, 0, 0, TRB_TYPE(TRB_STATUS_STAGE) | TRB_DIR_IN | TRB_IOC);
+    __asm__ __volatile__("" ::: "memory");
+    db[slot] = 1;
+    struct trb ev;
+    if (!wait_event(TRB_TRANSFER_EVENT, &ev, 1000)) {
+        return false;
+    }
+    uint8_t cc = COMPLETION_CODE(ev.status);
+    return cc == CC_SUCCESS || cc == CC_SHORT_PACKET;
+}
+
+// GET_DESCRIPTOR(type<<8 | index) of `len` bytes into `buf_pa`.
+static bool get_descriptor(uint32_t slot, uint16_t value, uintptr_t buf_pa,
+                           uint16_t len)
+{
+    uint64_t setup = (uint64_t)0x80 | ((uint64_t)0x06 << 8) |
+                     ((uint64_t)value << 16) | ((uint64_t)len << 48);
+    return control_in(slot, setup, buf_pa, len);
+}
+
+// Configure the mass-storage interface: read the configuration descriptor, find
+// the BOT interface and its two bulk endpoints, add them with
+// CONFIGURE_ENDPOINT and select the configuration. Returns true when the device
+// is ready for BOT.
+static bool msc_setup(uint32_t slot, uint16_t dev_max_packet0)
+{
+    (void)dev_max_packet0;
+    uintptr_t cfg_pa;
+    uint8_t* cfg = dma_page(&cfg_pa);
+    if (!get_descriptor(slot, (uint16_t)(DESC_CONFIG << 8), cfg_pa, 255)) {
+        return false;
+    }
+    uint16_t total = (uint16_t)(cfg[2] | (cfg[3] << 8));
+    uint8_t config_value = cfg[5];
+    if (total > PAGE_SZ) {
+        total = PAGE_SZ;
+    }
+
+    // Walk the descriptor list for the BOT interface and its bulk endpoints.
+    bool in_msc = false, have_in = false, have_out = false;
+    uint8_t in_ep = 0, out_ep = 0;
+    for (uint32_t o = 0; o + 2 <= total;) {
+        uint8_t blen = cfg[o], btype = cfg[o + 1];
+        if (blen < 2) {
+            break;
+        }
+        if (btype == DESC_INTERFACE) {
+            in_msc = cfg[o + 5] == USB_CLASS_MSC &&
+                     cfg[o + 6] == MSC_SUBCLASS_SCSI &&
+                     cfg[o + 7] == MSC_PROTO_BOT;
+        } else if (btype == DESC_ENDPOINT && in_msc) {
+            uint8_t addr = cfg[o + 2];
+            uint16_t mps = (uint16_t)(cfg[o + 4] | (cfg[o + 5] << 8));
+            if ((cfg[o + 3] & 0x3) == EP_ATTR_BULK) {
+                if (addr & 0x80) {
+                    have_in = true;
+                    in_ep = addr;
+                    bulk_in_mps = mps;
+                } else {
+                    have_out = true;
+                    out_ep = addr;
+                    bulk_out_mps = mps;
+                }
+            }
+        }
+        o += blen;
+    }
+    if (!have_in || !have_out) {
+        return false; // not a BOT mass-storage device
+    }
+    // Doorbell context index for an endpoint: number*2 + (IN ? 1 : 0).
+    bulk_in_dci = (uint32_t)((in_ep & 0x0F) * 2 + 1);
+    bulk_out_dci = (uint32_t)((out_ep & 0x0F) * 2);
+    ring_init(&bulk_in);
+    ring_init(&bulk_out);
+
+    // Input context: add the slot + both bulk endpoints, describe each
+    // endpoint.
+    uintptr_t input_pa;
+    uint32_t* input = dma_page(&input_pa);
+    uint32_t dwpc = ctx_sz / 4;
+    uint32_t max_dci = bulk_in_dci > bulk_out_dci ? bulk_in_dci : bulk_out_dci;
+    input[1] =
+            1u | (1u << bulk_in_dci) | (1u << bulk_out_dci); // A0 + endpoints
+    uint32_t* slot_ctx = input + dwpc;
+    slot_ctx[0] = (g_speed << 20) | (max_dci << 27);
+    slot_ctx[1] = (g_port << 16);
+    uint32_t* oc = input + bulk_out_dci * dwpc;
+    oc[1] = EP_TYPE_BULK_OUT | (3u << 1) | ((uint32_t)bulk_out_mps << 16);
+    oc[2] = (uint32_t)(bulk_out.pa | 1);
+    oc[3] = (uint32_t)(bulk_out.pa >> 32);
+    oc[4] = bulk_out_mps;
+    uint32_t* ic = input + bulk_in_dci * dwpc;
+    ic[1] = EP_TYPE_BULK_IN | (3u << 1) | ((uint32_t)bulk_in_mps << 16);
+    ic[2] = (uint32_t)(bulk_in.pa | 1);
+    ic[3] = (uint32_t)(bulk_in.pa >> 32);
+    ic[4] = bulk_in_mps;
+
+    struct trb ev;
+    if (!run_command(input_pa, TRB_TYPE(TRB_CONFIGURE_ENDPOINT) | (slot << 24),
+                     &ev) ||
+        COMPLETION_CODE(ev.status) != CC_SUCCESS) {
+        return false;
+    }
+    // SET_CONFIGURATION(config_value): host-to-device standard request, no
+    // data.
+    uint64_t setup = (uint64_t)0x00 | ((uint64_t)0x09 << 8) |
+                     ((uint64_t)config_value << 16);
+    if (!control_no_data(slot, setup)) {
+        return false;
+    }
+    msc_slot = slot;
+    msc_ready = true;
+    return true;
+}
+
 // Reset the first connected root port and address the device on it, then read
 // its device descriptor. Stores vendor/product/class on success.
 static void enumerate(void)
@@ -296,6 +440,8 @@ static void enumerate(void)
     if (port == 0) {
         return; // nothing connected/enabled
     }
+    g_speed = speed;
+    g_port = port;
 
     struct trb ev;
     if (!run_command(0, TRB_TYPE(TRB_ENABLE_SLOT), &ev) ||
@@ -346,6 +492,9 @@ static void enumerate(void)
     g_vid = (uint16_t)(buf[8] | (buf[9] << 8));
     g_pid = (uint16_t)(buf[10] | (buf[11] << 8));
     g_dev_found = true;
+
+    // If it is a Bulk-Only-Transport mass-storage device, configure it.
+    msc_setup(slot, buf[7]);
 }
 
 void xhci_init(void)
@@ -454,4 +603,8 @@ uint16_t xhci_pid(void)
 uint8_t xhci_class(void)
 {
     return g_class;
+}
+bool xhci_msc_ready(void)
+{
+    return msc_ready;
 }

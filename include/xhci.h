@@ -22,4 +22,8 @@ uint16_t xhci_vid(void);
 uint16_t xhci_pid(void);
 uint8_t xhci_class(void);
 
+// Whether the enumerated device is a configured Bulk-Only-Transport
+// mass-storage device (milestone 2 stops here in part 1).
+bool xhci_msc_ready(void);
+
 #endif

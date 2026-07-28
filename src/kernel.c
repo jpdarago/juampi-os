@@ -389,8 +389,9 @@ void kmain(void)
         console_print("juampiOS: xhci absent\n");
     } else if (xhci_device_found()) {
         console_printf(
-                "juampiOS: xhci up, %u ports; device %04x:%04x class=%u\n",
-                xhci_ports(), xhci_vid(), xhci_pid(), xhci_class());
+                "juampiOS: xhci up, %u ports; device %04x:%04x class=%u%s\n",
+                xhci_ports(), xhci_vid(), xhci_pid(), xhci_class(),
+                xhci_msc_ready() ? " (mass storage configured)" : "");
     } else {
         console_printf("juampiOS: xhci up, %u ports (no device enumerated)\n",
                        xhci_ports());
