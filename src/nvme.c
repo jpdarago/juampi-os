@@ -100,14 +100,18 @@ struct nvme_completion {
     uint16_t status;
 } __attribute__((packed));
 
-// IDENTIFY CONTROLLER: only the leading fields up to the model string are laid
-// out (the buffer is a full 4 KiB page; the rest is unused here).
+// IDENTIFY CONTROLLER: only the fields through MDTS are laid out (the buffer
+// is a full 4 KiB page; the rest is unused here).
 struct nvme_id_ctrl {
     uint16_t vid;
     uint16_t ssvid;
     char sn[20];
     char mn[40]; // model number, space-padded ASCII
     char fr[8];
+    uint8_t rab;
+    uint8_t ieee[3];
+    uint8_t cmic;
+    uint8_t mdts; // max transfer = 2^mdts pages (0 = no limit)
 } __attribute__((packed));
 
 // IDENTIFY NAMESPACE: size, the in-use LBA format index, and the format table.
@@ -150,13 +154,15 @@ static struct {
     bool present;
     uint64_t blocks;
     uint32_t block_size;
+    uint32_t max_cmd_blocks; // per-command cap (PRP list size + MDTS)
     char model[41];
 } ns;
 
 static nvme_queue admin_q;
 static nvme_queue io_q;
 
-static dma_buf bounce; // one-page DMA staging buffer for reads/writes
+static dma_buf bounce;   // one-page staging buffer (fallback path)
+static dma_buf prp_list; // one page of PRP entries for multi-page transfers
 
 // MSI-X interrupt state. When the controller advertises MSI-X, I/O completions
 // arrive as interrupts instead of being polled: the ISR drains the I/O CQ and
@@ -416,7 +422,7 @@ void nvme_init(void)
         return;
     }
 
-    // IDENTIFY the controller for the model string.
+    // IDENTIFY the controller for the model string and its transfer limit.
     dma_buf id = identify(CNS_CONTROLLER, 0);
     if (id.va == NULL) {
         return;
@@ -427,6 +433,7 @@ void nvme_init(void)
     for (int i = 39; i >= 0 && ns.model[i] == ' '; i--) {
         ns.model[i] = '\0'; // trim the space padding
     }
+    uint8_t mdts = ctrl->mdts;
     dma_page_free(id);
 
     // IDENTIFY namespace 1 for its size and block size.
@@ -443,16 +450,27 @@ void nvme_init(void)
         return; // unsupported format for the one-page bounce path
     }
 
+    // Per-command transfer cap: one PRP-list page covers a partial first page
+    // plus 512 list entries (2 MiB), further limited by the controller's MDTS
+    // (2^mdts pages; 0 = no limit).
+    uint32_t max_bytes = 512u * PAGE_SZ;
+    if (mdts != 0 && mdts < 9) {
+        max_bytes = (1u << mdts) * PAGE_SZ;
+    }
+    ns.max_cmd_blocks = max_bytes / ns.block_size;
+
     // Set up MSI-X (if advertised) before creating the I/O CQ, so the CQ can be
     // created with interrupts enabled; otherwise the queue stays polled.
     io_irq.enabled = msix_setup(a);
 
-    // The single I/O queue pair, plus the bounce buffer reads land in.
+    // The single I/O queue pair, the fallback bounce buffer, and the PRP list
+    // used by multi-page direct transfers.
     queue_init(&io_q, IO_QID);
     if (!create_io_queues()) {
         return;
     }
     bounce = dma_page_alloc();
+    prp_list = dma_page_alloc();
     ns.present = true;
 }
 
@@ -481,59 +499,97 @@ uint64_t nvme_irq_count(void)
     return io_irq.completions;
 }
 
-bool nvme_read(uint64_t lba, uint32_t count, void* buf)
+// Point the command's data pointers straight at the caller's buffer: PRP1
+// takes the first page (any offset), then either one more page in PRP2 or a
+// list of page-aligned entries in the persistent PRP-list page. NVMe's PRP
+// scheme is exactly a page-granular scatter list, so a virtually-contiguous
+// kernel buffer needs no physical contiguity — each page is looked up
+// individually. Returns false if any page is unmapped (caller falls back to
+// the bounce buffer).
+static bool build_prps(struct nvme_command* cmd, const uint8_t* va, size_t len)
+{
+    uintptr_t pa = physical_address(kernel_dir, (uintptr_t)va);
+    if (pa == (uintptr_t)-1) {
+        return false;
+    }
+    cmd->prp1 = pa;
+    size_t first = PAGE_SZ - ((uintptr_t)va & (PAGE_SZ - 1));
+    if (len <= first) {
+        cmd->prp2 = 0;
+        return true;
+    }
+    const uint8_t* p = va + first; // page-aligned remainder
+    size_t pages = (len - first + PAGE_SZ - 1) / PAGE_SZ;
+    if (pages == 1) {
+        uintptr_t pa2 = physical_address(kernel_dir, (uintptr_t)p);
+        if (pa2 == (uintptr_t)-1) {
+            return false;
+        }
+        cmd->prp2 = pa2;
+        return true;
+    }
+    uint64_t* list = prp_list.va;
+    for (size_t i = 0; i < pages; i++) {
+        uintptr_t e = physical_address(kernel_dir, (uintptr_t)p + i * PAGE_SZ);
+        if (e == (uintptr_t)-1) {
+            return false;
+        }
+        list[i] = e;
+    }
+    cmd->prp2 = prp_list.pa;
+    return true;
+}
+
+// Shared read/write engine. The fast path DMAs directly to/from the caller's
+// buffer via PRPs (up to ns.max_cmd_blocks per command); if a page of the
+// buffer is not kernel-mapped, that chunk is staged through the one-page
+// bounce buffer instead.
+static bool nvme_rw(uint64_t lba, uint32_t count, uint8_t* buf, bool write)
 {
     if (!ns.present || count == 0) {
         return false;
     }
-    uint32_t per_chunk = PAGE_SZ / ns.block_size; // blocks that fit the bounce
-    uint8_t* out = buf;
     while (count > 0) {
-        uint32_t n = count < per_chunk ? count : per_chunk;
+        uint32_t n = count < ns.max_cmd_blocks ? count : ns.max_cmd_blocks;
         struct nvme_command cmd = {0};
-        cmd.opcode = IO_READ;
+        cmd.opcode = write ? IO_WRITE : IO_READ;
         cmd.nsid = 1;
-        cmd.prp1 = bounce.pa; // one page, page-aligned: PRP1 alone suffices
+        bool direct = build_prps(&cmd, buf, (size_t)n * ns.block_size);
+        if (!direct) {
+            uint32_t per = PAGE_SZ / ns.block_size;
+            n = n < per ? n : per;
+            if (write) {
+                memcpy(bounce.va, buf, (size_t)n * ns.block_size);
+            }
+            cmd.prp1 = bounce.pa;
+            cmd.prp2 = 0;
+        }
         cmd.cdw10 = (uint32_t)lba;
         cmd.cdw11 = (uint32_t)(lba >> 32);
         cmd.cdw12 = n - 1; // NLB is 0-based
         if (submit_io(&cmd) != 0) {
             return false;
         }
-        memcpy(out, bounce.va, (size_t)n * ns.block_size);
-        out += (size_t)n * ns.block_size;
+        if (!direct && !write) {
+            memcpy(buf, bounce.va, (size_t)n * ns.block_size);
+        }
+        buf += (size_t)n * ns.block_size;
         lba += n;
         count -= n;
     }
     return true;
 }
 
+bool nvme_read(uint64_t lba, uint32_t count, void* buf)
+{
+    return nvme_rw(lba, count, buf, false);
+}
+
 bool nvme_write(uint64_t lba, uint32_t count, const void* buf)
 {
-    if (!ns.present || count == 0) {
-        return false;
-    }
-    uint32_t per_chunk = PAGE_SZ / ns.block_size;
-    const uint8_t* in = buf;
-    while (count > 0) {
-        uint32_t n = count < per_chunk ? count : per_chunk;
-        memcpy(bounce.va, in,
-               (size_t)n * ns.block_size); // stage into the bounce
-        struct nvme_command cmd = {0};
-        cmd.opcode = IO_WRITE;
-        cmd.nsid = 1;
-        cmd.prp1 = bounce.pa;
-        cmd.cdw10 = (uint32_t)lba;
-        cmd.cdw11 = (uint32_t)(lba >> 32);
-        cmd.cdw12 = n - 1; // NLB is 0-based
-        if (submit_io(&cmd) != 0) {
-            return false;
-        }
-        in += (size_t)n * ns.block_size;
-        lba += n;
-        count -= n;
-    }
-    return true;
+    // The engine only reads from `buf` on the write path; the cast lets one
+    // implementation serve both directions.
+    return nvme_rw(lba, count, (uint8_t*)(uintptr_t)buf, true);
 }
 
 // The block-device view (blockdev.h): 512-byte sectors. Only namespaces with a
