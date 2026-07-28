@@ -219,11 +219,11 @@ static void ring_push(ring* r, uint64_t param, uint32_t status,
     }
 }
 
-// Wait (bounded) for the next event TRB and copy it out, advancing the dequeue
-// pointer and acknowledging it via ERDP. Returns false on timeout.
-static bool next_event(struct trb* out, uint64_t timeout_ms)
+// Wait for the next event TRB (until the absolute `deadline`, in ktime_ms
+// time) and copy it out, advancing the dequeue pointer and acknowledging it via
+// ERDP. Returns false on timeout.
+static bool next_event(struct trb* out, uint64_t deadline)
 {
-    uint64_t deadline = ktime_ms() + timeout_ms;
     for (;;) {
         volatile struct trb* e = &evt_ring[evt_deq];
         if ((e->control & TRB_CYCLE) == evt_cycle) {
@@ -248,11 +248,13 @@ static bool next_event(struct trb* out, uint64_t timeout_ms)
 }
 
 // Drain events until one of `want_type` arrives (port-status-change and other
-// events share the ring and must be skipped). Returns false on timeout.
+// events share the ring and must be skipped). One deadline bounds the whole
+// wait, no matter how many unrelated events arrive meanwhile.
 static bool wait_event(uint32_t want_type, struct trb* out, uint64_t timeout_ms)
 {
+    uint64_t deadline = ktime_ms() + timeout_ms;
     for (int i = 0; i < 64; i++) {
-        if (!next_event(out, timeout_ms)) {
+        if (!next_event(out, deadline)) {
             return false;
         }
         if (TRB_TYPE_OF(out->control) == want_type) {
@@ -376,9 +378,12 @@ static bool bot_command(const uint8_t* cdb, uint8_t cdb_len, bool dir_in,
     if (!bulk_xfer(&bulk_in, bulk_in_dci, csw_pa, 13)) {
         return false;
     }
-    // dCSWSignature "USBS" and bCSWStatus == 0 (command passed).
+    // dCSWSignature "USBS", dCSWTag echoing our dCBWTag (catches a desynced
+    // command/status pairing), and bCSWStatus == 0 (command passed).
+    uint32_t csw_tag;
+    memcpy(&csw_tag, csw_va + 4, 4);
     return csw_va[0] == 0x55 && csw_va[1] == 0x53 && csw_va[2] == 0x42 &&
-           csw_va[3] == 0x53 && csw_va[12] == 0;
+           csw_va[3] == 0x53 && csw_tag == tag && csw_va[12] == 0;
 }
 
 // SCSI READ CAPACITY(10): last LBA + block size, both big-endian.
@@ -470,9 +475,12 @@ const blockdev* xhci_msc_blockdev(void)
 static bool msc_setup(uint32_t slot, uint16_t dev_max_packet0)
 {
     (void)dev_max_packet0;
+    // Request a full page: the device returns min(wTotalLength, wLength), so
+    // the walk below can never run past bytes that were actually transferred
+    // (composite devices easily exceed the 255 bytes a short request returns).
     uintptr_t cfg_pa;
     uint8_t* cfg = dma_page(&cfg_pa);
-    if (!get_descriptor(slot, (uint16_t)(DESC_CONFIG << 8), cfg_pa, 255)) {
+    if (!get_descriptor(slot, (uint16_t)(DESC_CONFIG << 8), cfg_pa, PAGE_SZ)) {
         return false;
     }
     uint16_t total = (uint16_t)(cfg[2] | (cfg[3] << 8));

@@ -203,6 +203,9 @@ static int submit(nvme_queue* q, struct nvme_command* cmd)
     cmd->cid = q->cid++;
     q->sq[q->sq_tail] = *cmd;
     q->sq_tail = (uint16_t)((q->sq_tail + 1) % q->depth);
+    // Compiler barrier: the SQ entry stores are plain writes and must not be
+    // sunk past the (volatile) doorbell write that hands the entry over.
+    __asm__ __volatile__("" ::: "memory");
     *q->sq_tail_db = q->sq_tail;
 
     volatile struct nvme_completion* c = &q->cq[q->cq_head];
@@ -243,8 +246,10 @@ static void nvme_irq(interrupt_frame* f)
 }
 
 // Submit one command on the I/O queue and block until nvme_irq signals it
-// (bounded). hlt naps between checks so we wake on the completion (or the 100
-// Hz tick, which bounds any missed-wakeup window). Returns the status or -1.
+// (bounded). The io_done check runs with interrupts masked and re-enables via
+// `sti; hlt` — the STI shadow makes enable-and-halt atomic and a pending
+// completion wakes hlt immediately, so the wakeup cannot be lost between the
+// check and the sleep. Returns the status or -1.
 static int submit_io_irq(struct nvme_command* cmd)
 {
     cmd->cid = io_q.cid++;
@@ -252,15 +257,20 @@ static int submit_io_irq(struct nvme_command* cmd)
     io_q.sq_tail = (uint16_t)((io_q.sq_tail + 1) % io_q.depth);
     io_done = false;
     io_status = -1;
+    // Compiler barrier: the SQ entry + flag stores must precede the doorbell.
+    __asm__ __volatile__("" ::: "memory");
     *io_q.sq_tail_db = io_q.sq_tail;
 
     uint64_t deadline = ktime_ms() + 5000;
+    __asm__ __volatile__("cli");
     while (!io_done) {
         if (ktime_ms() > deadline || (reg32(REG_CSTS) & CSTS_CFS)) {
+            __asm__ __volatile__("sti");
             return -1;
         }
-        __asm__ __volatile__("sti; hlt");
+        __asm__ __volatile__("sti; hlt; cli");
     }
+    __asm__ __volatile__("sti");
     return io_status;
 }
 
