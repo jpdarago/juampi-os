@@ -140,6 +140,10 @@ static volatile uint8_t* op;  // operational registers
 static volatile uint8_t* rt;  // runtime registers
 static volatile uint32_t* db; // doorbell array
 static bool g_present;
+
+// Which init/enumeration step failed, for the boot report (NULL: no
+// controller, or fine). Silent failure is expensive on real hardware.
+static const char* fail_reason;
 static uint32_t g_ports;
 static uint32_t ctx_sz; // bytes per context entry (32 or 64, from HCCPARAMS1)
 
@@ -481,6 +485,8 @@ static bool msc_setup(uint32_t slot, uint16_t dev_max_packet0)
     uint8_t* cfg = cfg_mem.va;
     if (!get_descriptor(slot, (uint16_t)(DESC_CONFIG << 8), cfg_mem.pa,
                         PAGE_SZ)) {
+        fail_reason = "config descriptor read failed";
+        dma_page_free(cfg_mem);
         return false;
     }
     uint16_t total = (uint16_t)(cfg[2] | (cfg[3] << 8));
@@ -518,8 +524,9 @@ static bool msc_setup(uint32_t slot, uint16_t dev_max_packet0)
         }
         o += blen;
     }
+    dma_page_free(cfg_mem); // everything needed is extracted above
     if (!have_in || !have_out) {
-        return false; // not a BOT mass-storage device
+        return false; // not a BOT mass-storage device — benign, no fail reason
     }
     // Doorbell context index for an endpoint: number*2 + (IN ? 1 : 0).
     msc.in.dci = (uint32_t)((in_ep & 0x0F) * 2 + 1);
@@ -551,9 +558,14 @@ static bool msc_setup(uint32_t slot, uint16_t dev_max_packet0)
     ic[4] = msc.in.mps;
 
     struct trb ev;
-    if (!run_command(input_mem.pa,
-                     TRB_TYPE(TRB_CONFIGURE_ENDPOINT) | (slot << 24), &ev) ||
-        COMPLETION_CODE(ev.status) != CC_SUCCESS) {
+    bool configured =
+            run_command(input_mem.pa,
+                        TRB_TYPE(TRB_CONFIGURE_ENDPOINT) | (slot << 24), &ev) &&
+            COMPLETION_CODE(ev.status) == CC_SUCCESS;
+    // The input context is software-owned again once the command completes.
+    dma_page_free(input_mem);
+    if (!configured) {
+        fail_reason = "CONFIGURE_ENDPOINT failed";
         return false;
     }
     // SET_CONFIGURATION(config_value): host-to-device standard request, no
@@ -561,6 +573,7 @@ static bool msc_setup(uint32_t slot, uint16_t dev_max_packet0)
     uint64_t setup = (uint64_t)0x00 | ((uint64_t)0x09 << 8) |
                      ((uint64_t)config_value << 16);
     if (!control_no_data(slot, setup)) {
+        fail_reason = "SET_CONFIGURATION failed";
         return false;
     }
 
@@ -574,6 +587,10 @@ static bool msc_setup(uint32_t slot, uint16_t dev_max_packet0)
         cap_ok = scsi_read_capacity();
     }
     if (!cap_ok) {
+        fail_reason = "READ CAPACITY failed";
+        dma_page_free(msc.cbw);
+        dma_page_free(msc.csw);
+        dma_page_free(msc.bounce);
         return false;
     }
     msc.ready = true;
@@ -612,6 +629,7 @@ static void enumerate(void)
     struct trb ev;
     if (!run_command(0, TRB_TYPE(TRB_ENABLE_SLOT), &ev) ||
         COMPLETION_CODE(ev.status) != CC_SUCCESS) {
+        fail_reason = "ENABLE_SLOT failed";
         return;
     }
     uint32_t slot = (ev.control >> 24) & 0xFF;
@@ -637,9 +655,14 @@ static void enumerate(void)
     ep0_ctx[3] = (uint32_t)(ep0.pa >> 32);
     ep0_ctx[4] = 8; // average TRB length
 
-    if (!run_command(input_mem.pa, TRB_TYPE(TRB_ADDRESS_DEVICE) | (slot << 24),
-                     &ev) ||
-        COMPLETION_CODE(ev.status) != CC_SUCCESS) {
+    bool addressed =
+            run_command(input_mem.pa,
+                        TRB_TYPE(TRB_ADDRESS_DEVICE) | (slot << 24), &ev) &&
+            COMPLETION_CODE(ev.status) == CC_SUCCESS;
+    // The input context is software-owned again once the command completes.
+    dma_page_free(input_mem);
+    if (!addressed) {
+        fail_reason = "ADDRESS_DEVICE failed";
         return;
     }
 
@@ -651,6 +674,8 @@ static void enumerate(void)
     uint64_t setup = (uint64_t)0x80 | ((uint64_t)0x06 << 8) |
                      ((uint64_t)0x0100 << 16) | ((uint64_t)18 << 48);
     if (!control_in(slot, setup, desc.pa, 18)) {
+        fail_reason = "GET_DESCRIPTOR failed";
+        dma_page_free(desc);
         return;
     }
     dev.usb_class = buf[4];
@@ -660,6 +685,7 @@ static void enumerate(void)
 
     // If it is a Bulk-Only-Transport mass-storage device, configure it.
     msc_setup(slot, buf[7]);
+    dma_page_free(desc);
 }
 
 void xhci_init(void)
@@ -686,6 +712,7 @@ void xhci_init(void)
     uint64_t deadline = ktime_ms() + 1000;
     while (r32(op, OP_USBSTS) & USBSTS_CNR) {
         if (ktime_ms() > deadline) {
+            fail_reason = "controller-not-ready timeout";
             return;
         }
     }
@@ -693,6 +720,7 @@ void xhci_init(void)
     deadline = ktime_ms() + 1000;
     while (!(r32(op, OP_USBSTS) & USBSTS_HCH)) {
         if (ktime_ms() > deadline) {
+            fail_reason = "halt timeout";
             return;
         }
     }
@@ -701,6 +729,7 @@ void xhci_init(void)
     while ((r32(op, OP_USBCMD) & USBCMD_HCRST) ||
            (r32(op, OP_USBSTS) & USBSTS_CNR)) {
         if (ktime_ms() > deadline) {
+            fail_reason = "reset timeout";
             return;
         }
     }
@@ -735,17 +764,32 @@ void xhci_init(void)
     deadline = ktime_ms() + 1000;
     while (r32(op, OP_USBSTS) & USBSTS_HCH) {
         if (ktime_ms() > deadline) {
-            return;
+            fail_reason = "run timeout";
+            goto fail;
         }
     }
     struct trb ev;
     if (!run_command(0, TRB_TYPE(TRB_NO_OP_CMD), &ev) ||
         COMPLETION_CODE(ev.status) != CC_SUCCESS) {
-        return;
+        fail_reason = "NO-OP command failed";
+        goto fail;
     }
     g_present = true;
 
     enumerate(); // milestone 1: read the attached device's descriptor
+    return;
+
+fail:
+    // Halt the controller (so it stops referencing the rings/DCBAA) before
+    // returning their frames — a failed init must not leak or leave live DMA.
+    w32(op, OP_USBCMD, r32(op, OP_USBCMD) & ~USBCMD_RUN);
+    deadline = ktime_ms() + 1000;
+    while (!(r32(op, OP_USBSTS) & USBSTS_HCH) && ktime_ms() < deadline) {
+    }
+    dma_page_free(dcbaa_mem);
+    dma_page_free(erst_mem);
+    dma_page_free(evt_mem);
+    frame_free(cmd.pa);
 }
 
 bool xhci_present(void)
@@ -783,4 +827,8 @@ uint64_t xhci_msc_blocks(void)
 uint32_t xhci_msc_block_size(void)
 {
     return msc.block_size;
+}
+const char* xhci_fail_reason(void)
+{
+    return fail_reason;
 }

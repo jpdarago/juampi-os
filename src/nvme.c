@@ -149,6 +149,10 @@ typedef struct {
 static volatile uint8_t* regs; // iomap'd BAR0
 static uint32_t db_stride;     // doorbell stride in bytes (from CAP.DSTRD)
 
+// Which init step failed, for the boot report (NULL: no controller, or fine).
+// Silent init failure is cheap in QEMU but expensive on real hardware.
+static const char* fail_reason;
+
 // The namespace this driver serves (namespace 1 of the first controller).
 static struct {
     bool present;
@@ -403,12 +407,14 @@ void nvme_init(void)
     db_stride = 4u << ((cap >> 32) & 0xF); // CAP.DSTRD
     uint32_t mqes = (uint32_t)(cap & 0xFFFF) + 1;
     if (QUEUE_DEPTH > mqes) {
-        return; // controller can't hold our queue depth (won't happen in QEMU)
+        fail_reason = "queue depth over CAP.MQES";
+        return;
     }
 
     // Reset: clear enable and wait for the controller to go not-ready.
     wreg32(REG_CC, reg32(REG_CC) & ~CC_EN);
     if (!wait_ready(0)) {
+        fail_reason = "reset timeout";
         return;
     }
 
@@ -419,45 +425,56 @@ void nvme_init(void)
     wreg64(REG_ACQ, admin_q.cq_pa);
     wreg32(REG_CC, CC_IOSQES | CC_IOCQES | CC_EN); // MPS=0 (4 KiB), NVM cmd set
     if (!wait_ready(CSTS_RDY)) {
-        return;
+        fail_reason = "enable timeout";
+        goto fail;
     }
 
     // IDENTIFY the controller for the model string and its transfer limit.
-    dma_buf id = identify(CNS_CONTROLLER, 0);
-    if (id.va == NULL) {
-        return;
+    uint8_t mdts;
+    {
+        dma_buf id = identify(CNS_CONTROLLER, 0);
+        if (id.va == NULL) {
+            fail_reason = "IDENTIFY controller failed";
+            goto fail;
+        }
+        struct nvme_id_ctrl* ctrl = id.va;
+        memcpy(ns.model, ctrl->mn, 40);
+        ns.model[40] = '\0';
+        for (int i = 39; i >= 0 && ns.model[i] == ' '; i--) {
+            ns.model[i] = '\0'; // trim the space padding
+        }
+        mdts = ctrl->mdts;
+        dma_page_free(id);
     }
-    struct nvme_id_ctrl* ctrl = id.va;
-    memcpy(ns.model, ctrl->mn, 40);
-    ns.model[40] = '\0';
-    for (int i = 39; i >= 0 && ns.model[i] == ' '; i--) {
-        ns.model[i] = '\0'; // trim the space padding
-    }
-    uint8_t mdts = ctrl->mdts;
-    dma_page_free(id);
 
     // IDENTIFY namespace 1 for its size and block size.
-    id = identify(CNS_NAMESPACE, 1);
-    if (id.va == NULL) {
-        return;
+    {
+        dma_buf id = identify(CNS_NAMESPACE, 1);
+        if (id.va == NULL) {
+            fail_reason = "IDENTIFY namespace failed";
+            goto fail;
+        }
+        struct nvme_id_ns* idns = id.va;
+        ns.blocks = idns->nsze;
+        uint32_t fmt = idns->lbaf[idns->flbas & 0xF];
+        ns.block_size = 1u << ((fmt >> 16) & 0xFF);
+        dma_page_free(id);
     }
-    struct nvme_id_ns* idns = id.va;
-    ns.blocks = idns->nsze;
-    uint32_t fmt = idns->lbaf[idns->flbas & 0xF];
-    ns.block_size = 1u << ((fmt >> 16) & 0xFF);
-    dma_page_free(id);
     if (ns.block_size == 0 || ns.block_size > PAGE_SZ) {
-        return; // unsupported format for the one-page bounce path
+        fail_reason = "unsupported LBA format";
+        goto fail;
     }
 
     // Per-command transfer cap: one PRP-list page covers a partial first page
     // plus 512 list entries (2 MiB), further limited by the controller's MDTS
     // (2^mdts pages; 0 = no limit).
-    uint32_t max_bytes = 512u * PAGE_SZ;
-    if (mdts != 0 && mdts < 9) {
-        max_bytes = (1u << mdts) * PAGE_SZ;
+    {
+        uint32_t max_bytes = 512u * PAGE_SZ;
+        if (mdts != 0 && mdts < 9) {
+            max_bytes = (1u << mdts) * PAGE_SZ;
+        }
+        ns.max_cmd_blocks = max_bytes / ns.block_size;
     }
-    ns.max_cmd_blocks = max_bytes / ns.block_size;
 
     // Set up MSI-X (if advertised) before creating the I/O CQ, so the CQ can be
     // created with interrupts enabled; otherwise the queue stays polled.
@@ -467,11 +484,23 @@ void nvme_init(void)
     // used by multi-page direct transfers.
     queue_init(&io_q, IO_QID);
     if (!create_io_queues()) {
-        return;
+        fail_reason = "CREATE I/O queue failed";
+        frame_free(io_q.sq_pa);
+        frame_free(io_q.cq_pa);
+        goto fail;
     }
     bounce = dma_page_alloc();
     prp_list = dma_page_alloc();
     ns.present = true;
+    return;
+
+fail:
+    // Disable the controller (so it stops referencing the admin queues) before
+    // returning their frames — a failed init must not leak or leave live DMA.
+    wreg32(REG_CC, reg32(REG_CC) & ~CC_EN);
+    wait_ready(0);
+    frame_free(admin_q.sq_pa);
+    frame_free(admin_q.cq_pa);
 }
 
 bool nvme_present(void)
@@ -497,6 +526,10 @@ bool nvme_irq_driven(void)
 uint64_t nvme_irq_count(void)
 {
     return io_irq.completions;
+}
+const char* nvme_fail_reason(void)
+{
+    return fail_reason;
 }
 
 // Point the command's data pointers straight at the caller's buffer: PRP1

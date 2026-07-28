@@ -370,6 +370,8 @@ void kmain(void)
             console_print(" read0=FAIL");
         }
         console_print("\n");
+    } else if (nvme_fail_reason() != NULL) {
+        console_printf("juampiOS: nvme init FAILED (%s)\n", nvme_fail_reason());
     } else {
         console_print("juampiOS: nvme absent\n");
     }
@@ -377,7 +379,12 @@ void kmain(void)
     // --- USB: bring up xHCI, enumerate, and configure a mass-storage stick. --
     xhci_init();
     if (!xhci_present()) {
-        console_print("juampiOS: xhci absent\n");
+        if (xhci_fail_reason() != NULL) {
+            console_printf("juampiOS: xhci init FAILED (%s)\n",
+                           xhci_fail_reason());
+        } else {
+            console_print("juampiOS: xhci absent\n");
+        }
     } else if (xhci_device_found()) {
         console_printf(
                 "juampiOS: xhci up, %u ports; device %04x:%04x class=%u\n",
@@ -386,10 +393,14 @@ void kmain(void)
             console_printf(
                     "juampiOS: usb mass storage: %lu blocks x %u bytes\n",
                     xhci_msc_blocks(), xhci_msc_block_size());
+        } else if (xhci_fail_reason() != NULL) {
+            console_printf("juampiOS: usb mass storage FAILED (%s)\n",
+                           xhci_fail_reason());
         }
     } else {
-        console_printf("juampiOS: xhci up, %u ports (no device enumerated)\n",
-                       xhci_ports());
+        console_printf("juampiOS: xhci up, %u ports (%s)\n", xhci_ports(),
+                       xhci_fail_reason() != NULL ? xhci_fail_reason()
+                                                  : "no device enumerated");
     }
 
     // Mount ext2, preferring NVMe, then a USB mass-storage stick, then the ATA

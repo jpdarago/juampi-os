@@ -31,4 +31,8 @@ uint64_t xhci_msc_blocks(void);
 uint32_t xhci_msc_block_size(void);
 const blockdev* xhci_msc_blockdev(void);
 
+// Which init/enumeration step failed, or NULL (no controller, or all fine).
+// Surfaced in the boot report so a real-hardware failure isn't silent.
+const char* xhci_fail_reason(void);
+
 #endif

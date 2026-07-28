@@ -27,6 +27,10 @@ const char* nvme_model(void);
 bool nvme_irq_driven(void);
 uint64_t nvme_irq_count(void);
 
+// Which init step failed, or NULL (no controller found, or init succeeded).
+// Surfaced in the boot report so a real-hardware failure isn't silent.
+const char* nvme_fail_reason(void);
+
 // Read/write `count` logical blocks starting at LBA `lba`. Returns false on
 // timeout, controller error, or when no controller is present.
 bool nvme_read(uint64_t lba, uint32_t count, void* buf);
