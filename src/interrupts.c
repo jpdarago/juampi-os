@@ -72,21 +72,10 @@ static void exception_panic(interrupt_frame* f)
     }
     uint64_t cr2;
     __asm__ __volatile__("mov %%cr2, %0" : "=r"(cr2));
-    console_print("\n*** CPU EXCEPTION ***\n  vector=");
-    console_dec(f->vector);
-    console_print(" error=");
-    console_hex(f->error_code);
-    console_print("\n  rip=");
-    console_hex(f->rip);
-    console_print(" cs=");
-    console_hex(f->cs);
-    console_print(" rflags=");
-    console_hex(f->rflags);
-    console_print("\n  rsp=");
-    console_hex(f->rsp);
-    console_print(" cr2=");
-    console_hex(cr2);
-    console_print("\n");
+    console_printf("\n*** CPU EXCEPTION ***\n  vector=%lu error=0x%lx\n"
+                   "  rip=0x%lx cs=0x%lx rflags=0x%lx\n  rsp=0x%lx cr2=0x%lx\n",
+                   f->vector, f->error_code, f->rip, f->cs, f->rflags, f->rsp,
+                   cr2);
     // Symbolized backtrace of the faulting context (rbp saved in the frame).
     const char* fn = ksym_lookup(f->rip, NULL);
     if (fn) {

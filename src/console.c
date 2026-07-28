@@ -7,6 +7,8 @@
 
 #include <printf/printf.h>
 
+#include <stdarg.h>
+
 #include "flanterm/flanterm.h"
 #include "flanterm/flanterm_backends/fb.h"
 
@@ -122,6 +124,23 @@ void console_print(const char* s)
     spin_unlock(&console_lock);
 }
 
+// Per-character output for vfctprintf: feed the console's single writer.
+static void printf_emit(char c, void* arg)
+{
+    (void)arg;
+    emit(c);
+}
+
+void console_printf(const char* fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    spin_lock(&console_lock);
+    vfctprintf(printf_emit, NULL, fmt, ap);
+    spin_unlock(&console_lock);
+    va_end(ap);
+}
+
 // Write exactly `n` bytes to both sinks. Unlike console_print this takes a
 // length rather than a NUL terminator, so it can emit a whole pre-composed
 // frame (e.g. the full-screen editor) that may contain arbitrary bytes in one
@@ -145,32 +164,6 @@ void console_dimensions(size_t* cols, size_t* rows)
         *cols = 80;
         *rows = 25;
     }
-}
-
-void console_dec(uint64_t v)
-{
-    char buf[21];
-    int i = 20;
-    buf[i--] = '\0';
-    if (v == 0) {
-        buf[i--] = '0';
-    }
-    while (v > 0) {
-        buf[i--] = '0' + (v % 10);
-        v /= 10;
-    }
-    console_print(&buf[i + 1]);
-}
-
-void console_hex(uint64_t v)
-{
-    spin_lock(&console_lock);
-    emit('0');
-    emit('x');
-    for (int shift = 60; shift >= 0; shift -= 4) {
-        emit("0123456789abcdef"[(v >> shift) & 0xF]);
-    }
-    spin_unlock(&console_lock);
 }
 
 // Clear the screen and home the cursor (ANSI; handled by flanterm and by a

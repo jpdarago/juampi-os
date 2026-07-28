@@ -232,13 +232,11 @@ void kmain(void)
             usable += e->length;
         }
     }
-    console_print("juampiOS: HHDM offset=");
-    console_hex(hhdm_request.response->offset);
-    console_print(", memmap entries=");
-    console_dec(memmap_request.response->entry_count);
-    console_print(", usable RAM=");
-    console_dec(usable / (1024 * 1024));
-    console_print(" MiB\n");
+    console_printf(
+            "juampiOS: HHDM offset=0x%lx, memmap entries=%lu, usable RAM=%lu "
+            "MiB\n",
+            hhdm_request.response->offset, memmap_request.response->entry_count,
+            usable / (1024 * 1024));
 
     // --- Milestone 1: frame allocator + 4-level paging + kernel heap --------
     // Use the largest usable region Limine reported as the physical frame pool.
@@ -290,12 +288,9 @@ void kmain(void)
               physical_address(kernel_dir, scratch_va) == scratch_pa &&
               stress_ok;
 
-    console_print("juampiOS: free frames=");
-    console_dec(free_before);
-    console_print(", heap stress ");
-    console_print(stress_ok ? "OK" : "FAILED");
-    console_print(", memory self-test ");
-    console_print(ok ? "OK\n" : "FAILED\n");
+    console_printf(
+            "juampiOS: free frames=%lu, heap stress %s, memory self-test %s\n",
+            free_before, stress_ok ? "OK" : "FAILED", ok ? "OK" : "FAILED");
     if (ok) {
         console_print("juampiOS: memory subsystem OK\n");
     }
@@ -331,23 +326,17 @@ void kmain(void)
         __asm__ __volatile__("pause");
     }
 
-    console_print("juampiOS: int3 handled=");
-    console_dec(bp_hits);
-    console_print(", timer ticks=");
-    console_dec(timer_ticks());
-    console_print("\n");
+    console_printf("juampiOS: int3 handled=%d, timer ticks=%lu\n", bp_hits,
+                   timer_ticks());
     if (bp_hits == 1 && timer_ticks() >= 3) {
         console_print("juampiOS: interrupts OK (LAPIC timer + IOAPIC)\n");
     }
 
     // --- Timekeeping report (calibrated above). ------------------------------
     uint64_t hz = tsc_hz();
-    console_print("juampiOS: TSC ");
-    console_dec(hz / 1000000);
-    console_print(" MHz (");
-    console_print(ktime_tsc_invariant() ? "invariant" : "variable");
-    console_print("), monotonic clock ns=");
-    console_dec(ktime_ns());
+    console_printf(
+            "juampiOS: TSC %lu MHz (%s), monotonic clock ns=%lu", hz / 1000000,
+            ktime_tsc_invariant() ? "invariant" : "variable", ktime_ns());
     console_print(hz > 100000000ull ? "\njuampiOS: timekeeping OK\n"
                                     : "\njuampiOS: timekeeping FAILED\n");
 
@@ -357,40 +346,33 @@ void kmain(void)
     // valid ext2 there backs the `disk`/`fs` Lua libraries and run()-from-disk.
     ata_init();
     bool fs_ok = ext2_mount(&heap);
-    console_print("juampiOS: ata ");
     if (ata_present()) {
-        console_print("sectors=");
-        console_dec(ata_sectors());
+        console_printf("juampiOS: ata sectors=%lu", ata_sectors());
     } else {
-        console_print("absent");
+        console_print("juampiOS: ata absent");
     }
-    console_print(", ext2 ");
-    console_print(fs_ok ? "mounted\n" : "not mounted\n");
+    console_printf(", ext2 %s", fs_ok ? "mounted\n" : "not mounted\n");
 
     // --- Milestone 10: NVMe (polled). Bring up the first NVMe controller and,
     // if present, read logical block 0 back as a smoke test of the queue /
     // doorbell / PRP path. Additive: absent NVMe just prints "absent".
     nvme_init();
-    console_print("juampiOS: nvme ");
     if (nvme_present()) {
         static uint8_t nvme_blk[4096]; // >= any supported block size
         bool rd = nvme_read(0, 1, nvme_blk);
-        console_print("\"");
-        console_print(nvme_model());
-        console_print("\" blocks=");
-        console_dec(nvme_blocks());
-        console_print(" blk=");
-        console_dec(nvme_block_size());
-        console_print(rd ? " read0=OK first8=" : " read0=FAIL");
+        console_printf("juampiOS: nvme \"%s\" blocks=%lu blk=%u", nvme_model(),
+                       nvme_blocks(), nvme_block_size());
         if (rd) {
+            console_print(" read0=OK first8=");
             for (int i = 0; i < 8; i++) {
-                console_hex(nvme_blk[i]);
-                console_print(" ");
+                console_printf("%02x ", nvme_blk[i]);
             }
+        } else {
+            console_print(" read0=FAIL");
         }
         console_print("\n");
     } else {
-        console_print("absent\n");
+        console_print("juampiOS: nvme absent\n");
     }
 
     // --- Networking: bring up the e1000 NIC and a minimal IPv4 stack
@@ -439,10 +421,9 @@ void kmain(void)
         sum += jobs[i].result;
     }
     bool smp_ok = sum == SUM_N * (SUM_N - 1) / 2;
-    console_print(smp_ok ? "juampiOS: SMP OK: " : "juampiOS: SMP FAILED: ");
-    console_dec(ncores);
-    console_print(smp_ok ? " cores (parallel sum verified)\n"
-                         : " cores (parallel sum MISMATCH)\n");
+    console_printf("juampiOS: SMP %s: %lu cores (parallel sum %s)\n",
+                   smp_ok ? "OK" : "FAILED", ncores,
+                   smp_ok ? "verified" : "MISMATCH");
 
     // --- Milestone 9: parallel Lua. A lua_State per core (each with its own
     // --- heap, so allocation is lock-free), driven from Lua via the thread/mem
@@ -463,13 +444,9 @@ void kmain(void)
         yield();
     }
 
-    console_print("juampiOS: thread ticks a=");
-    console_dec(wcounters[0]);
-    console_print(" b=");
-    console_dec(wcounters[1]);
-    console_print(" c=");
-    console_dec(wcounters[2]);
-    console_print("\njuampiOS: context switch OK\n");
+    console_printf("juampiOS: thread ticks a=%lu b=%lu c=%lu\n"
+                   "juampiOS: context switch OK\n",
+                   wcounters[0], wcounters[1], wcounters[2]);
 
     // --- Floating point: SSE enabled at entry, FP state saved across switches.
     // Kernel double arithmetic (SSE) and FP preserved through worker_a's yields
@@ -478,10 +455,9 @@ void kmain(void)
     double back = (one / three) * three; // ~1.0 via divsd/mulsd
     bool fp_ok = back > 0.999 && back < 1.001 && worker_fp > 2.49 &&
                  worker_fp < 2.51;
-    console_print("juampiOS: fp roundtrip (1/3*3=");
-    console_dec((uint64_t)(back * 1000.0)); // 1000
-    console_print("/1000), worker_fp*10=");
-    console_dec((uint64_t)(worker_fp * 10.0)); // 25
+    console_printf("juampiOS: fp roundtrip (1/3*3=%lu/1000), worker_fp*10=%lu",
+                   (uint64_t)(back * 1000.0),     // 1000
+                   (uint64_t)(worker_fp * 10.0)); // 25
     console_print(fp_ok ? "\njuampiOS: floating point OK\n"
                         : "\njuampiOS: floating point FAILED\n");
 

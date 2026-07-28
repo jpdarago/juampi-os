@@ -98,13 +98,9 @@ void backtrace_from(uint64_t rip, uint64_t rbp)
     for (int depth = 0; depth < 32; depth++) {
         uint64_t off = 0;
         const char* name = ksym_lookup(rip, &off);
-        console_print("  ");
-        console_hex(rip);
+        console_printf("  0x%lx", rip);
         if (name) {
-            console_print(" ");
-            console_print(name);
-            console_print("+");
-            console_hex(off);
+            console_printf(" %s+0x%lx", name, off);
         }
         console_print("\n");
 

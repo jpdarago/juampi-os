@@ -749,11 +749,10 @@ void ui_desktop_run(void)
     // and keep the desktop running (mirrors the classic shell's recovery).
     if (setjmp(fault_env) != 0) {
         __asm__ __volatile__("sti");
-        console_print("\n[recovered from fault: vector ");
-        console_dec(fault_vector);
-        console_print(", rip ");
-        console_hex(fault_rip);
-        console_print(" - interpreter reset]\n");
+        console_printf(
+                "\n[recovered from fault: vector %lu, rip 0x%lx - interpreter "
+                "reset]\n",
+                fault_vector, fault_rip);
         luashell_init();
     }
 

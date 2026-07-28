@@ -133,11 +133,7 @@ void smp_init(allocator* mem)
     for (uint64_t i = 0; i < ncpus; i++) {
         online += cpus[i].ready ? 1 : 0;
     }
-    console_print("juampiOS: SMP: ");
-    console_dec(online);
-    console_print(" of ");
-    console_dec(ncpus);
-    console_print(" cores online\n");
+    console_printf("juampiOS: SMP: %lu of %lu cores online\n", online, ncpus);
 }
 
 bool smp_online(uint32_t index)

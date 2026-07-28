@@ -17,12 +17,15 @@ void console_init(struct limine_framebuffer* fb);
 void console_reinit(void* fb, uint64_t w, uint64_t h, uint64_t pitch);
 void console_putc(char c);
 void console_print(const char* s);
+// Formatted output — the same specifiers as the vendored printf (%d/%u/%x/%s/
+// %c/%p, width/precision, length modifiers). The whole line is emitted under
+// the console lock so it stays intact across cores. The format attribute makes
+// the compiler type-check the arguments against the format string (-Wformat).
+void console_printf(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 // Write exactly `n` bytes (may contain any byte); used for full-screen frames.
 void console_write(const char* s, size_t n);
 // Character-cell dimensions of the framebuffer terminal (80x25 without an fb).
 void console_dimensions(size_t* cols, size_t* rows);
-void console_dec(uint64_t v);
-void console_hex(uint64_t v);
 // Clear the screen and home the cursor.
 void console_clear(void);
 // Blocking read of one input byte (PS/2 keyboard or serial). Used by the

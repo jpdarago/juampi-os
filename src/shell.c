@@ -124,9 +124,7 @@ static void redraw(const char* prompt, const char* buf, size_t n, size_t cur)
     // The cursor is now at end-of-line (column promptw + n); step it left to
     // promptw + cur. Nothing to do when the cursor is already at the end.
     if (n > cur) {
-        console_print("\033[");
-        console_dec(n - cur);
-        console_print("D");
+        console_printf("\033[%zuD", n - cur);
     }
 }
 
@@ -409,18 +407,13 @@ void shell_run(heap_allocator* heap)
     // abandoned).
     if (setjmp(fault_env) != 0) {
         __asm__ __volatile__("sti");
-        console_print("\n[recovered from fault: vector ");
-        console_dec(fault_vector);
-        console_print(", addr ");
-        console_hex(fault_addr);
-        console_print(", rip ");
-        console_hex(fault_rip);
+        console_printf("\n[recovered from fault: vector %lu, addr 0x%lx, rip "
+                       "0x%lx",
+                       fault_vector, fault_addr, fault_rip);
         uint64_t off = 0;
         const char* fn = ksym_lookup(fault_rip, &off);
         if (fn) {
-            console_print(" (");
-            console_print(fn);
-            console_print(")");
+            console_printf(" (%s)", fn);
         }
         console_print(" — interpreter reset]\n");
         luashell_init();
