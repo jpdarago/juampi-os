@@ -24,6 +24,7 @@
 #include <ktime.h>
 #include <idt.h>      // register_interrupt_handler, interrupt_frame
 #include <keyboard.h> // keyboard_inject: HID keyboard feeds the input ring
+#include <mouse.h>    // mouse_inject: HID mouse feeds the accumulators
 #include <utils.h>
 #include <blockdev.h>
 
@@ -231,6 +232,7 @@ typedef struct {
     volatile uint64_t reports; // reports received (test/diagnostic counter)
 } hid_dev;
 static hid_dev hid_kbd;
+static hid_dev hid_mouse;
 
 static bool hid_dispatch(const struct trb* ev);
 
@@ -835,6 +837,13 @@ static void hid_kbd_report(const uint8_t* r)
     memcpy(hid_kbd.last, r, 8);
 }
 
+// Translate one boot mouse report ([buttons][dx][dy], both deltas signed) into
+// the shared accumulators. HID Y is already screen-downward.
+static void hid_mouse_report(const uint8_t* r)
+{
+    mouse_inject((int)(int8_t)r[1], (int)(int8_t)r[2], r[0] & 0x7);
+}
+
 // Consume an asynchronous transfer event if it belongs to a HID endpoint:
 // handle the report and re-arm the endpoint. Returns false for events that
 // belong to someone else (the synchronous waiters).
@@ -846,6 +855,13 @@ static bool hid_dispatch(const struct trb* ev)
         hid_kbd_report(hid_kbd.report.va);
         hid_kbd.reports++;
         hid_post(&hid_kbd);
+        return true;
+    }
+    if (hid_mouse.present && slot == hid_mouse.slot &&
+        dci == hid_mouse.ep.dci) {
+        hid_mouse_report(hid_mouse.report.va);
+        hid_mouse.reports++;
+        hid_post(&hid_mouse);
         return true;
     }
     return false;
@@ -1150,6 +1166,7 @@ static void enumerate_device(uint32_t root_port, uint32_t speed, uint32_t route,
         // match and no-ops otherwise.
         msc_setup(d);
         hid_setup(d, HID_PROTO_KBD, &hid_kbd);
+        hid_setup(d, HID_PROTO_MOUSE, &hid_mouse);
     }
 
 out:
@@ -1363,4 +1380,12 @@ bool xhci_kbd_present(void)
 uint64_t xhci_kbd_reports(void)
 {
     return hid_kbd.reports;
+}
+bool xhci_mouse_present(void)
+{
+    return hid_mouse.present;
+}
+uint64_t xhci_mouse_reports(void)
+{
+    return hid_mouse.reports;
 }

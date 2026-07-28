@@ -14,4 +14,8 @@ void mouse_init(void);
 // bit1 right, bit2 middle). Returns true if a mouse was detected at init.
 bool mouse_poll(int* dx, int* dy, uint8_t* buttons);
 
+// Feed movement/buttons from another input source (the USB HID mouse) into the
+// same accumulators the PS/2 IRQ fills; marks the mouse present.
+void mouse_inject(int dx, int dy, uint8_t buttons);
+
 #endif

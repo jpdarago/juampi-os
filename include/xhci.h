@@ -41,9 +41,11 @@ uint64_t xhci_irq_count(void);
 // reports (keystrokes land in the keyboard ring) and re-arms their endpoints.
 void xhci_poll(void);
 
-// Whether a USB HID boot-protocol keyboard is live, and how many input reports
-// it has delivered (test/diagnostic counter).
+// Whether a USB HID boot-protocol keyboard/mouse is live, and how many input
+// reports each has delivered (test/diagnostic counters).
 bool xhci_kbd_present(void);
 uint64_t xhci_kbd_reports(void);
+bool xhci_mouse_present(void);
+uint64_t xhci_mouse_reports(void);
 
 #endif

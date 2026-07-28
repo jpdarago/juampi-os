@@ -157,6 +157,17 @@ void mouse_init(void)
     present = true;
 }
 
+// Feed movement/buttons from another input source (the USB HID mouse) into the
+// same accumulators the PS/2 IRQ fills. HID Y is already screen-downward, so
+// no inversion. Marks the mouse present so mouse_poll starts reporting.
+void mouse_inject(int dx, int dy, uint8_t btns)
+{
+    acc_dx += dx;
+    acc_dy += dy;
+    buttons = btns;
+    present = true;
+}
+
 bool mouse_poll(int* dx, int* dy, uint8_t* btns)
 {
     // Snapshot and clear the accumulators atomically w.r.t. the IRQ.
