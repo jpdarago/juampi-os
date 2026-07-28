@@ -93,12 +93,16 @@
 #define TRB_DIR_IN (1u << 16) // data/status stage: device-to-host
 #define TRT_IN (3u << 16)     // setup stage: an IN data stage follows
 #define TRB_CONFIGURE_ENDPOINT 12
+#define TRB_RESET_ENDPOINT 14
+#define TRB_SET_TR_DEQUEUE 16
 #define EP_TYPE_CONTROL (4u << 3)
 #define EP_TYPE_BULK_OUT (2u << 3)
 #define EP_TYPE_BULK_IN (6u << 3)
 #define COMPLETION_CODE(status) (((status) >> 24) & 0xFF)
 #define CC_SUCCESS 1
+#define CC_STALL 6
 #define CC_SHORT_PACKET 13
+#define CC_TIMEOUT 0xFF // ours: no event arrived, not a controller code
 
 // USB descriptor types and the mass-storage (Bulk-Only Transport) class codes.
 #define DESC_DEVICE 1
@@ -379,18 +383,59 @@ static bool get_descriptor(uint32_t slot, uint16_t value, uintptr_t buf_pa,
 
 // One bulk transfer on endpoint `ep`: a Normal TRB on its ring, ring its
 // doorbell, wait for its Transfer Event. Interrupt on completion + short
-// packet.
-static bool bulk_xfer(usb_endpoint* ep, uintptr_t data_pa, uint32_t len)
+// packet. Returns the completion code (CC_TIMEOUT if no event arrived), so
+// callers can distinguish a STALL — which halts the endpoint and needs
+// recovery — from other failures.
+static uint8_t bulk_xfer(usb_endpoint* ep, uintptr_t data_pa, uint32_t len)
 {
     ring_push(&ep->r, data_pa, len, TRB_TYPE(TRB_NORMAL) | TRB_IOC | TRB_ISP);
     __asm__ __volatile__("" ::: "memory");
     db[dev.slot] = ep->dci;
     struct trb ev;
     if (!wait_event(TRB_TRANSFER_EVENT, &ev, 2000)) {
-        return false;
+        return CC_TIMEOUT;
     }
-    uint8_t cc = COMPLETION_CODE(ev.status);
+    return COMPLETION_CODE(ev.status);
+}
+
+static bool cc_ok(uint8_t cc)
+{
     return cc == CC_SUCCESS || cc == CC_SHORT_PACKET;
+}
+
+// Reset a bulk ring to its pristine state (used after the controller stops an
+// endpoint: its dequeue pointer is rewound to the ring base).
+static void ring_reset(ring* r)
+{
+    memset(r->trb, 0, PAGE_SZ);
+    struct trb* link = &r->trb[RING_TRBS - 1];
+    link->param = r->pa;
+    link->control = TRB_TYPE(TRB_LINK) | TRB_LINK_TC;
+    r->enq = 0;
+    r->cycle = 1;
+}
+
+// Recover a halted (STALLed) bulk endpoint, per xHCI + USB: RESET_ENDPOINT
+// moves it Halted -> Stopped, SET_TR_DEQUEUE rewinds its (reset) transfer
+// ring, and CLEAR_FEATURE(ENDPOINT_HALT) tells the device to clear its halt
+// and reset its data toggle. The endpoint is usable again afterwards.
+static void recover_endpoint(usb_endpoint* ep)
+{
+    struct trb ev;
+    run_command(0,
+                TRB_TYPE(TRB_RESET_ENDPOINT) | (dev.slot << 24) |
+                        (ep->dci << 16),
+                &ev);
+    ring_reset(&ep->r);
+    run_command(ep->r.pa | 1, // new dequeue pointer | DCS
+                TRB_TYPE(TRB_SET_TR_DEQUEUE) | (dev.slot << 24) |
+                        (ep->dci << 16),
+                &ev);
+    // CLEAR_FEATURE(ENDPOINT_HALT): bmRequestType=0x02 (endpoint), bRequest=1,
+    // wValue=0 (ENDPOINT_HALT), wIndex = the endpoint address.
+    uint64_t ep_addr = (ep->dci >> 1) | ((ep->dci & 1) << 7);
+    control_no_data(dev.slot,
+                    (uint64_t)0x02 | ((uint64_t)0x01 << 8) | (ep_addr << 32));
 }
 
 // One Bulk-Only-Transport command: send the 31-byte CBW wrapping the SCSI CDB,
@@ -412,15 +457,31 @@ static bool bot_command(const uint8_t* cdb, uint8_t cdb_len, bool dir_in,
     cbw[14] = cdb_len;              // bCBWCBLength
     memcpy(cbw + 15, cdb, cdb_len); // CBWCB
 
-    if (!bulk_xfer(&msc.out, msc.cbw.pa, 31)) {
+    uint8_t cc = bulk_xfer(&msc.out, msc.cbw.pa, 31);
+    if (!cc_ok(cc)) {
+        if (cc == CC_STALL) {
+            recover_endpoint(&msc.out);
+        }
         return false;
     }
     if (data_len > 0) {
-        if (!bulk_xfer(dir_in ? &msc.in : &msc.out, data_pa, data_len)) {
-            return false;
+        usb_endpoint* ep = dir_in ? &msc.in : &msc.out;
+        cc = bulk_xfer(ep, data_pa, data_len);
+        if (!cc_ok(cc)) {
+            if (cc != CC_STALL) {
+                return false;
+            }
+            // A device that can't serve the data phase STALLs the endpoint but
+            // still owes a CSW afterwards (BOT 6.7): recover and read it.
+            recover_endpoint(ep);
         }
     }
-    if (!bulk_xfer(&msc.in, msc.csw.pa, 13)) {
+    cc = bulk_xfer(&msc.in, msc.csw.pa, 13);
+    if (cc == CC_STALL) {
+        recover_endpoint(&msc.in);
+        cc = bulk_xfer(&msc.in, msc.csw.pa, 13); // BOT 5.3.4: retry once
+    }
+    if (!cc_ok(cc)) {
         return false;
     }
     // dCSWSignature "USBS", dCSWTag echoing our dCBWTag (catches a desynced
