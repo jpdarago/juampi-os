@@ -374,28 +374,35 @@ void kmain(void)
         console_print("juampiOS: nvme absent\n");
     }
 
-    // Mount ext2, preferring an NVMe namespace over the ATA disk.
-    const char* fs_where = "not mounted";
-    if (nvme_present() && ext2_mount(nvme_blockdev(), &heap)) {
-        fs_where = "mounted (nvme)";
-    } else if (ext2_mount(ata_blockdev(), &heap)) {
-        fs_where = "mounted (ata)";
-    }
-    console_printf("juampiOS: ext2 %s\n", fs_where);
-
-    // --- USB: bring up the xHCI host controller (M1: ring machinery). --------
+    // --- USB: bring up xHCI, enumerate, and configure a mass-storage stick. --
     xhci_init();
     if (!xhci_present()) {
         console_print("juampiOS: xhci absent\n");
     } else if (xhci_device_found()) {
         console_printf(
-                "juampiOS: xhci up, %u ports; device %04x:%04x class=%u%s\n",
-                xhci_ports(), xhci_vid(), xhci_pid(), xhci_class(),
-                xhci_msc_ready() ? " (mass storage configured)" : "");
+                "juampiOS: xhci up, %u ports; device %04x:%04x class=%u\n",
+                xhci_ports(), xhci_vid(), xhci_pid(), xhci_class());
+        if (xhci_msc_ready()) {
+            console_printf(
+                    "juampiOS: usb mass storage: %lu blocks x %u bytes\n",
+                    xhci_msc_blocks(), xhci_msc_block_size());
+        }
     } else {
         console_printf("juampiOS: xhci up, %u ports (no device enumerated)\n",
                        xhci_ports());
     }
+
+    // Mount ext2, preferring NVMe, then a USB mass-storage stick, then the ATA
+    // disk — so a filesystem on any of them backs the `fs` library.
+    const char* fs_where = "not mounted";
+    if (nvme_present() && ext2_mount(nvme_blockdev(), &heap)) {
+        fs_where = "mounted (nvme)";
+    } else if (xhci_msc_ready() && ext2_mount(xhci_msc_blockdev(), &heap)) {
+        fs_where = "mounted (usb)";
+    } else if (ext2_mount(ata_blockdev(), &heap)) {
+        fs_where = "mounted (ata)";
+    }
+    console_printf("juampiOS: ext2 %s\n", fs_where);
 
     // --- Networking: bring up the e1000 NIC and a minimal IPv4 stack
     // --- (Ethernet/ARP/IPv4/ICMP), exposed to Lua as `net` (net.ping).

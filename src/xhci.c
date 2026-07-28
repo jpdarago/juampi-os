@@ -22,6 +22,7 @@
 #include <frames.h>
 #include <ktime.h>
 #include <utils.h>
+#include <blockdev.h>
 
 // PCI class for an xHCI controller: serial bus / USB / XHCI programming iface.
 #define PCI_CLASS_SERIAL 0x0C
@@ -63,6 +64,7 @@
 #define ERDP_EHB (1u << 3) // event handler busy (write 1 to clear)
 
 // TRB types (control bits 15:10), flags, and completion codes we act on.
+#define TRB_NORMAL 1
 #define TRB_LINK 6
 #define TRB_SETUP_STAGE 2
 #define TRB_DATA_STAGE 3
@@ -76,6 +78,7 @@
 #define TRB_TYPE_OF(ctrl) (((ctrl) >> 10) & 0x3F)
 #define TRB_CYCLE (1u << 0)
 #define TRB_LINK_TC (1u << 1) // link: toggle cycle
+#define TRB_ISP (1u << 2)     // interrupt on short packet
 #define TRB_IOC (1u << 5)     // interrupt on completion
 #define TRB_IDT (1u << 6)     // immediate data (setup stage)
 #define TRB_DIR_IN (1u << 16) // data/status stage: device-to-host
@@ -157,6 +160,14 @@ static ring bulk_in, bulk_out;
 static uint32_t bulk_in_dci, bulk_out_dci;
 static uint16_t bulk_in_mps, bulk_out_mps;
 static bool msc_ready;
+static uint64_t msc_blocks;     // capacity, in logical blocks
+static uint32_t msc_block_size; // bytes per logical block
+static uint8_t* cbw_va;         // Bulk-Only-Transport command/status/data DMA
+static uintptr_t cbw_pa;
+static uint8_t* csw_va;
+static uintptr_t csw_pa;
+static uint8_t* msc_bounce_va; // one-page DMA staging buffer for data
+static uintptr_t msc_bounce_pa;
 
 static uint32_t r32(volatile uint8_t* base, uint32_t o)
 {
@@ -318,6 +329,140 @@ static bool get_descriptor(uint32_t slot, uint16_t value, uintptr_t buf_pa,
     return control_in(slot, setup, buf_pa, len);
 }
 
+// One bulk transfer: a Normal TRB on ring `r`, ring the endpoint doorbell, wait
+// for its Transfer Event. Interrupt on completion and on a short packet.
+static bool bulk_xfer(ring* r, uint32_t dci, uintptr_t data_pa, uint32_t len)
+{
+    ring_push(r, data_pa, len, TRB_TYPE(TRB_NORMAL) | TRB_IOC | TRB_ISP);
+    __asm__ __volatile__("" ::: "memory");
+    db[msc_slot] = dci;
+    struct trb ev;
+    if (!wait_event(TRB_TRANSFER_EVENT, &ev, 2000)) {
+        return false;
+    }
+    uint8_t cc = COMPLETION_CODE(ev.status);
+    return cc == CC_SUCCESS || cc == CC_SHORT_PACKET;
+}
+
+// One Bulk-Only-Transport command: send the 31-byte CBW wrapping the SCSI CDB,
+// run the (optional) data phase, then read and check the 13-byte CSW.
+static bool bot_command(const uint8_t* cdb, uint8_t cdb_len, bool dir_in,
+                        uintptr_t data_pa, uint32_t data_len)
+{
+    static uint32_t tag;
+    tag++;
+    memset(cbw_va, 0, 31);
+    cbw_va[0] = 0x55; // dCBWSignature "USBC" (little-endian 0x43425355)
+    cbw_va[1] = 0x53;
+    cbw_va[2] = 0x42;
+    cbw_va[3] = 0x43;
+    memcpy(cbw_va + 4, &tag, 4);       // dCBWTag
+    memcpy(cbw_va + 8, &data_len, 4);  // dCBWDataTransferLength
+    cbw_va[12] = dir_in ? 0x80 : 0x00; // bmCBWFlags
+    cbw_va[13] = 0;                    // bCBWLUN
+    cbw_va[14] = cdb_len;              // bCBWCBLength
+    memcpy(cbw_va + 15, cdb, cdb_len); // CBWCB
+
+    if (!bulk_xfer(&bulk_out, bulk_out_dci, cbw_pa, 31)) {
+        return false;
+    }
+    if (data_len > 0) {
+        ring* r = dir_in ? &bulk_in : &bulk_out;
+        uint32_t dci = dir_in ? bulk_in_dci : bulk_out_dci;
+        if (!bulk_xfer(r, dci, data_pa, data_len)) {
+            return false;
+        }
+    }
+    if (!bulk_xfer(&bulk_in, bulk_in_dci, csw_pa, 13)) {
+        return false;
+    }
+    // dCSWSignature "USBS" and bCSWStatus == 0 (command passed).
+    return csw_va[0] == 0x55 && csw_va[1] == 0x53 && csw_va[2] == 0x42 &&
+           csw_va[3] == 0x53 && csw_va[12] == 0;
+}
+
+// SCSI READ CAPACITY(10): last LBA + block size, both big-endian.
+static bool scsi_read_capacity(void)
+{
+    uint8_t cdb[10] = {0x25};
+    if (!bot_command(cdb, 10, true, msc_bounce_pa, 8)) {
+        return false;
+    }
+    const uint8_t* d = msc_bounce_va;
+    uint32_t last = ((uint32_t)d[0] << 24) | ((uint32_t)d[1] << 16) |
+                    ((uint32_t)d[2] << 8) | d[3];
+    msc_block_size = ((uint32_t)d[4] << 24) | ((uint32_t)d[5] << 16) |
+                     ((uint32_t)d[6] << 8) | d[7];
+    msc_blocks = (uint64_t)last + 1;
+    return msc_block_size != 0;
+}
+
+// SCSI READ(10)/WRITE(10) of `blocks` logical blocks at `lba` to/from the
+// bounce buffer (bounded to one page by the caller).
+static bool scsi_rw(uint64_t lba, uint32_t blocks, bool write)
+{
+    uint8_t cdb[10] = {0};
+    cdb[0] = write ? 0x2A : 0x28;
+    cdb[2] = (uint8_t)(lba >> 24);
+    cdb[3] = (uint8_t)(lba >> 16);
+    cdb[4] = (uint8_t)(lba >> 8);
+    cdb[5] = (uint8_t)lba;
+    cdb[7] = (uint8_t)(blocks >> 8);
+    cdb[8] = (uint8_t)blocks;
+    return bot_command(cdb, 10, !write, msc_bounce_pa, blocks * msc_block_size);
+}
+
+// blockdev read/write: chunk the request through the one-page bounce buffer.
+static bool msc_read(uint64_t lba, uint32_t count, void* buf)
+{
+    if (!msc_ready || msc_block_size == 0) {
+        return false;
+    }
+    uint32_t per = PAGE_SZ / msc_block_size;
+    uint8_t* out = buf;
+    while (count > 0) {
+        uint32_t n = count < per ? count : per;
+        if (!scsi_rw(lba, n, false)) {
+            return false;
+        }
+        memcpy(out, msc_bounce_va, (size_t)n * msc_block_size);
+        out += (size_t)n * msc_block_size;
+        lba += n;
+        count -= n;
+    }
+    return true;
+}
+static bool msc_write(uint64_t lba, uint32_t count, const void* buf)
+{
+    if (!msc_ready || msc_block_size == 0) {
+        return false;
+    }
+    uint32_t per = PAGE_SZ / msc_block_size;
+    const uint8_t* in = buf;
+    while (count > 0) {
+        uint32_t n = count < per ? count : per;
+        memcpy(msc_bounce_va, in, (size_t)n * msc_block_size);
+        if (!scsi_rw(lba, n, true)) {
+            return false;
+        }
+        in += (size_t)n * msc_block_size;
+        lba += n;
+        count -= n;
+    }
+    return true;
+}
+// 512-byte-sector count for the block-device view (0 unless 512-byte blocks).
+static uint64_t msc_sectors(void)
+{
+    return (msc_ready && msc_block_size == 512) ? msc_blocks : 0;
+}
+static const blockdev msc_dev = {msc_read, msc_write, msc_sectors};
+
+const blockdev* xhci_msc_blockdev(void)
+{
+    return &msc_dev;
+}
+
 // Configure the mass-storage interface: read the configuration descriptor, find
 // the BOT interface and its two bulk endpoints, add them with
 // CONFIGURE_ENDPOINT and select the configuration. Returns true when the device
@@ -385,12 +530,14 @@ static bool msc_setup(uint32_t slot, uint16_t dev_max_packet0)
     uint32_t* slot_ctx = input + dwpc;
     slot_ctx[0] = (g_speed << 20) | (max_dci << 27);
     slot_ctx[1] = (g_port << 16);
-    uint32_t* oc = input + bulk_out_dci * dwpc;
+    // The endpoint context for DCI n sits at input index n+1 (the input control
+    // context occupies index 0, shifting the device context up by one).
+    uint32_t* oc = input + (bulk_out_dci + 1) * dwpc;
     oc[1] = EP_TYPE_BULK_OUT | (3u << 1) | ((uint32_t)bulk_out_mps << 16);
     oc[2] = (uint32_t)(bulk_out.pa | 1);
     oc[3] = (uint32_t)(bulk_out.pa >> 32);
     oc[4] = bulk_out_mps;
-    uint32_t* ic = input + bulk_in_dci * dwpc;
+    uint32_t* ic = input + (bulk_in_dci + 1) * dwpc;
     ic[1] = EP_TYPE_BULK_IN | (3u << 1) | ((uint32_t)bulk_in_mps << 16);
     ic[2] = (uint32_t)(bulk_in.pa | 1);
     ic[3] = (uint32_t)(bulk_in.pa >> 32);
@@ -410,6 +557,19 @@ static bool msc_setup(uint32_t slot, uint16_t dev_max_packet0)
         return false;
     }
     msc_slot = slot;
+
+    // Bulk-Only-Transport buffers, then read the capacity. A freshly attached
+    // device may fail the first command with a unit-attention, so retry.
+    cbw_va = dma_page(&cbw_pa);
+    csw_va = dma_page(&csw_pa);
+    msc_bounce_va = dma_page(&msc_bounce_pa);
+    bool cap_ok = false;
+    for (int i = 0; i < 4 && !cap_ok; i++) {
+        cap_ok = scsi_read_capacity();
+    }
+    if (!cap_ok) {
+        return false;
+    }
     msc_ready = true;
     return true;
 }
@@ -607,4 +767,12 @@ uint8_t xhci_class(void)
 bool xhci_msc_ready(void)
 {
     return msc_ready;
+}
+uint64_t xhci_msc_blocks(void)
+{
+    return msc_blocks;
+}
+uint32_t xhci_msc_block_size(void)
+{
+    return msc_block_size;
 }

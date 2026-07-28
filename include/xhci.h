@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <blockdev.h>
 
 // Minimal xHCI (USB 3.x host controller) driver. Milestone 1 brings the
 // controller up — reset, the device-context base array, a command ring and an
@@ -23,7 +24,11 @@ uint16_t xhci_pid(void);
 uint8_t xhci_class(void);
 
 // Whether the enumerated device is a configured Bulk-Only-Transport
-// mass-storage device (milestone 2 stops here in part 1).
+// mass-storage device, its capacity, and its namespace as a block device
+// (blockdev.h) for ext2_mount. sectors() is 0 unless the logical block is 512.
 bool xhci_msc_ready(void);
+uint64_t xhci_msc_blocks(void);
+uint32_t xhci_msc_block_size(void);
+const blockdev* xhci_msc_blockdev(void);
 
 #endif
