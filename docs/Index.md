@@ -25,6 +25,9 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
 - [[reentrancy-audit]] — whole-kernel review of mutable state, reentrancy, SMP
   safety, allocator discipline, and the UI API (Lua + ELF), with a fix plan.
   *Status: in progress (M11).*
+- [[constants-audit]] — sweep for magic numbers, hardcoded offsets, and
+  hand-picked MMIO addresses, with a prioritized fix order.
+  *Status: in progress (M11).*
 
 ## By status
 
@@ -35,6 +38,7 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
 | [[networking]]       | planned           | M10       |
 | [[ui]]               | in progress       | M11       |
 | [[reentrancy-audit]] | in progress       | M11       |
+| [[constants-audit]]  | in progress       | M11       |
 
 ## Conventions
 
