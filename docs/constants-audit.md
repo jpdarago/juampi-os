@@ -38,7 +38,8 @@ This is the most error-prone magic (a wrong offset = silent misparse of
 spec-critical data). Same, smaller: `dns.c` (entirely hand-indexed — `m[o+8]`,
 `0xC0` compression, no header struct) and `qoi.c` (14-byte header via `p[12]`,
 `be32(p+4)`). **Fix: packed structs**, matching what `ext2.c`/`elf64.c` already
-do well. → *fix (b2)*
+do well. → *fix (b2) for the FADT/MADT (`ce17bf2`); dns.c + qoi.c done in
+`f262b94`.*
 
 ## 2. HAZARD — MMIO virtual-address windows are hand-assigned
 
@@ -102,7 +103,7 @@ Stable spec values used raw; often commented, so low urgency:
    prevents the next collision. *(commit `da2bb4e`)*
 2. ☑ **(b2)** `struct fadt`/`struct madt` in acpi.c — owns the worst offender
    (and it's recent code). *(commit `ce17bf2`)*
-3. ☐ DNS/QOI header structs (same family as b2, smaller).
+3. ☑ DNS/QOI header structs (same family as b2, smaller). *(commit `f262b94`)*
 4. ☑ The dedup pass (§3) — `font.h`, `theme.h`, `lineedit.h`, and
    `KERNEL_STACK_SZ` in `sched.h`. Pure refactor. *(commit `54ae5c9`)*
 5. ☐ Opportunistic naming (§4).
