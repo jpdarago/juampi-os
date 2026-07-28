@@ -3,6 +3,11 @@
 #include <frames.h>
 #include <utils.h>
 
+// e_ident magic: the four bytes "\x7FELF" then a class byte (index EI_CLASS).
+#define ELF_MAG0 0x7F
+#define EI_CLASS 4
+#define ELFCLASS64 2
+
 // Map every page spanned by [start, start+len) into the current address space
 // with the given PAGEF_* flags, reusing any page that is already present.
 static void map_range(uint64_t start, uint64_t len, uint64_t flags)
@@ -21,8 +26,8 @@ static uint64_t load_segments(void* image, uint64_t seg_flags)
 {
     Elf64_Ehdr* eh = image;
     const uint8_t* id = eh->e_ident;
-    if (id[0] != 0x7F || id[1] != 'E' || id[2] != 'L' || id[3] != 'F' ||
-        id[4] != 2 /* ELFCLASS64 */) {
+    if (id[0] != ELF_MAG0 || id[1] != 'E' || id[2] != 'L' || id[3] != 'F' ||
+        id[EI_CLASS] != ELFCLASS64) {
         return 0;
     }
 

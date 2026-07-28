@@ -4,6 +4,12 @@
 
 #define PM_TIMER_HZ 3579545u // the ACPI PM timer's fixed frequency
 
+// CPUID leaves used for PIT-free TSC calibration.
+#define CPUID_EXT_MAX 0x80000000u   // highest extended leaf supported
+#define CPUID_EXT_POWER 0x80000007u // power mgmt: EDX bit 8 = invariant TSC
+#define CPUID_LEAF_TSC_FREQ 0x15u   // TSC/crystal ratio + crystal Hz
+#define CPUID_LEAF_CPU_FREQ 0x16u   // processor base frequency (MHz)
+
 static uint64_t g_tsc_hz;
 static uint64_t g_tsc_base;
 static bool g_invariant;
@@ -11,17 +17,17 @@ static bool g_invariant;
 static bool detect_invariant_tsc(void)
 {
     uint32_t eax, ebx, ecx, edx;
-    // CPUID leaf 0x80000007, EDX bit 8 = invariant TSC. Guard on the max
+    // EDX bit 8 of the power-mgmt leaf = invariant TSC. Guard on the max
     // extended leaf first.
     __asm__ __volatile__("cpuid"
                          : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
-                         : "a"(0x80000000));
-    if (eax < 0x80000007) {
+                         : "a"(CPUID_EXT_MAX));
+    if (eax < CPUID_EXT_POWER) {
         return false;
     }
     __asm__ __volatile__("cpuid"
                          : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
-                         : "a"(0x80000007));
+                         : "a"(CPUID_EXT_POWER));
     return (edx & (1u << 8)) != 0;
 }
 
@@ -36,22 +42,22 @@ static uint64_t tsc_hz_from_cpuid(void)
                          : "=a"(a), "=b"(b), "=c"(c), "=d"(d)
                          : "a"(0u));
     uint32_t max_leaf = a;
-    if (max_leaf < 0x15) {
+    if (max_leaf < CPUID_LEAF_TSC_FREQ) {
         return 0;
     }
-    // 0x15: eax = ratio denominator, ebx = numerator, ecx = crystal Hz.
+    // eax = ratio denominator, ebx = numerator, ecx = crystal Hz.
     __asm__ __volatile__("cpuid"
                          : "=a"(a), "=b"(b), "=c"(c), "=d"(d)
-                         : "a"(0x15u), "c"(0u));
+                         : "a"(CPUID_LEAF_TSC_FREQ), "c"(0u));
     if (a != 0 && b != 0 && c != 0) {
         return (uint64_t)c * b / a;
     }
-    // Crystal not enumerated: fall back to leaf 0x16 (eax = base MHz), which
-    // for an invariant TSC is the TSC rate.
-    if (max_leaf >= 0x16) {
+    // Crystal not enumerated: fall back to the CPU-frequency leaf (eax = base
+    // MHz), which for an invariant TSC is the TSC rate.
+    if (max_leaf >= CPUID_LEAF_CPU_FREQ) {
         __asm__ __volatile__("cpuid"
                              : "=a"(a), "=b"(b), "=c"(c), "=d"(d)
-                             : "a"(0x16u), "c"(0u));
+                             : "a"(CPUID_LEAF_CPU_FREQ), "c"(0u));
         if (a != 0) {
             return (uint64_t)a * 1000000ull;
         }

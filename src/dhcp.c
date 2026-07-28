@@ -10,6 +10,12 @@
 #include <console.h>
 #include <utils.h> // memset/memcpy
 
+#define DHCP_SERVER_PORT 67
+#define DHCP_CLIENT_PORT 68
+#define BOOTREQUEST 1                 // BOOTP op: client -> server
+#define BOOTREPLY 2                   // BOOTP op: server -> client
+#define DHCP_MAGIC_COOKIE 0x63825363u // precedes the options (RFC 2131)
+
 #define DHCP_DISCOVER 1
 #define DHCP_OFFER 2
 #define DHCP_REQUEST 3
@@ -72,7 +78,7 @@ static int build(uint8_t* buf, uint32_t xid, uint8_t type, uint32_t req_ip,
     uint8_t* msg = buf + sizeof(udp_hdr_t);
     memset(msg, 0, DHCP_FIXED);
     dhcp_hdr* d = (dhcp_hdr*)msg;
-    d->op = 1; // BOOTREQUEST
+    d->op = BOOTREQUEST;
     d->htype = 1;
     d->hlen = 6;
     d->xid = htonl(xid);
@@ -80,10 +86,8 @@ static int build(uint8_t* buf, uint32_t xid, uint8_t type, uint32_t req_ip,
     memcpy(d->chaddr, mac, 6);
 
     uint8_t* o = msg + DHCP_FIXED;
-    *o++ = 0x63; // magic cookie 63 82 53 63
-    *o++ = 0x82;
-    *o++ = 0x53;
-    *o++ = 0x63;
+    put32(o, DHCP_MAGIC_COOKIE); // precedes the options
+    o += 4;
     *o++ = OPT_MSGTYPE;
     *o++ = 1;
     *o++ = type;
@@ -106,8 +110,8 @@ static int build(uint8_t* buf, uint32_t xid, uint8_t type, uint32_t req_ip,
 
     uint16_t msglen = (uint16_t)(o - msg);
     uint16_t udplen = (uint16_t)(sizeof(udp_hdr_t) + msglen);
-    u->sport = htons(68);
-    u->dport = htons(67);
+    u->sport = htons(DHCP_CLIENT_PORT);
+    u->dport = htons(DHCP_SERVER_PORT);
     u->len = htons(udplen);
     u->csum = 0; // optional for IPv4
     return (int)udplen;
@@ -144,11 +148,11 @@ static bool parse(const uint8_t* d, int len, uint32_t xid, uint8_t want,
         return false;
     }
     const dhcp_hdr* m = (const dhcp_hdr*)d;
-    if (m->op != 2 || ntohl(m->xid) != xid) {
+    if (m->op != BOOTREPLY || ntohl(m->xid) != xid) {
         return false;
     }
     const uint8_t* o = d + DHCP_FIXED;
-    if (o[0] != 0x63 || o[1] != 0x82 || o[2] != 0x53 || o[3] != 0x63) {
+    if (get32(o) != DHCP_MAGIC_COOKIE) {
         return false;
     }
     o += 4;
@@ -218,7 +222,7 @@ bool net_dhcp(uint32_t timeout_ms)
     if (sock < 0) {
         return false;
     }
-    if (!net_udp_bind(sock, 68)) {
+    if (!net_udp_bind(sock, DHCP_CLIENT_PORT)) {
         net_udp_close(sock);
         return false;
     }

@@ -22,6 +22,22 @@
 #define ST_INPUT_FULL 0x02 // the input buffer is full; wait before writing
 #define ST_AUX_DATA 0x20   // the pending output byte came from the aux (mouse)
 
+// i8042 controller commands (written to PS2_STATUS).
+#define CMD_ENABLE_AUX 0xA8   // enable the aux (mouse) port
+#define CMD_READ_CONFIG 0x20  // next data byte read <- the config byte
+#define CMD_WRITE_CONFIG 0x60 // next data byte -> the config byte
+#define CMD_WRITE_AUX 0xD4    // next data byte -> the aux device
+
+// Controller config-byte bits.
+#define CFG_AUX_IRQ 0x02           // bit 1: raise IRQ12 on aux data
+#define CFG_AUX_CLOCK_DISABLE 0x20 // bit 5: gate the aux clock (keep clear)
+
+// PS/2 mouse device commands and its ACK reply.
+#define MOUSE_RESET 0xFF
+#define MOUSE_SET_DEFAULTS 0xF6
+#define MOUSE_ENABLE_REPORTING 0xF4
+#define MOUSE_ACK 0xFA
+
 static bool present;
 
 // Movement/buttons accumulated by the IRQ, drained by mouse_poll.
@@ -70,7 +86,7 @@ static uint8_t ctrl_read(void)
 // Send a byte to the mouse (aux) and return its acknowledgement (0xFA on ok).
 static uint8_t mouse_cmd(uint8_t v)
 {
-    ctrl_cmd(0xD4); // "the next data byte is for the aux device"
+    ctrl_cmd(CMD_WRITE_AUX); // the next data byte is for the aux device
     ctrl_write(v);
     return ctrl_read();
 }
@@ -111,28 +127,28 @@ static void mouse_irq(interrupt_frame* f)
 
 void mouse_init(void)
 {
-    ctrl_cmd(0xA8); // enable the aux (mouse) port
+    ctrl_cmd(CMD_ENABLE_AUX);
 
-    // Enable IRQ 12 in the controller config byte (bit 1), keeping the aux
-    // clock running (bit 5 clear).
-    ctrl_cmd(0x20); // read config byte
+    // Enable IRQ 12 in the controller config byte, keeping the aux clock
+    // running.
+    ctrl_cmd(CMD_READ_CONFIG);
     uint8_t cfg = ctrl_read();
-    cfg |= 0x02;
-    cfg = (uint8_t)(cfg & ~0x20);
-    ctrl_cmd(0x60); // write config byte
+    cfg |= CFG_AUX_IRQ;
+    cfg = (uint8_t)(cfg & ~CFG_AUX_CLOCK_DISABLE);
+    ctrl_cmd(CMD_WRITE_CONFIG);
     ctrl_write(cfg);
 
     // Reset, then set defaults and enable streaming. Require the ACKs so we
     // bail cleanly on a machine with no mouse.
-    if (mouse_cmd(0xFF) != 0xFA) { // reset
+    if (mouse_cmd(MOUSE_RESET) != MOUSE_ACK) {
         return;
     }
-    ctrl_read();                   // 0xAA self-test result
-    ctrl_read();                   // 0x00 device id
-    if (mouse_cmd(0xF6) != 0xFA) { // set defaults
+    ctrl_read(); // 0xAA self-test result
+    ctrl_read(); // 0x00 device id
+    if (mouse_cmd(MOUSE_SET_DEFAULTS) != MOUSE_ACK) {
         return;
     }
-    if (mouse_cmd(0xF4) != 0xFA) { // enable data reporting (streaming)
+    if (mouse_cmd(MOUSE_ENABLE_REPORTING) != MOUSE_ACK) {
         return;
     }
 

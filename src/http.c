@@ -18,6 +18,9 @@
 
 #include "http/picohttpparser.h"
 
+#define HTTP_PORT 80   // default port for http:// URLs
+#define HTTPS_PORT 443 // default port for https:// URLs
+
 // Case-insensitive: does header `h`'s name equal `name`?
 static bool hdr_name_is(const struct phr_header* h, str name)
 {
@@ -76,7 +79,7 @@ int http_get(allocator* a, const char* url, char** out_body, int* out_len)
 
     // Authority is host[:port].
     str host_v, port_v;
-    uint16_t port = https ? 443 : 80;
+    uint16_t port = https ? HTTPS_PORT : HTTP_PORT;
     if (str_cut_ch(authority, ':', &host_v, &port_v)) {
         uint32_t pv;
         if (str_to_u32(port_v, &pv)) {

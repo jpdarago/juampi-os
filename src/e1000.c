@@ -10,6 +10,10 @@
 #include <pci.h>
 #include <utils.h>
 
+// PCI identity of the card this driver binds to.
+#define E1000_VENDOR_INTEL 0x8086
+#define E1000_DEVICE_82540EM 0x100E
+
 // --- Register offsets (bytes into BAR0 MMIO) --------------------------------
 #define REG_CTRL 0x0000
 #define REG_STATUS 0x0008
@@ -43,8 +47,12 @@
 #define RCTL_SECRC (1u << 26) // strip Ethernet CRC
 #define RCTL_BSIZE_2048 0u    // (BSEX=0, SIZE=00) -> 2048-byte buffers
 // TCTL bits
-#define TCTL_EN (1u << 1)  // transmitter enable
-#define TCTL_PSP (1u << 3) // pad short packets
+#define TCTL_EN (1u << 1)      // transmitter enable
+#define TCTL_PSP (1u << 3)     // pad short packets
+#define TCTL_CT (0x0F << 4)    // collision threshold = 15
+#define TCTL_COLD (0x40 << 12) // collision distance = 64 (half-duplex)
+// IPG timing packed as IPGT=10, IPGR1=8, IPGR2=6 (IEEE 802.3 recommended).
+#define TIPG_IEEE8023 0x0060200A
 // TX descriptor cmd bits
 #define TXD_EOP (1u << 0)  // end of packet
 #define TXD_IFCS (1u << 1) // insert FCS/CRC
@@ -168,13 +176,13 @@ static void rings_init(void)
     reg_write(REG_TDLEN, N_TX * (uint32_t)sizeof(tx_desc));
     reg_write(REG_TDH, 0);
     reg_write(REG_TDT, 0);
-    reg_write(REG_TCTL, TCTL_EN | TCTL_PSP | (0x0F << 4) | (0x40 << 12));
-    reg_write(REG_TIPG, 0x0060200A);
+    reg_write(REG_TCTL, TCTL_EN | TCTL_PSP | TCTL_CT | TCTL_COLD);
+    reg_write(REG_TIPG, TIPG_IEEE8023);
 }
 
 bool e1000_init(void)
 {
-    pci_addr a = pci_find(0x8086, 0x100E); // Intel 82540EM
+    pci_addr a = pci_find(E1000_VENDOR_INTEL, E1000_DEVICE_82540EM);
     if (!a.found) {
         return false;
     }

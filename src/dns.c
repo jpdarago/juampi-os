@@ -34,6 +34,7 @@ struct dns_rr { // the fixed part of a resource record, after its name
     uint16_t rdlength;
 } __attribute__((packed));
 
+#define DNS_PORT 53        // well-known UDP port for DNS
 #define DNS_TYPE_A 1       // IPv4 address record
 #define DNS_CLASS_IN 1     // Internet class
 #define DNS_FLAG_RD 0x0100 // recursion desired
@@ -129,9 +130,9 @@ static bool parse_answer(const uint8_t* m, int len, uint16_t id,
             return false;
         }
         if (type == DNS_TYPE_A && rdlen == 4) { // A record
-            // Assemble the 4 big-endian RDATA bytes into a host-order address by
-            // hand — an ntohl that stays endian-agnostic and avoids an unaligned
-            // 4-byte load into the middle of the packet buffer.
+            // Assemble the 4 big-endian RDATA bytes into a host-order address
+            // by hand — an ntohl that stays endian-agnostic and avoids an
+            // unaligned 4-byte load into the middle of the packet buffer.
             *out_ip = ((uint32_t)m[o] << 24) | ((uint32_t)m[o + 1] << 16) |
                       ((uint32_t)m[o + 2] << 8) | (uint32_t)m[o + 3];
             return true;
@@ -173,7 +174,8 @@ bool net_resolve(const char* host, uint32_t timeout_ms, uint32_t* out_ip)
     bool ok = false;
     for (int s = 0; s < 2 && !ok; s++) {
         for (int attempt = 0; attempt < 2 && !ok; attempt++) {
-            if (!net_udp_sendto(sock, server_ips[s], 53, q, (uint16_t)qlen)) {
+            if (!net_udp_sendto(sock, server_ips[s], DNS_PORT, q,
+                                (uint16_t)qlen)) {
                 break; // e.g. ARP failed for this server; try the next
             }
             uint8_t r[512];
