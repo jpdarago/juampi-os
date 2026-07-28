@@ -58,7 +58,12 @@ another literal and hopes. (Two of these were added in the APIC work.) **Fix: an
 uncached and hands back a VA, retiring the four device windows (KHEAP stays
 separate — it's the heap, not device MMIO). → *fix (b1)*
 
-## 3. DEDUP — the same constant in N places (easy wins)
+## 3. DEDUP — the same constant in N places (easy wins) — ☑ done
+
+> [!note] Resolved in `54ae5c9` — see the four bullets below; all now source
+> from `include/font.h`, `include/theme.h`, `include/lineedit.h`, and
+> `KERNEL_STACK_SZ` in `include/sched.h`.
+
 
 - **Glyph size `8×16` in FOUR files:** `FONT_W/H` (font8x16.h), `GLYPH_W/H`
   (ui.c), `VGW/VGH` (editor.c), `GW/GH` (term.c). → all derive from `FONT_*`.
@@ -93,12 +98,13 @@ Stable spec values used raw; often commented, so low urgency:
 
 ## Fix order
 
-1. ◐ **(b1)** `iomap()` VA-window allocator — retires the four device VAs +
-   prevents the next collision.
-2. ◐ **(b2)** `struct fadt`/`struct madt` in acpi.c — owns the worst offender
-   (and it's recent code).
+1. ☑ **(b1)** `iomap()` VA-window allocator — retires the four device VAs +
+   prevents the next collision. *(commit `da2bb4e`)*
+2. ☑ **(b2)** `struct fadt`/`struct madt` in acpi.c — owns the worst offender
+   (and it's recent code). *(commit `ce17bf2`)*
 3. ☐ DNS/QOI header structs (same family as b2, smaller).
-4. ☐ The dedup pass (§3) — quick, no behaviour change.
+4. ☑ The dedup pass (§3) — `font.h`, `theme.h`, `lineedit.h`, and
+   `KERNEL_STACK_SZ` in `sched.h`. Pure refactor. *(commit `54ae5c9`)*
 5. ☐ Opportunistic naming (§4).
 
 ## Related
