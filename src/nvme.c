@@ -1,25 +1,43 @@
-// Minimal polled NVMe driver (see nvme.h). Brings up the first NVMe controller
-// on PCI, creates an admin and one I/O queue pair, IDENTIFYs namespace 1, and
-// reads blocks by polling the completion queue's phase bit — no interrupts, no
-// writes. Everything the controller DMAs to/from lives in fresh physical frames
-// reached through the HHDM; caller buffers are serviced through a one-page
-// bounce buffer, so they need not be physically contiguous.
+// Minimal NVMe driver (see nvme.h). Brings up the first NVMe controller on PCI,
+// creates an admin and one I/O queue pair, IDENTIFYs namespace 1, and reads
+// logical blocks. Everything the controller DMAs to/from lives in fresh
+// physical frames reached through the HHDM; caller buffers are serviced through
+// a one-page bounce buffer, so they need not be physically contiguous.
 //
-// This is milestone 1 of the NVMe work: prove the queue/doorbell/PRP mechanics
-// in QEMU. MSI-X interrupts, writes, and wiring ext2 onto the block device come
-// in later milestones. BSP-only, like the other drivers.
+// Milestone 2: I/O completions are delivered by MSI-X — the controller writes
+// the LAPIC message address programmed into its vector table, raising an
+// interrupt on a free vector; the handler drains the I/O completion queue and
+// wakes the reader (which naps on hlt instead of busy-polling). Admin commands
+// (init-time only) stay polled, and the whole driver falls back to polling if
+// the controller advertises no MSI-X. Still read-only; writes and wiring ext2
+// onto the block device come later. BSP-only, like the other drivers.
 
 #include <nvme.h>
 #include <pci.h>
 #include <paging.h>
 #include <frames.h>
 #include <ktime.h>
+#include <apic.h> // lapic_id for the MSI-X message address
+#include <idt.h>  // register_interrupt_handler, interrupt_frame
 #include <utils.h>
 
 // PCI class code for an NVMe controller: mass storage / NVM / NVMe.
 #define PCI_CLASS_STORAGE 0x01
 #define PCI_SUBCLASS_NVM 0x08
 #define PCI_PROGIF_NVME 0x02
+
+// MSI-X: the capability id, message-control bits, and the 16-byte table entry
+// layout. The controller raises completions by writing the message address
+// (a LAPIC address) with the message data (the CPU vector below).
+#define PCI_CAP_MSIX 0x11
+#define MSIX_MC_ENABLE (1u << 15)    // message control: MSI-X enable
+#define MSIX_MC_FUNC_MASK (1u << 14) // message control: mask all vectors
+#define MSIX_ENTRY_DWORDS 4          // addr_lo, addr_hi, data, vector-control
+#define MSIX_VCTRL_MASK (1u << 0)    // per-vector mask bit
+// LAPIC message address (physical destination, fixed delivery).
+#define MSI_ADDR_BASE 0xFEE00000u
+// A free IDT vector (32-47 have stubs; 34-43/45/46 are unused) for completions.
+#define NVME_VECTOR 45
 
 // Controller register offsets (bytes into BAR0).
 #define REG_CAP 0x00  // capabilities (64-bit)
@@ -131,6 +149,14 @@ static nvme_queue io_q;
 static uint8_t* bounce_va; // one-page DMA bounce buffer
 static uintptr_t bounce_pa;
 
+// MSI-X interrupt state. When the controller advertises MSI-X, I/O completions
+// arrive as interrupts instead of being polled: the ISR drains the I/O CQ and
+// signals the reader. Falls back to polling when MSI-X is unavailable.
+static bool use_irq;
+static volatile bool io_done;       // set by the ISR when an I/O command posts
+static volatile int io_status;      // that completion's status code
+static volatile uint64_t irq_count; // I/O completions the ISR has handled
+
 static uint32_t reg32(uint32_t off)
 {
     return *(volatile uint32_t*)(regs + off);
@@ -192,6 +218,89 @@ static int submit(nvme_queue* q, struct nvme_command* cmd)
     return status & 0x3FF; // SC | SCT
 }
 
+// MSI-X completion handler: drain every pending I/O completion, ring the CQ
+// head doorbell, and signal the waiting reader. Runs with interrupts off;
+// interrupt_dispatch EOIs the LAPIC after it returns (NVME_VECTOR is 32-47).
+static void nvme_irq(interrupt_frame* f)
+{
+    (void)f;
+    volatile struct nvme_completion* c = &io_q.cq[io_q.cq_head];
+    while ((c->status & 1) == io_q.phase) {
+        io_status = (c->status >> 1) & 0x3FF;
+        io_q.cq_head = (uint16_t)((io_q.cq_head + 1) % io_q.depth);
+        if (io_q.cq_head == 0) {
+            io_q.phase ^= 1;
+        }
+        *io_q.cq_head_db = io_q.cq_head;
+        irq_count++;
+        io_done = true;
+        c = &io_q.cq[io_q.cq_head];
+    }
+}
+
+// Submit one command on the I/O queue and block until nvme_irq signals it
+// (bounded). hlt naps between checks so we wake on the completion (or the 100
+// Hz tick, which bounds any missed-wakeup window). Returns the status or -1.
+static int submit_io_irq(struct nvme_command* cmd)
+{
+    cmd->cid = io_q.cid++;
+    io_q.sq[io_q.sq_tail] = *cmd;
+    io_q.sq_tail = (uint16_t)((io_q.sq_tail + 1) % io_q.depth);
+    io_done = false;
+    io_status = -1;
+    *io_q.sq_tail_db = io_q.sq_tail;
+
+    uint64_t deadline = ktime_ms() + 5000;
+    while (!io_done) {
+        if (ktime_ms() > deadline || (reg32(REG_CSTS) & CSTS_CFS)) {
+            return -1;
+        }
+        __asm__ __volatile__("sti; hlt");
+    }
+    return io_status;
+}
+
+// One command on the I/O queue: interrupt-driven when MSI-X is up, else polled.
+static int submit_io(struct nvme_command* cmd)
+{
+    return use_irq ? submit_io_irq(cmd) : submit(&io_q, cmd);
+}
+
+// Program MSI-X table entry 0 to deliver NVME_VECTOR to this core's LAPIC and
+// enable MSI-X. Returns true if the controller advertised MSI-X and it was set
+// up; false leaves the driver on the polled path.
+static bool msix_setup(pci_addr a)
+{
+    uint8_t cap = pci_find_capability(a, PCI_CAP_MSIX);
+    if (cap == 0) {
+        return false;
+    }
+    // Table Offset/BIR: which BAR holds the vector table and the offset into
+    // it.
+    uint32_t tbl = pci_read32(a.bus, a.dev, a.func, (uint8_t)(cap + 4));
+    uint32_t bir = tbl & 0x7;
+    uint32_t off = tbl & ~0x7u;
+    uint64_t bar = (bir == 0) ? pci_bar64(a, 0) : pci_bar(a, (int)bir);
+    volatile uint32_t* table =
+            iomap(bar + off, PAGE_SZ, PAGEF_P | PAGEF_RW | PAGEF_UC);
+
+    // Entry 0 -> (LAPIC message address, NVME_VECTOR), unmasked.
+    table[0] = MSI_ADDR_BASE | (lapic_id() << 12); // message address low
+    table[1] = 0;                                  // message address high
+    table[2] = NVME_VECTOR;                        // message data = the vector
+    table[3] = 0;                                  // vector control: unmasked
+
+    register_interrupt_handler(NVME_VECTOR, nvme_irq);
+
+    // Enable MSI-X and clear the global function mask (message control is the
+    // high half of the capability's first dword).
+    uint32_t mc = pci_read32(a.bus, a.dev, a.func, cap);
+    mc &= ~((uint32_t)MSIX_MC_FUNC_MASK << 16);
+    mc |= (uint32_t)MSIX_MC_ENABLE << 16;
+    pci_write32(a.bus, a.dev, a.func, cap, mc);
+    return true;
+}
+
 // Wait up to ~5 s for CSTS.RDY to reach `want`. Returns false on timeout.
 static bool wait_ready(uint32_t want)
 {
@@ -243,7 +352,9 @@ static bool create_io_queues(uintptr_t sq_pa, uintptr_t cq_pa)
     cq.opcode = ADMIN_CREATE_IO_CQ;
     cq.prp1 = cq_pa;
     cq.cdw10 = ((QUEUE_DEPTH - 1) << 16) | IO_QID;
-    cq.cdw11 = 1; // PC (physically contiguous), interrupts disabled
+    // PC (bit 0). With MSI-X up, also enable interrupts (IEN bit 1) and point
+    // at vector table entry 0 (IV, bits 31:16); otherwise the CQ is polled.
+    cq.cdw11 = use_irq ? 0x3u : 0x1u;
     if (submit(&admin_q, &cq) != 0) {
         return false;
     }
@@ -316,6 +427,10 @@ void nvme_init(void)
         return; // unsupported format for the one-page bounce path
     }
 
+    // Set up MSI-X (if advertised) before creating the I/O CQ, so the CQ can be
+    // created with interrupts enabled; otherwise the queue stays polled.
+    use_irq = msix_setup(a);
+
     // The single I/O queue pair, plus the bounce buffer reads land in.
     uintptr_t iosq_pa, iocq_pa;
     queue_init(&io_q, IO_QID, &iosq_pa, &iocq_pa);
@@ -342,6 +457,14 @@ const char* nvme_model(void)
 {
     return g_present ? g_model : "";
 }
+bool nvme_irq_driven(void)
+{
+    return use_irq;
+}
+uint64_t nvme_irq_count(void)
+{
+    return irq_count;
+}
 
 bool nvme_read(uint64_t lba, uint32_t count, void* buf)
 {
@@ -359,7 +482,7 @@ bool nvme_read(uint64_t lba, uint32_t count, void* buf)
         cmd.cdw10 = (uint32_t)lba;
         cmd.cdw11 = (uint32_t)(lba >> 32);
         cmd.cdw12 = n - 1; // NLB is 0-based
-        if (submit(&io_q, &cmd) != 0) {
+        if (submit_io(&cmd) != 0) {
             return false;
         }
         memcpy(out, bounce_va, (size_t)n * g_block_size);

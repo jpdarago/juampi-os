@@ -360,13 +360,15 @@ void kmain(void)
     if (nvme_present()) {
         static uint8_t nvme_blk[4096]; // >= any supported block size
         bool rd = nvme_read(0, 1, nvme_blk);
-        console_printf("juampiOS: nvme \"%s\" blocks=%lu blk=%u", nvme_model(),
-                       nvme_blocks(), nvme_block_size());
+        console_printf("juampiOS: nvme \"%s\" blocks=%lu blk=%u irq=%s",
+                       nvme_model(), nvme_blocks(), nvme_block_size(),
+                       nvme_irq_driven() ? "msix" : "polled");
         if (rd) {
             console_print(" read0=OK first8=");
             for (int i = 0; i < 8; i++) {
                 console_printf("%02x ", nvme_blk[i]);
             }
+            console_printf("(completions=%lu)", nvme_irq_count());
         } else {
             console_print(" read0=FAIL");
         }

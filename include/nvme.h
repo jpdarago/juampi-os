@@ -20,6 +20,12 @@ uint32_t nvme_block_size(void);
 // absent. Points at driver-owned storage; do not free.
 const char* nvme_model(void);
 
+// Whether I/O completions are delivered via MSI-X interrupts (true) or polled
+// (false, the fallback when the controller advertises no MSI-X), and the count
+// of completions the interrupt handler has serviced (0 in polled mode).
+bool nvme_irq_driven(void);
+uint64_t nvme_irq_count(void);
+
 // Read `count` logical blocks starting at LBA `lba` into `buf`. Returns false
 // on timeout, controller error, or when no controller is present.
 bool nvme_read(uint64_t lba, uint32_t count, void* buf);
