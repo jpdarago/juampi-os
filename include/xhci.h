@@ -5,23 +5,20 @@
 #include <stdbool.h>
 #include <blockdev.h>
 
-// Minimal xHCI (USB 3.x host controller) driver. Milestone 1 brings the
-// controller up — reset, the device-context base array, a command ring and an
-// event ring — proves the transfer machinery with a NO-OP command, then resets
-// the connected port, addresses the device, and reads its device descriptor.
-// Poll-driven and BSP-only, like the other early drivers.
+// xHCI (USB 3.x host controller) driver: controller bring-up, enumeration of
+// every root port (recursing through hubs), USB mass storage as a blockdev,
+// and MSI-X-woken event waits. BSP-only, like the other drivers.
 void xhci_init(void);
 bool xhci_present(void);
 
 // Number of root-hub ports the controller reports (0 if absent).
 uint32_t xhci_ports(void);
 
-// The device enumerated during init (milestone 1 stops at the descriptor):
-// whether one was addressed, and its USB vendor/product id and device class.
-bool xhci_device_found(void);
-uint16_t xhci_vid(void);
-uint16_t xhci_pid(void);
-uint8_t xhci_class(void);
+// The devices enumerated during init. xhci_device_info fills the identity of
+// device index `i` (i < count); returns false past the end.
+uint32_t xhci_device_count(void);
+bool xhci_device_info(uint32_t i, uint16_t* vid, uint16_t* pid,
+                      uint8_t* usb_class);
 
 // Whether the enumerated device is a configured Bulk-Only-Transport
 // mass-storage device, its capacity, and its namespace as a block device

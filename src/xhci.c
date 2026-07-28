@@ -93,6 +93,7 @@
 #define TRB_DIR_IN (1u << 16) // data/status stage: device-to-host
 #define TRT_IN (3u << 16)     // setup stage: an IN data stage follows
 #define TRB_CONFIGURE_ENDPOINT 12
+#define TRB_EVALUATE_CONTEXT 13
 #define TRB_RESET_ENDPOINT 14
 #define TRB_SET_TR_DEQUEUE 16
 #define EP_TYPE_CONTROL (4u << 3)
@@ -110,6 +111,7 @@
 #define DESC_INTERFACE 4
 #define DESC_ENDPOINT 5
 #define USB_CLASS_MSC 8
+#define USB_CLASS_HUB 9
 #define MSC_SUBCLASS_SCSI 6
 #define MSC_PROTO_BOT 0x50
 #define EP_ATTR_BULK 2 // bmAttributes transfer type
@@ -160,7 +162,6 @@ static uint32_t g_ports;
 static uint32_t ctx_sz; // bytes per context entry (32 or 64, from HCCPARAMS1)
 
 static ring cmd; // command ring
-static ring ep0; // the enumerated device's control endpoint ring
 
 static uint64_t* dcbaa; // device context base array
 
@@ -180,18 +181,28 @@ static struct {
     volatile uint64_t count; // interrupts the ISR has taken
 } evt_irq;
 
-// The enumerated device (one, on the first enabled root port).
-static struct {
-    bool found;
+// An addressed USB device: its slot, where it sits in the topology (root port
+// + the xHCI route string of hub hops below it), its speed and identity, and
+// its control-endpoint transfer ring.
+#define MAX_DEVICES 8
+typedef struct {
+    bool used;
     uint32_t slot;
-    uint32_t speed, port; // PORTSC speed code + root-hub port number
+    uint32_t speed;     // PORTSC-style speed code (FS=1 LS=2 HS=3 SS=4)
+    uint32_t root_port; // 1-based root-hub port
+    uint32_t route;     // hub-port nibbles below the root port (xHCI route)
+    uint32_t depth;     // number of hubs above (0 = on a root port)
     uint16_t vid, pid;
-    uint8_t usb_class;
-} dev;
+    uint8_t usb_class; // bDeviceClass (9 = hub; 0 = classes per interface)
+    ring ep0;
+} usb_device;
+static usb_device devices[MAX_DEVICES];
+static uint32_t n_devices;
 
-// The configured Bulk-Only-Transport mass-storage function on `dev`.
+// The configured Bulk-Only-Transport mass-storage function (the first found).
 static struct {
     bool ready;
+    uint32_t slot;       // owning device's slot (for bulk doorbells)
     uint64_t blocks;     // capacity, in logical blocks
     uint32_t block_size; // bytes per logical block
     uint32_t tag;        // rolling CBW/CSW transaction tag
@@ -337,17 +348,17 @@ static uint16_t ep0_mps(uint32_t speed)
     }
 }
 
-// One EP0 IN control transfer: SETUP / DATA / STATUS stages, then ring the
-// slot's EP0 doorbell and wait for the transfer to complete. `data_pa` receives
-// `len` bytes. Returns false on timeout or a non-success completion.
-static bool control_in(uint32_t slot, uint64_t setup, uintptr_t data_pa,
+// One EP0 IN control transfer on device `d`: SETUP / DATA / STATUS stages,
+// then ring its EP0 doorbell and wait for the transfer to complete. `data_pa`
+// receives `len` bytes. Returns false on timeout or a non-success completion.
+static bool control_in(usb_device* d, uint64_t setup, uintptr_t data_pa,
                        uint16_t len)
 {
-    ring_push(&ep0, setup, 8, TRB_TYPE(TRB_SETUP_STAGE) | TRB_IDT | TRT_IN);
-    ring_push(&ep0, data_pa, len, TRB_TYPE(TRB_DATA_STAGE) | TRB_DIR_IN);
-    ring_push(&ep0, 0, 0, TRB_TYPE(TRB_STATUS_STAGE) | TRB_IOC);
+    ring_push(&d->ep0, setup, 8, TRB_TYPE(TRB_SETUP_STAGE) | TRB_IDT | TRT_IN);
+    ring_push(&d->ep0, data_pa, len, TRB_TYPE(TRB_DATA_STAGE) | TRB_DIR_IN);
+    ring_push(&d->ep0, 0, 0, TRB_TYPE(TRB_STATUS_STAGE) | TRB_IOC);
     __asm__ __volatile__("" ::: "memory");
-    db[slot] = 1; // EP0 doorbell (DCI 1)
+    db[d->slot] = 1; // EP0 doorbell (DCI 1)
     struct trb ev;
     if (!wait_event(TRB_TRANSFER_EVENT, &ev, 1000)) {
         return false;
@@ -358,12 +369,12 @@ static bool control_in(uint32_t slot, uint64_t setup, uintptr_t data_pa,
 
 // A no-data control transfer (e.g. SET_CONFIGURATION): SETUP then a STATUS
 // stage in the IN direction. Returns false on timeout/non-success.
-static bool control_no_data(uint32_t slot, uint64_t setup)
+static bool control_no_data(usb_device* d, uint64_t setup)
 {
-    ring_push(&ep0, setup, 8, TRB_TYPE(TRB_SETUP_STAGE) | TRB_IDT);
-    ring_push(&ep0, 0, 0, TRB_TYPE(TRB_STATUS_STAGE) | TRB_DIR_IN | TRB_IOC);
+    ring_push(&d->ep0, setup, 8, TRB_TYPE(TRB_SETUP_STAGE) | TRB_IDT);
+    ring_push(&d->ep0, 0, 0, TRB_TYPE(TRB_STATUS_STAGE) | TRB_DIR_IN | TRB_IOC);
     __asm__ __volatile__("" ::: "memory");
-    db[slot] = 1;
+    db[d->slot] = 1;
     struct trb ev;
     if (!wait_event(TRB_TRANSFER_EVENT, &ev, 1000)) {
         return false;
@@ -373,12 +384,12 @@ static bool control_no_data(uint32_t slot, uint64_t setup)
 }
 
 // GET_DESCRIPTOR(type<<8 | index) of `len` bytes into `buf_pa`.
-static bool get_descriptor(uint32_t slot, uint16_t value, uintptr_t buf_pa,
+static bool get_descriptor(usb_device* d, uint16_t value, uintptr_t buf_pa,
                            uint16_t len)
 {
     uint64_t setup = (uint64_t)0x80 | ((uint64_t)0x06 << 8) |
                      ((uint64_t)value << 16) | ((uint64_t)len << 48);
-    return control_in(slot, setup, buf_pa, len);
+    return control_in(d, setup, buf_pa, len);
 }
 
 // One bulk transfer on endpoint `ep`: a Normal TRB on its ring, ring its
@@ -390,7 +401,7 @@ static uint8_t bulk_xfer(usb_endpoint* ep, uintptr_t data_pa, uint32_t len)
 {
     ring_push(&ep->r, data_pa, len, TRB_TYPE(TRB_NORMAL) | TRB_IOC | TRB_ISP);
     __asm__ __volatile__("" ::: "memory");
-    db[dev.slot] = ep->dci;
+    db[msc.slot] = ep->dci;
     struct trb ev;
     if (!wait_event(TRB_TRANSFER_EVENT, &ev, 2000)) {
         return CC_TIMEOUT;
@@ -415,6 +426,17 @@ static void ring_reset(ring* r)
     r->cycle = 1;
 }
 
+// The addressed device owning `slot`, or NULL.
+static usb_device* device_by_slot(uint32_t slot)
+{
+    for (uint32_t i = 0; i < n_devices; i++) {
+        if (devices[i].used && devices[i].slot == slot) {
+            return &devices[i];
+        }
+    }
+    return NULL;
+}
+
 // Recover a halted (STALLed) bulk endpoint, per xHCI + USB: RESET_ENDPOINT
 // moves it Halted -> Stopped, SET_TR_DEQUEUE rewinds its (reset) transfer
 // ring, and CLEAR_FEATURE(ENDPOINT_HALT) tells the device to clear its halt
@@ -423,19 +445,22 @@ static void recover_endpoint(usb_endpoint* ep)
 {
     struct trb ev;
     run_command(0,
-                TRB_TYPE(TRB_RESET_ENDPOINT) | (dev.slot << 24) |
+                TRB_TYPE(TRB_RESET_ENDPOINT) | (msc.slot << 24) |
                         (ep->dci << 16),
                 &ev);
     ring_reset(&ep->r);
     run_command(ep->r.pa | 1, // new dequeue pointer | DCS
-                TRB_TYPE(TRB_SET_TR_DEQUEUE) | (dev.slot << 24) |
+                TRB_TYPE(TRB_SET_TR_DEQUEUE) | (msc.slot << 24) |
                         (ep->dci << 16),
                 &ev);
     // CLEAR_FEATURE(ENDPOINT_HALT): bmRequestType=0x02 (endpoint), bRequest=1,
     // wValue=0 (ENDPOINT_HALT), wIndex = the endpoint address.
-    uint64_t ep_addr = (ep->dci >> 1) | ((ep->dci & 1) << 7);
-    control_no_data(dev.slot,
-                    (uint64_t)0x02 | ((uint64_t)0x01 << 8) | (ep_addr << 32));
+    usb_device* d = device_by_slot(msc.slot);
+    if (d != NULL) {
+        uint64_t ep_addr = (ep->dci >> 1) | ((ep->dci & 1) << 7);
+        control_no_data(d, (uint64_t)0x02 | ((uint64_t)0x01 << 8) |
+                                   (ep_addr << 32));
+    }
 }
 
 // One Bulk-Only-Transport command: send the 31-byte CBW wrapping the SCSI CDB,
@@ -575,20 +600,21 @@ const blockdev* xhci_msc_blockdev(void)
     return &msc_dev;
 }
 
-// Configure the mass-storage interface: read the configuration descriptor, find
-// the BOT interface and its two bulk endpoints, add them with
-// CONFIGURE_ENDPOINT and select the configuration. Returns true when the device
-// is ready for BOT.
-static bool msc_setup(uint32_t slot, uint16_t dev_max_packet0)
+// Configure the mass-storage interface of device `d` (first storage device
+// wins): read the configuration descriptor, find the BOT interface and its two
+// bulk endpoints, add them with CONFIGURE_ENDPOINT and select the
+// configuration. Returns true when the device is ready for BOT.
+static bool msc_setup(usb_device* d)
 {
-    (void)dev_max_packet0;
+    if (msc.ready) {
+        return false; // already bound to an earlier device
+    }
     // Request a full page: the device returns min(wTotalLength, wLength), so
     // the walk below can never run past bytes that were actually transferred
     // (composite devices easily exceed the 255 bytes a short request returns).
     dma_buf cfg_mem = dma_page_alloc();
     uint8_t* cfg = cfg_mem.va;
-    if (!get_descriptor(slot, (uint16_t)(DESC_CONFIG << 8), cfg_mem.pa,
-                        PAGE_SZ)) {
+    if (!get_descriptor(d, (uint16_t)(DESC_CONFIG << 8), cfg_mem.pa, PAGE_SZ)) {
         fail_reason = "config descriptor read failed";
         dma_page_free(cfg_mem);
         return false;
@@ -646,8 +672,8 @@ static bool msc_setup(uint32_t slot, uint16_t dev_max_packet0)
     uint32_t max_dci = msc.in.dci > msc.out.dci ? msc.in.dci : msc.out.dci;
     input[1] = 1u | (1u << msc.in.dci) | (1u << msc.out.dci); // A0 + endpoints
     uint32_t* slot_ctx = input + dwpc;
-    slot_ctx[0] = (dev.speed << 20) | (max_dci << 27);
-    slot_ctx[1] = (dev.port << 16);
+    slot_ctx[0] = d->route | (d->speed << 20) | (max_dci << 27);
+    slot_ctx[1] = (d->root_port << 16);
     // The endpoint context for DCI n sits at input index n+1 (the input control
     // context occupies index 0, shifting the device context up by one).
     uint32_t* oc = input + (msc.out.dci + 1) * dwpc;
@@ -664,7 +690,8 @@ static bool msc_setup(uint32_t slot, uint16_t dev_max_packet0)
     struct trb ev;
     bool configured =
             run_command(input_mem.pa,
-                        TRB_TYPE(TRB_CONFIGURE_ENDPOINT) | (slot << 24), &ev) &&
+                        TRB_TYPE(TRB_CONFIGURE_ENDPOINT) | (d->slot << 24),
+                        &ev) &&
             COMPLETION_CODE(ev.status) == CC_SUCCESS;
     // The input context is software-owned again once the command completes.
     dma_page_free(input_mem);
@@ -676,10 +703,11 @@ static bool msc_setup(uint32_t slot, uint16_t dev_max_packet0)
     // data.
     uint64_t setup = (uint64_t)0x00 | ((uint64_t)0x09 << 8) |
                      ((uint64_t)config_value << 16);
-    if (!control_no_data(slot, setup)) {
+    if (!control_no_data(d, setup)) {
         fail_reason = "SET_CONFIGURATION failed";
         return false;
     }
+    msc.slot = d->slot;
 
     // Bulk-Only-Transport buffers, then read the capacity. A freshly attached
     // device may fail the first command with a unit-attention, so retry.
@@ -701,11 +729,207 @@ static bool msc_setup(uint32_t slot, uint16_t dev_max_packet0)
     return true;
 }
 
-// Reset the first connected root port and address the device on it, then read
-// its device descriptor. Stores vendor/product/class on success.
-static void enumerate(void)
+static void enumerate_device(uint32_t root_port, uint32_t speed, uint32_t route,
+                             uint32_t depth);
+
+static void delay_ms(uint64_t ms)
 {
-    uint32_t port = 0, speed = 0;
+    uint64_t end = ktime_ms() + ms;
+    while (ktime_ms() < end) {
+        __asm__ __volatile__("pause");
+    }
+}
+
+// Read a hub port's 32-bit status word (low 16 status, high 16 change bits)
+// into `scratch`. Returns 0 on failure (reads as disconnected).
+static uint32_t hub_port_status(usb_device* d, uint32_t port, dma_buf scratch)
+{
+    // GET_STATUS, class, port recipient: bmRequestType 0xA3.
+    if (!control_in(d,
+                    (uint64_t)0xA3 | ((uint64_t)port << 32) |
+                            ((uint64_t)4 << 48),
+                    scratch.pa, 4)) {
+        return 0;
+    }
+    uint32_t st;
+    memcpy(&st, scratch.va, 4);
+    return st;
+}
+
+// SET_FEATURE (set=true) or CLEAR_FEATURE on a hub port (class request).
+static bool hub_port_feature(usb_device* d, uint32_t port, uint32_t feature,
+                             bool set)
+{
+    return control_no_data(
+            d, (uint64_t)0x23 | ((uint64_t)(set ? 0x03 : 0x01) << 8) |
+                       ((uint64_t)feature << 16) | ((uint64_t)port << 32));
+}
+
+// Hub port features (USB 2.0 11.24.2).
+#define PORT_RESET 4
+#define PORT_POWER 8
+#define C_PORT_RESET 20
+#define PS_CONNECTED (1u << 0)
+#define PS_ENABLED (1u << 1)
+#define PS_LOW_SPEED (1u << 9)
+#define PS_HIGH_SPEED (1u << 10)
+#define PS_C_RESET (1u << 20)
+
+// Bring up a hub (class 9) and enumerate the devices behind it: select its
+// configuration, power every port, then per connected port reset it (via hub
+// class requests — the hub performs the signalling) and enumerate the child
+// with the route string extended by this hop's port number.
+static void hub_setup(usb_device* d)
+{
+    dma_buf scratch = dma_page_alloc();
+    uint8_t* buf = scratch.va;
+    if (!get_descriptor(d, (uint16_t)(DESC_CONFIG << 8), scratch.pa, 9)) {
+        dma_page_free(scratch);
+        return;
+    }
+    uint8_t config_value = buf[5];
+    if (!control_no_data(d, (uint64_t)0x00 | ((uint64_t)0x09 << 8) |
+                                    ((uint64_t)config_value << 16))) {
+        dma_page_free(scratch);
+        return;
+    }
+
+    // Hub descriptor (class type 0x29): bNbrPorts at byte 2. One route nibble
+    // per hop caps a hub at 15 addressable ports.
+    if (!control_in(d,
+                    (uint64_t)0xA0 | ((uint64_t)0x06 << 8) |
+                            ((uint64_t)0x2900 << 16) | ((uint64_t)9 << 48),
+                    scratch.pa, 9)) {
+        dma_page_free(scratch);
+        return;
+    }
+    uint32_t nports = buf[2] < 15 ? buf[2] : 15;
+
+    for (uint32_t p = 1; p <= nports; p++) {
+        hub_port_feature(d, p, PORT_POWER, true);
+    }
+    delay_ms(100); // power-good time
+
+    for (uint32_t p = 1; p <= nports; p++) {
+        uint32_t st = hub_port_status(d, p, scratch);
+        if (!(st & PS_CONNECTED)) {
+            continue;
+        }
+        hub_port_feature(d, p, PORT_RESET, true);
+        uint64_t dl = ktime_ms() + 500;
+        do {
+            st = hub_port_status(d, p, scratch);
+        } while (!(st & PS_C_RESET) && ktime_ms() < dl);
+        hub_port_feature(d, p, C_PORT_RESET, false);
+        st = hub_port_status(d, p, scratch);
+        if (!(st & PS_ENABLED)) {
+            continue;
+        }
+        uint32_t speed = (st & PS_LOW_SPEED) ? 2 : (st & PS_HIGH_SPEED) ? 3 : 1;
+        enumerate_device(d->root_port, speed, d->route | (p << (4 * d->depth)),
+                         d->depth + 1);
+    }
+    dma_page_free(scratch);
+}
+
+// Address the device at (root_port, route) and read its descriptors; then hand
+// it to its class driver — hubs recurse, the first BOT storage device becomes
+// the msc function. FS devices get the textbook EP0 dance: address with the
+// default max packet size, read the descriptor's first 8 bytes, and
+// EVALUATE_CONTEXT the real bMaxPacketSize0 before reading the rest.
+static void enumerate_device(uint32_t root_port, uint32_t speed, uint32_t route,
+                             uint32_t depth)
+{
+    if (n_devices >= MAX_DEVICES) {
+        return;
+    }
+    struct trb ev;
+    if (!run_command(0, TRB_TYPE(TRB_ENABLE_SLOT), &ev) ||
+        COMPLETION_CODE(ev.status) != CC_SUCCESS) {
+        fail_reason = "ENABLE_SLOT failed";
+        return;
+    }
+    usb_device* d = &devices[n_devices];
+    memset(d, 0, sizeof *d);
+    d->slot = (ev.control >> 24) & 0xFF;
+    d->speed = speed;
+    d->root_port = root_port;
+    d->route = route;
+    d->depth = depth;
+
+    // Output device context (controller-written); publish it in the DCBAA.
+    dcbaa[d->slot] = dma_page_alloc().pa;
+
+    // Input context: enable the slot + EP0, describe the topology and the
+    // control endpoint at the speed-default max packet size.
+    dma_buf input_mem = dma_page_alloc();
+    uint32_t* input = input_mem.va;
+    uint32_t dwpc = ctx_sz / 4;           // dwords per context entry
+    input[1] = 0x3;                       // add flags: A0 (slot) + A1 (EP0)
+    uint32_t* slot_ctx = input + dwpc;    // slot context (index 1)
+    uint32_t* ep0_ctx = input + 2 * dwpc; // EP0 context (index 2)
+    slot_ctx[0] = route | (speed << 20) | (1u << 27);
+    slot_ctx[1] = (root_port << 16);
+
+    ring_init(&d->ep0);
+    uint16_t mps = ep0_mps(speed);
+    ep0_ctx[1] = EP_TYPE_CONTROL | (3u << 1) | ((uint32_t)mps << 16); // +CErr=3
+    ep0_ctx[2] = (uint32_t)(d->ep0.pa | 1); // TR dequeue pointer low | DCS
+    ep0_ctx[3] = (uint32_t)(d->ep0.pa >> 32);
+    ep0_ctx[4] = 8; // average TRB length
+
+    bool addressed =
+            run_command(input_mem.pa,
+                        TRB_TYPE(TRB_ADDRESS_DEVICE) | (d->slot << 24), &ev) &&
+            COMPLETION_CODE(ev.status) == CC_SUCCESS;
+    if (!addressed) {
+        fail_reason = "ADDRESS_DEVICE failed";
+        dma_page_free(input_mem);
+        return;
+    }
+
+    // First 8 bytes of the device descriptor carry bMaxPacketSize0 (byte 7).
+    // Only full-speed varies (8/16/32/64); LS/HS/SS are fixed by spec.
+    dma_buf desc = dma_page_alloc();
+    uint8_t* buf = desc.va;
+    if (!get_descriptor(d, (uint16_t)(DESC_DEVICE << 8), desc.pa, 8)) {
+        fail_reason = "GET_DESCRIPTOR failed";
+        goto out;
+    }
+    if (speed == 1 && buf[7] >= 8 && buf[7] != mps) {
+        memset(input, 0, PAGE_SZ);
+        input[1] = 0x2; // add flag: A1 (EP0) — only its max packet size counts
+        uint32_t* e0 = input + 2 * dwpc;
+        e0[1] = EP_TYPE_CONTROL | (3u << 1) | ((uint32_t)buf[7] << 16);
+        run_command(input_mem.pa,
+                    TRB_TYPE(TRB_EVALUATE_CONTEXT) | (d->slot << 24), &ev);
+    }
+
+    if (!get_descriptor(d, (uint16_t)(DESC_DEVICE << 8), desc.pa, 18)) {
+        fail_reason = "GET_DESCRIPTOR failed";
+        goto out;
+    }
+    d->usb_class = buf[4];
+    d->vid = (uint16_t)(buf[8] | (buf[9] << 8));
+    d->pid = (uint16_t)(buf[10] | (buf[11] << 8));
+    d->used = true;
+    n_devices++;
+
+    if (d->usb_class == USB_CLASS_HUB) {
+        hub_setup(d);
+    } else {
+        msc_setup(d); // binds the first BOT storage device; no-op otherwise
+    }
+
+out:
+    dma_page_free(input_mem);
+    dma_page_free(desc);
+}
+
+// Reset every connected root port and enumerate what answers (devices behind
+// hubs are reached recursively via hub_setup).
+static void enumerate_root_ports(void)
+{
     for (uint32_t p = 1; p <= g_ports; p++) {
         uint32_t sc = r32(op, OP_PORTSC(p));
         if (!(sc & PORTSC_CCS)) {
@@ -719,77 +943,9 @@ static void enumerate(void)
             } while (!(sc & PORTSC_PED) && ktime_ms() < dl);
         }
         if (sc & PORTSC_PED) {
-            port = p;
-            speed = PORTSC_SPEED(sc);
-            break;
+            enumerate_device(p, PORTSC_SPEED(sc), 0, 0);
         }
     }
-    if (port == 0) {
-        return; // nothing connected/enabled
-    }
-    dev.speed = speed;
-    dev.port = port;
-
-    struct trb ev;
-    if (!run_command(0, TRB_TYPE(TRB_ENABLE_SLOT), &ev) ||
-        COMPLETION_CODE(ev.status) != CC_SUCCESS) {
-        fail_reason = "ENABLE_SLOT failed";
-        return;
-    }
-    uint32_t slot = (ev.control >> 24) & 0xFF;
-    dev.slot = slot;
-
-    // Output device context (controller-written); publish it in the DCBAA.
-    dcbaa[slot] = dma_page_alloc().pa;
-
-    // Input context: enable the slot + EP0, describe the port and control EP.
-    dma_buf input_mem = dma_page_alloc();
-    uint32_t* input = input_mem.va;
-    uint32_t dwpc = ctx_sz / 4;               // dwords per context entry
-    input[1] = 0x3;                           // add flags: A0 (slot) + A1 (EP0)
-    uint32_t* slot_ctx = input + dwpc;        // slot context (index 1)
-    uint32_t* ep0_ctx = input + 2 * dwpc;     // EP0 context (index 2)
-    slot_ctx[0] = (speed << 20) | (1u << 27); // speed, context entries = 1
-    slot_ctx[1] = (port << 16);               // root hub port number
-
-    ring_init(&ep0);
-    uint16_t mps = ep0_mps(speed);
-    ep0_ctx[1] = EP_TYPE_CONTROL | (3u << 1) | ((uint32_t)mps << 16); // +CErr=3
-    ep0_ctx[2] = (uint32_t)(ep0.pa | 1); // TR dequeue pointer low | DCS
-    ep0_ctx[3] = (uint32_t)(ep0.pa >> 32);
-    ep0_ctx[4] = 8; // average TRB length
-
-    bool addressed =
-            run_command(input_mem.pa,
-                        TRB_TYPE(TRB_ADDRESS_DEVICE) | (slot << 24), &ev) &&
-            COMPLETION_CODE(ev.status) == CC_SUCCESS;
-    // The input context is software-owned again once the command completes.
-    dma_page_free(input_mem);
-    if (!addressed) {
-        fail_reason = "ADDRESS_DEVICE failed";
-        return;
-    }
-
-    // GET_DESCRIPTOR (device): bmRequestType=0x80, bRequest=6, wValue=0x0100,
-    // wLength=18. The setup packet's 8 bytes travel as the TRB's immediate
-    // data.
-    dma_buf desc = dma_page_alloc();
-    uint8_t* buf = desc.va;
-    uint64_t setup = (uint64_t)0x80 | ((uint64_t)0x06 << 8) |
-                     ((uint64_t)0x0100 << 16) | ((uint64_t)18 << 48);
-    if (!control_in(slot, setup, desc.pa, 18)) {
-        fail_reason = "GET_DESCRIPTOR failed";
-        dma_page_free(desc);
-        return;
-    }
-    dev.usb_class = buf[4];
-    dev.vid = (uint16_t)(buf[8] | (buf[9] << 8));
-    dev.pid = (uint16_t)(buf[10] | (buf[11] << 8));
-    dev.found = true;
-
-    // If it is a Bulk-Only-Transport mass-storage device, configure it.
-    msc_setup(slot, buf[7]);
-    dma_page_free(desc);
 }
 
 void xhci_init(void)
@@ -888,7 +1044,7 @@ void xhci_init(void)
     }
     g_present = true;
 
-    enumerate(); // milestone 1: read the attached device's descriptor
+    enumerate_root_ports(); // every root port, recursing through hubs
     return;
 
 fail:
@@ -912,21 +1068,20 @@ uint32_t xhci_ports(void)
 {
     return g_present ? g_ports : 0;
 }
-bool xhci_device_found(void)
+uint32_t xhci_device_count(void)
 {
-    return dev.found;
+    return n_devices;
 }
-uint16_t xhci_vid(void)
+bool xhci_device_info(uint32_t i, uint16_t* vid, uint16_t* pid,
+                      uint8_t* usb_class)
 {
-    return dev.vid;
-}
-uint16_t xhci_pid(void)
-{
-    return dev.pid;
-}
-uint8_t xhci_class(void)
-{
-    return dev.usb_class;
+    if (i >= n_devices || !devices[i].used) {
+        return false;
+    }
+    *vid = devices[i].vid;
+    *pid = devices[i].pid;
+    *usb_class = devices[i].usb_class;
+    return true;
 }
 bool xhci_msc_ready(void)
 {
