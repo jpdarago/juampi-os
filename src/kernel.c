@@ -315,21 +315,6 @@ void kmain(void)
     ktime_init();           // TSC via CPUID / ACPI PM timer (PIT-free)
     lapic_timer_start(100); // ~100 Hz periodic tick -> vector 32
 
-    { // diagnostic: confirm the MADT gave us an I/O APIC to route device IRQs
-        uint64_t iob = 0;
-        uint32_t gb = 0;
-        console_print("juampiOS: ioapic ");
-        if (acpi_ioapic(&iob, &gb)) {
-            console_print("base=");
-            console_hex(iob);
-            console_print(" gsi_base=");
-            console_dec(gb);
-        } else {
-            console_print("ABSENT");
-        }
-        console_print("\n");
-    }
-
     keyboard_init(); // PS/2 keyboard on IRQ 1, routed through the IOAPIC
     mouse_init();    // PS/2 mouse on IRQ 12, routed through the IOAPIC
     register_interrupt_handler(3, breakpoint_handler); // int3 -> non-fatal
