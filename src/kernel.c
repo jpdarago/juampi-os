@@ -20,6 +20,7 @@
 #include <ksym.h>
 #include <gfx.h>
 #include <ata.h>
+#include <nvme.h>
 #include <ext2.h>
 #include <smp.h>
 #include <parallel.h>
@@ -365,6 +366,32 @@ void kmain(void)
     }
     console_print(", ext2 ");
     console_print(fs_ok ? "mounted\n" : "not mounted\n");
+
+    // --- Milestone 10: NVMe (polled). Bring up the first NVMe controller and,
+    // if present, read logical block 0 back as a smoke test of the queue /
+    // doorbell / PRP path. Additive: absent NVMe just prints "absent".
+    nvme_init();
+    console_print("juampiOS: nvme ");
+    if (nvme_present()) {
+        static uint8_t nvme_blk[4096]; // >= any supported block size
+        bool rd = nvme_read(0, 1, nvme_blk);
+        console_print("\"");
+        console_print(nvme_model());
+        console_print("\" blocks=");
+        console_dec(nvme_blocks());
+        console_print(" blk=");
+        console_dec(nvme_block_size());
+        console_print(rd ? " read0=OK first8=" : " read0=FAIL");
+        if (rd) {
+            for (int i = 0; i < 8; i++) {
+                console_hex(nvme_blk[i]);
+                console_print(" ");
+            }
+        }
+        console_print("\n");
+    } else {
+        console_print("absent\n");
+    }
 
     // --- Networking: bring up the e1000 NIC and a minimal IPv4 stack
     // --- (Ethernet/ARP/IPv4/ICMP), exposed to Lua as `net` (net.ping).

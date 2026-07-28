@@ -3,6 +3,7 @@
 // exposes raw config space beneath the `fs`-style conveniences.
 
 #include <ata.h>
+#include <nvme.h>
 #include <luadoc.h>
 
 #include "lua.h"
@@ -49,6 +50,55 @@ static int l_read(lua_State* L)
     return 1;
 }
 
+// disk.nvme_read(lba [,count=1]) -> string | nil,err. The NVMe counterpart of
+// disk.read, in this namespace's logical-block units (see disk.nvme_info).
+static int l_nvme_read(lua_State* L)
+{
+    lua_Integer lba = luaL_checkinteger(L, 1);
+    lua_Integer count = luaL_optinteger(L, 2, 1);
+    if (lba < 0) {
+        return luaL_error(L, "disk.nvme_read: negative lba");
+    }
+    if (count < 1) {
+        count = 1;
+    }
+    uint32_t bs = nvme_block_size();
+    if (bs == 0) {
+        lua_pushnil(L);
+        lua_pushstring(L, "no nvme controller");
+        return 2;
+    }
+    size_t per = 0x200000u / bs; // cap a single call at ~2 MiB
+    if (per < 1) {
+        per = 1;
+    }
+    if ((size_t)count > per) {
+        count = (lua_Integer)per;
+    }
+    size_t bytes = (size_t)count * bs;
+    luaL_Buffer b;
+    char* p = luaL_buffinitsize(L, &b, bytes);
+    if (!nvme_read((uint64_t)lba, (uint32_t)count, p)) {
+        luaL_pushresultsize(&b, 0);
+        lua_pop(L, 1);
+        lua_pushnil(L);
+        lua_pushstring(L, "nvme read failed");
+        return 2;
+    }
+    luaL_pushresultsize(&b, bytes);
+    return 1;
+}
+
+// disk.nvme_info() -> present, model, blocks, block_size.
+static int l_nvme_info(lua_State* L)
+{
+    lua_pushboolean(L, nvme_present());
+    lua_pushstring(L, nvme_model());
+    lua_pushinteger(L, (lua_Integer)nvme_blocks());
+    lua_pushinteger(L, nvme_block_size());
+    return 4;
+}
+
 static const lua_fndoc disklib[] = {
         {"present", l_present, "Whether an ATA data disk is attached.",
          .rets = {{"ok", "boolean", "true if a disk is present"}}},
@@ -57,6 +107,17 @@ static const lua_fndoc disklib[] = {
         {"read", l_read, "Read raw 512-byte sectors as a byte string.",
          .args = {{"lba", "number", "starting logical block address"},
                   {"count", "number?", "sectors to read (default 1, cap 4096)"}},
+         .rets = {{"data", "string?", "the bytes, or nil on error"},
+                  {"err", "string?", "error message when data is nil"}}},
+        {"nvme_info", l_nvme_info, "NVMe controller presence and geometry.",
+         .rets = {{"present", "boolean", "true if an NVMe controller is up"},
+                  {"model", "string", "controller model string"},
+                  {"blocks", "number", "logical blocks in namespace 1"},
+                  {"block_size", "number", "bytes per logical block"}}},
+        {"nvme_read", l_nvme_read,
+         "Read raw NVMe logical blocks as a byte string.",
+         .args = {{"lba", "number", "starting logical block address"},
+                  {"count", "number?", "blocks to read (default 1)"}},
          .rets = {{"data", "string?", "the bytes, or nil on error"},
                   {"err", "string?", "error message when data is nil"}}},
         {0},
