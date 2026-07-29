@@ -28,6 +28,9 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
 - [[constants-audit]] — sweep for magic numbers, hardcoded offsets, and
   hand-picked MMIO addresses, with a prioritized fix order.
   *Status: in progress (M11).*
+- [[acpi-uacpi]] — follow-up proposal: swap the hand-rolled table-only ACPI
+  layer for uACPI (AML interpreter) when the real XPS becomes a firm target.
+  *Status: proposed (deferred).*
 
 ## By status
 
@@ -39,6 +42,7 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
 | [[ui]]               | in progress       | M11       |
 | [[reentrancy-audit]] | in progress       | M11       |
 | [[constants-audit]]  | in progress       | M11       |
+| [[acpi-uacpi]]       | proposed          | —         |
 
 ## Conventions
 
