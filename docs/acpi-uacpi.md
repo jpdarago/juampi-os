@@ -14,11 +14,12 @@ created: 2026-07-28
 > implementation with a real AML interpreter — following the incremental path
 > below.
 
-> [!success] Status — **Step 1 landed** (commit b54b4cf). uACPI 6.0.0 is
-> vendored and running in **barebones mode** (table subsystem only, no AML),
-> alongside the hand-rolled parser: it enumerates all ACPI tables and confirms
-> FADT/MADT at boot. Steps 2–3 (replace the parser; full init for _S5 / _PRT)
-> are next.
+> [!success] Status — **Steps 1–2 landed** (b54b4cf, 50606f0). uACPI 6.0.0 is
+> vendored in **barebones mode** (tables only, no AML) and `acpi.c` now parses
+> the FADT/MADT/DSDT through it — the hand-rolled RSDP/SDT walk is gone (−160
+> lines). Interrupts (IOAPIC), PM timer, and _S5 shutdown all run off uACPI.
+> Step 3 (full init: AML → _S5 via `enter_sleep_state`, _PRT, power button) is
+> next and is the big lift.
 
 ## What we have today (`src/acpi.c`, ~420 lines)
 
@@ -107,10 +108,11 @@ hand-writing an AML interpreter is precisely the rabbit hole uACPI avoids.
    `UACPI_USE_BUILTIN_STRING`; four callbacks: get_rsdp / map / unmap / log),
    `uacpi_setup_early_table_access`, boot report. Runs beside the hand-rolled
    parser. (`src/uacpi/`, `src/uacpi_glue.c`.)
-2. **[next]** Point `src/acpi.c`'s consumers at uACPI table lookups
-   (`uacpi_table_find_by_signature` / `uacpi_table_fadt`) and retire the
-   hand-rolled SDT/MADT/FADT walk + the fragile `_S5` byte-scan. Still barebones
-   (no AML) — pure table access, but tested. Could also expose MCFG (ECAM) / HPET.
+2. **[done]** `src/acpi.c` parses via uACPI table lookups
+   (`uacpi_table_fadt` / `uacpi_table_find_by_signature`) using uACPI's typed
+   structs; the hand-rolled RSDP/SDT walk + table structs + `map_phys` are gone.
+   The `_S5` byte-scan stays (soft-off needs AML — deferred to step 3). Public
+   `acpi.h` API unchanged. MCFG (ECAM) / HPET are now trivially reachable too.
 3. Drop barebones and do full `uacpi_initialize` + namespace load (needs the
    larger glue: alloc, mutex/event/spinlock, io/pci, interrupts, deferred work)
    → proper `_S5` shutdown (`uacpi_prepare_for_sleep_state` / `enter_sleep_state`)
