@@ -49,6 +49,9 @@ void register_interrupt_handler(uint32_t vector, interrupt_handler h);
 void interrupts_init(void);
 // Route legacy ISA IRQ line `irq` (0-15) to vector 32+irq via the I/O APIC.
 void irq_unmask(uint32_t irq);
+// Route an already-resolved GSI (a PCI INTx line from the ACPI _PRT) to vector
+// 32+gsi via the I/O APIC, with explicit MPS INTI polarity/trigger flags.
+void irq_route_gsi(uint32_t gsi, uint16_t flags);
 // Timer ticks since boot (from the LAPIC timer).
 uint64_t timer_ticks(void);
 

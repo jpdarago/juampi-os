@@ -43,4 +43,13 @@ void acpi_irq_to_gsi(uint32_t irq, uint32_t* gsi, uint16_t* flags);
 // PIT).
 uint16_t acpi_pm_timer_port(bool* is32bit);
 
+// --- PCI interrupt routing (_PRT) --------------------------------------------
+
+// Resolve a PCI device's INTx pin (0=INTA..3=INTD) on the root bus to a Global
+// System Interrupt via the ACPI _PRT (following link devices). Fills *gsi and
+// the MPS INTI *flags (level/active-low for PCI). Returns false if uACPI's
+// namespace isn't up or there's no matching entry — callers then fall back to
+// the PCI Interrupt Line register. Needs full uACPI init.
+bool acpi_pci_route(uint8_t dev, uint8_t pin, uint32_t* gsi, uint16_t* flags);
+
 #endif

@@ -14,7 +14,9 @@
 #include <ports.h>
 #include <dma.h>
 #include <idt.h>     // register_interrupt_handler, irq_unmask, interrupt_frame
+#include <acpi.h>    // acpi_pci_route (_PRT)
 #include <barrier.h> // dma_wmb before the LVI doorbell; cpu_relax in spins
+#include <console.h>
 #include <utils.h>
 
 // PCI: multimedia / audio device. QEMU's AC97 is 8086:2415.
@@ -65,8 +67,11 @@ static struct {
     bool running;
     const char* fail;
     // Completion-interrupt (legacy PCI INTx) state.
-    uint8_t irq_line;       // PCI Interrupt Line (config 0x3C)
-    bool irq_on;            // INTx routed + IOC enabled
+    uint8_t pci_bus, pci_dev, pci_func; // for _PRT routing
+    uint8_t irq_line;                   // PCI Interrupt Line (config 0x3C)
+    uint8_t irq_pin;  // PCI Interrupt Pin (config 0x3D, 1=INTA)
+    bool irq_on;      // INTx routed + IOC enabled
+    bool irq_via_prt; // routed through the ACPI _PRT (else Interrupt Line)
     volatile uint64_t irqs; // completion interrupts taken
     void (*refill)(void);   // mixer pump, called from the ISR
 } ac;
@@ -144,17 +149,36 @@ static void ac97_irq(interrupt_frame* f)
 // from the ISR; the idle-loop pump stays as a backstop.
 static void ac97_enable_irq(void (*refill)(void))
 {
-    if (!ac.present || ac.irq_line == 0 || ac.irq_line == 0xFF) {
-        return; // no usable INTx line; polling carries playback
+    if (!ac.present) {
+        return;
     }
     ac.refill = refill;
     struct bd* bd = ac.bdl.va;
     for (int i = 0; i < BDL_ENTRIES; i++) {
         bd[i].ctl |= BD_IOC;
     }
-    register_interrupt_handler((uint32_t)(32 + ac.irq_line), ac97_irq);
-    irq_unmask(ac.irq_line);
-    ac.irq_on = true;
+
+    // Prefer the ACPI _PRT (correct GSI + level/active-low polarity for PCI
+    // INTx); fall back to the firmware-programmed PCI Interrupt Line register.
+    uint32_t gsi;
+    uint16_t flags;
+    if (ac.irq_pin >= 1 && ac.irq_pin <= 4 &&
+        acpi_pci_route(ac.pci_dev, (uint8_t)(ac.irq_pin - 1), &gsi, &flags)) {
+        ac.irq_line = (uint8_t)gsi;
+        ac.irq_via_prt = true;
+        register_interrupt_handler(32 + gsi, ac97_irq);
+        irq_route_gsi(gsi, flags);
+        ac.irq_on = true;
+    } else if (ac.irq_line != 0 && ac.irq_line != 0xFF) {
+        register_interrupt_handler((uint32_t)(32 + ac.irq_line), ac97_irq);
+        irq_unmask(ac.irq_line);
+        ac.irq_on = true;
+    }
+    if (ac.irq_on) {
+        console_printf("juampiOS: ac97 intx gsi=%u (%s)\n",
+                       (unsigned)ac.irq_line,
+                       ac.irq_via_prt ? "_PRT" : "Interrupt Line");
+    }
 }
 
 static bool ac97_irq_driven(void)
@@ -192,7 +216,12 @@ static bool ac97_init(void)
     pci_enable_bus_master(a);
     ac.nam = (uint16_t)pci_bar(a, 0);
     ac.nabm = (uint16_t)pci_bar(a, 1);
-    ac.irq_line = (uint8_t)(pci_read32(a.bus, a.dev, a.func, 0x3C) & 0xFF);
+    ac.pci_bus = a.bus;
+    ac.pci_dev = a.dev;
+    ac.pci_func = a.func;
+    uint32_t intr = pci_read32(a.bus, a.dev, a.func, 0x3C);
+    ac.irq_line = (uint8_t)(intr & 0xFF);       // Interrupt Line
+    ac.irq_pin = (uint8_t)((intr >> 8) & 0xFF); // Interrupt Pin (1=INTA)
 
     // Bring the codec out of cold reset and wait for it to report ready.
     outl((uint16_t)(ac.nabm + NABM_GLOB_CNT), GLOB_CNT_COLD);

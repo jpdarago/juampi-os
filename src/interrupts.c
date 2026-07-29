@@ -54,6 +54,15 @@ void irq_unmask(uint32_t irq)
     ioapic_route(gsi, (uint8_t)(32 + irq), lapic_id(), flags);
 }
 
+// Route an already-resolved GSI (e.g. a PCI INTx line from the ACPI _PRT) to
+// vector 32+gsi on the BSP, with explicit polarity/trigger flags. The vector
+// must have an IDT stub (gsi < 16 on the QEMU i440fx PCI links; higher GSIs
+// would need more stubs).
+void irq_route_gsi(uint32_t gsi, uint16_t flags)
+{
+    ioapic_route(gsi, (uint8_t)(32 + gsi), lapic_id(), flags);
+}
+
 // Fully disable the legacy 8259 PIC by masking all of its lines (so it can't
 // deliver a stray interrupt now that the APIC is in charge).
 static void pic_disable(void)

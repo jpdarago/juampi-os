@@ -2,6 +2,9 @@
 #include <uacpi_glue.h>
 #include <uacpi/tables.h>
 #include <uacpi/acpi.h>
+#include <uacpi/utilities.h>
+#include <uacpi/resources.h>
+#include <uacpi/namespace.h>
 #include <paging.h>
 #include <ports.h>
 #include <utils.h>
@@ -173,6 +176,105 @@ uint16_t acpi_pm_timer_port(bool* is32bit)
         *is32bit = pm_timer_32bit;
     }
     return pm_timer_port;
+}
+
+// --- PCI interrupt routing (_PRT) -------------------------------------------
+// Resolve a PCI device's INTx line to a Global System Interrupt via the ACPI
+// _PRT, evaluating link devices' _CRS when the entry is indirect. Root bus
+// only (on-board devices), and needs full uACPI init (the namespace); callers
+// fall back to the PCI Interrupt Line register when this returns false.
+
+static uacpi_namespace_node* pci_root;
+static uacpi_pci_routing_table* pci_prt;
+static bool prt_ready, prt_tried;
+
+static uacpi_iteration_decision
+first_node_cb(void* user, uacpi_namespace_node* node, uacpi_u32 depth)
+{
+    (void)user;
+    (void)depth;
+    pci_root = node;
+    return UACPI_ITERATION_DECISION_BREAK;
+}
+
+static void prt_lazy_init(void)
+{
+    if (prt_tried) {
+        return;
+    }
+    prt_tried = true;
+    if (!uacpi_full_init_done()) {
+        return; // the namespace isn't up yet
+    }
+    uacpi_find_devices("PNP0A03", first_node_cb, NULL); // PCI host bridge
+    if (pci_root == NULL) {
+        uacpi_find_devices("PNP0A08", first_node_cb, NULL); // PCIe host bridge
+    }
+    if (pci_root == NULL) {
+        return;
+    }
+    prt_ready =
+            uacpi_get_pci_routing_table(pci_root, &pci_prt) == UACPI_STATUS_OK;
+}
+
+// The first IRQ in a link device's current-resource list is its active GSI.
+struct link_irq {
+    uint32_t gsi;
+    bool found;
+};
+static uacpi_iteration_decision link_irq_cb(void* user, uacpi_resource* r)
+{
+    struct link_irq* li = user;
+    if (r->type == UACPI_RESOURCE_TYPE_IRQ && r->irq.num_irqs > 0) {
+        li->gsi = r->irq.irqs[0];
+    } else if (r->type == UACPI_RESOURCE_TYPE_EXTENDED_IRQ &&
+               r->extended_irq.num_irqs > 0) {
+        li->gsi = r->extended_irq.irqs[0];
+    } else {
+        return UACPI_ITERATION_DECISION_CONTINUE;
+    }
+    li->found = true;
+    return UACPI_ITERATION_DECISION_BREAK;
+}
+
+bool acpi_pci_route(uint8_t dev, uint8_t pin, uint32_t* gsi, uint16_t* flags)
+{
+    prt_lazy_init();
+    if (!prt_ready) {
+        return false;
+    }
+    for (uacpi_size i = 0; i < pci_prt->num_entries; i++) {
+        uacpi_pci_routing_table_entry* e = &pci_prt->entries[i];
+        // _PRT addresses are (device << 16) | 0xFFFF (all functions).
+        if ((uint8_t)(e->address >> 16) != dev || e->pin != pin) {
+            continue;
+        }
+        uint32_t g;
+        if (e->source == NULL) {
+            g = e->index; // direct GSI
+        } else {
+            uacpi_resources* res;
+            if (uacpi_get_current_resources(e->source, &res) !=
+                UACPI_STATUS_OK) {
+                return false;
+            }
+            struct link_irq li = {0, false};
+            uacpi_for_each_resource(res, link_irq_cb, &li);
+            uacpi_free_resources(res);
+            if (!li.found) {
+                return false;
+            }
+            g = li.gsi;
+        }
+        *gsi = g;
+        // PCI INTx is level-triggered, active-low. MPS INTI flags: polarity
+        // bits[1:0]=11 (active low), trigger bits[3:2]=11 (level).
+        if (flags != NULL) {
+            *flags = 0x0F;
+        }
+        return true;
+    }
+    return false;
 }
 
 void acpi_init(void)

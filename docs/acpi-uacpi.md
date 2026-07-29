@@ -19,8 +19,9 @@ created: 2026-07-28
 > interpreter + namespace): `acpi.c` parses tables through it (hand-rolled walk
 > gone), `uacpi_full_init()` loads the namespace, `acpi_shutdown()` powers off
 > via AML `_S5` (`uacpi_enter_sleep_state`), and the **power button** shuts down
-> gracefully (SCI → fixed-event handler). Remaining: `_PRT` PCI IRQ routing, EC
-> / battery / thermal, CPU C-states.
+> gracefully (SCI → fixed-event handler), and `_PRT` PCI interrupt routing feeds
+> the AC'97 INTx (correct GSI + polarity via the IOAPIC). Remaining: EC /
+> battery / thermal, CPU C-states.
 
 ## What we have today (`src/acpi.c`, ~420 lines)
 
@@ -120,9 +121,17 @@ hand-writing an AML interpreter is precisely the rabbit hole uACPI avoids.
    `acpi_shutdown()` now uses `uacpi_enter_sleep_state(S5)` (byte-scan kept only
    as a fallback), and the **power button** shuts down via a fixed-event handler
    (`uacpi_finalize_gpe_initialization` + `uacpi_install_fixed_event_handler`).
-4. **[next]** `_PRT` PCI IRQ routing (would feed the AC'97 INTx + real-HW INTx),
-   EC / battery / thermal, CPU C-states. The `uacpi_kernel_schedule_work` glue
-   is synchronous — heavy runtime GPE handlers would want a real work queue.
+4. **[done]** `_PRT` PCI IRQ routing (`acpi_pci_route()` in `src/acpi.c`):
+   `uacpi_get_pci_routing_table` on the PCI host bridge, resolving indirect
+   entries by evaluating the link device's `_CRS` (`uacpi_get_current_resources`
+   + `uacpi_for_each_resource`, first IRQ/EXTENDED_IRQ). AC'97 now prefers this
+   over the firmware Interrupt Line register (`src/ac97.c`), routing INTx with
+   the correct GSI and level/active-low polarity through the IOAPIC
+   (`irq_route_gsi`). Verified in QEMU: `ac97 intx gsi=11 (_PRT)`, completion
+   IRQs firing (`tests/prt-smoke.sh`).
+5. **[next]** EC / battery / thermal, CPU C-states. The
+   `uacpi_kernel_schedule_work` glue is synchronous — heavy runtime GPE handlers
+   would want a real work queue.
 
 The most concrete near-term payoff that intersects current work is **`_PRT` for
 interrupt-driven drivers on real hardware**; the biggest strategic one is **not
