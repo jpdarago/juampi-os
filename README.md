@@ -51,16 +51,24 @@ Features
   a drawing library, QOI image decoding — and a windowed **desktop** (microui):
   the REPL in a draggable terminal, a vim-style editor window, a file browser,
   and graphics demos in windows.
+* **Audio:** a device-independent software mixer (48 kHz stereo) over a
+  pluggable backend — **Intel HD Audio** (MMIO, CORB/RIRB codec verbs, stream
+  DMA) and **AC'97**, probed in order — with **QOA** audio decoding, sine-tone
+  synthesis, and interrupt-driven playback whose completion IRQ is routed
+  through the ACPI `_PRT`. Driven from Lua as `audio.*`.
 * **Networking:** an Intel **e1000** NIC driver and a small IPv4 stack —
   Ethernet/ARP/IPv4/ICMP, **UDP** and **TCP** (client *and* server), **DHCP**,
   **DNS**, and an **HTTP/HTTPS** client (TLS 1.2 via BearSSL with a curated
   root set) — over QEMU user-mode networking.
-* **Platform:** PCI enumeration, ACPI shutdown/reboot, hardware RNG (RDRAND).
+* **Platform:** PCI enumeration; full **ACPI** via the vendored **uACPI** (AML
+  interpreter + namespace) — soft-off/reboot through `_S5`, a working power
+  button, and PCI interrupt routing (`_PRT`); hardware RNG (RDRAND).
 * **Lua 5.4 in ring 0:** boots to a syntax-highlighted REPL with history and
   in-line editing, typed self-documenting libraries (`help()` shows real
-  signatures) — `k` (kernel introspection), `fb` (graphics), `fs`/`disk`
-  (filesystem + raw NVMe/USB/ATA blocks), `pci`, `usb`, `net`/`http`,
-  `thread`/`mem` (parallelism), `ui` (windows) — plus `run()` and `bench()`.
+  signatures) — `k` (kernel introspection), `fb` (graphics), `audio` (mixer,
+  tones, QOA playback), `fs`/`disk` (filesystem + raw NVMe/USB/ATA blocks),
+  `pci`, `usb`, `net`/`http`, `thread`/`mem` (parallelism), `ui` (windows) —
+  plus `run()` and `bench()`.
 * **Parallel Lua:** one interpreter per core, each with its own heap, with
   `thread.spawn`/`join` and shared-memory buffers for genuine multicore Lua.
 
@@ -68,7 +76,8 @@ The x86-64 port is documented milestone by milestone in `docs/x86-64-port.md`;
 `docs/lua-shell.md` and `docs/networking.md` cover the parallel Lua shell and
 the network stack. The kernel now runs well past the original 32-bit project —
 SMP, parallel Lua, a read/write filesystem on modern storage, a TCP/IP stack
-with HTTPS, and a fully legacy-free interrupt and input path are all in place.
+with HTTPS, a full-AML ACPI layer, an HD-Audio mixer, and a fully legacy-free
+interrupt and input path are all in place.
 
 Building and running
 --------------------
@@ -102,8 +111,10 @@ Testing
 suite of end-to-end checks, each asserting on the serial log: the kernel reaches
 the Lua shell and evaluates input, PS/2 keyboard input round-trips, a script
 runs from the ext2 disk, a native ELF binary runs, the NIC comes up and pings
-the gateway, UDP and TCP sockets round-trip datagrams/streams, and parallel Lua
-runs across every core. CI runs the same suite.
+the gateway, UDP and TCP sockets round-trip datagrams/streams, both audio
+backends (AC'97 and Intel HD Audio) route their completion interrupt through the
+ACPI `_PRT` and take interrupts while a tone plays, and parallel Lua runs across
+every core. CI runs the same suite.
 
 Documentation
 -------------
@@ -113,14 +124,18 @@ The `docs/` folder is an [Obsidian](https://obsidian.md) vault of design notes:
 * `docs/x86-64-port.md` — the x86-64 port, milestone by milestone.
 * `docs/lua-shell.md` — booting to the parallel, ring-0 Lua shell.
 * `docs/networking.md` — the e1000 driver and the IPv4/UDP/TCP stack.
+* `docs/acpi-uacpi.md` — the uACPI integration: full AML, `_S5` shutdown, the
+  power button, and `_PRT` PCI interrupt routing.
+* `docs/hda-audio.md` — the Intel HD Audio backend behind the mixer vtable.
 * `informe/` — the original project report (in Spanish); `make` inside that
   folder generates the PDF.
 
 TODOs
 ------
 
-* Boot on real hardware (a Dell XPS 15) — the NVMe, xHCI and APIC work all
-  point here.
+* Boot on real hardware (a Dell XPS 15) — the NVMe, xHCI, APIC, uACPI and
+  HD-Audio work all point here (HDA is verified in QEMU; the XPS headphone-jack
+  path over the codec's HDA link is the next real-hardware target).
 * Preemptive scheduling (kernel threads are cooperative) and LAPIC IPIs.
 * Processes and `fork`/copy-on-write on the 64-bit base.
 * Interrupt-driven NIC receive (RX is polled today).
