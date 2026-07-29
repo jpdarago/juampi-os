@@ -3,6 +3,10 @@
 // milestones (audio.play); for now it is tones + introspection.
 
 #include <audio.h>
+#include <qoa.h>
+#include <kmodule.h>
+#include <ext2.h>
+#include <memory.h>
 #include <luadoc.h>
 
 #include "lua.h"
@@ -63,6 +67,49 @@ static int l_play_pcm(lua_State* L)
     return 1;
 }
 
+// audio.play(name [,loop [,gain]]) -> voice. Load a QOA file (a Limine module,
+// then the ext2 disk), decode it, and play it resampled to the mixer rate.
+static int l_play(lua_State* L)
+{
+    const char* name = luaL_checkstring(L, 1);
+    bool loop = lua_toboolean(L, 2);
+    lua_Number gain = luaL_optnumber(L, 3, 0.8);
+
+    size_t size = 0;
+    void* owned = NULL;                              // ext2 buffer to free
+    const void* data = kmodule_find(name, &size);    // built-in module?
+    if (data == NULL) {
+        owned = ext2_read_path(name, &size);         // else the data disk
+        data = owned;
+    }
+    if (data == NULL) {
+        return luaL_error(L, "audio.play: no such file: %s", name);
+    }
+
+    qoa_desc d;
+    int16_t* pcm = qoa_decode(&heap_default()->base, data, size, &d);
+    if (owned != NULL) {
+        ext2_free(owned);
+    }
+    if (pcm == NULL || d.samples == 0) {
+        if (pcm != NULL) {
+            heap_free(heap_default(), pcm);
+        }
+        return luaL_error(L, "audio.play: not a valid QOA file: %s", name);
+    }
+    // audio_play_pcm copies into a voice-owned buffer, so free the decode here.
+    int v = audio_play_pcm(pcm, d.samples, d.samplerate, (uint8_t)d.channels,
+                           loop, (float)gain);
+    heap_free(heap_default(), pcm);
+    if (v < 0) {
+        lua_pushnil(L);
+        lua_pushstring(L, audio_present() ? "no free voice" : "no audio device");
+        return 2;
+    }
+    lua_pushinteger(L, v);
+    return 1;
+}
+
 // audio.stop([voice]) -> stop one voice, or all when omitted.
 static int l_stop(lua_State* L)
 {
@@ -87,6 +134,12 @@ static const lua_fndoc audiolib[] = {
                   {"channels", "number?", "1 or 2 (default 1)"},
                   {"loop", "boolean?", "repeat until stopped"},
                   {"gain", "number?", "0..1 loudness (default 0.7)"}},
+         .rets = {{"voice", "number?", "voice id, or nil on error"},
+                  {"err", "string?", "message when voice is nil"}}},
+        {"play", l_play, "Decode and play a QOA audio file (module or disk).",
+         .args = {{"name", "string", "QOA file name"},
+                  {"loop", "boolean?", "repeat until stopped"},
+                  {"gain", "number?", "0..1 loudness (default 0.8)"}},
          .rets = {{"voice", "number?", "voice id, or nil on error"},
                   {"err", "string?", "message when voice is nil"}}},
         {"stop", l_stop, "Stop a voice, or all voices.",

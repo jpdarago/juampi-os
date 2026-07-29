@@ -277,8 +277,12 @@ $(LAB_DIR)/%.elf: $(LAB_DIR)/%.c $(INCLUDE_DIR)/lab.h
 .PHONY: lab
 lab: $(LAB_ELVES)
 
+# QOA audio assets shipped as Limine modules (decoded by src/qoa.c, played via
+# audio.play("name.qoa")); always available regardless of which disk is mounted.
+SNDASSETS := $(wildcard $(BUILD_DIR)/scripts/*.qoa)
+
 # Everything shipped to the image as a Limine module.
-MODULES := $(SCRIPTS) $(LOGO) $(LAB_ELVES)
+MODULES := $(SCRIPTS) $(LOGO) $(SNDASSETS) $(LAB_ELVES)
 
 # Pack the kernel and the modules (scripts + logo) into a bootable UEFI image
 # with Limine (sudo-free, mtools).
