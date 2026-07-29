@@ -107,9 +107,17 @@ BEARSSL_INC  := -I$(BEARSSL_DIR)/inc -I$(BEARSSL_DIR)/src -I$(SRC_DIR)/lua/klibc
 
 COBJS      := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CSOURCES))
 ASMOBJS    := $(patsubst $(SRC_DIR)/%.S,$(OBJ_DIR)/%.o,$(ASMSOURCES))
+# Vendored uACPI (src/uacpi/, pinned 6.0.0): ACPI table access + (later) AML.
+# Built barebones for now — the tables subsystem only, no interpreter — with its
+# own builtin string helpers, verbatim (-w). uACPI includes as <uacpi/...>, which
+# CFLAGS' -Iinclude already resolves.
+UACPI_SRCS := $(wildcard $(SRC_DIR)/uacpi/*.c)
+UACPI_OBJS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(UACPI_SRCS))
+UACPI_DEF  := -DUACPI_BAREBONES_MODE -DUACPI_USE_BUILTIN_STRING
+
 VENDOR_OBJS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(VENDOR_CSOURCES))
-OBJS       := $(COBJS) $(ASMOBJS) $(VENDOR_OBJS) $(LUA_OBJS) $(LUA_ASM_OBJ) $(HL_OBJS) $(HTTP_OBJS) $(MICROUI_OBJS) $(BEARSSL_OBJS)
-DEPS       := $(COBJS:.o=.d) $(VENDOR_OBJS:.o=.d) $(LUA_OBJS:.o=.d) $(HL_OBJS:.o=.d) $(HTTP_OBJS:.o=.d) $(MICROUI_OBJS:.o=.d) $(BEARSSL_OBJS:.o=.d)
+OBJS       := $(COBJS) $(ASMOBJS) $(VENDOR_OBJS) $(LUA_OBJS) $(LUA_ASM_OBJ) $(HL_OBJS) $(HTTP_OBJS) $(MICROUI_OBJS) $(BEARSSL_OBJS) $(UACPI_OBJS)
+DEPS       := $(COBJS:.o=.d) $(VENDOR_OBJS:.o=.d) $(LUA_OBJS:.o=.d) $(HL_OBJS:.o=.d) $(HTTP_OBJS:.o=.d) $(MICROUI_OBJS:.o=.d) $(BEARSSL_OBJS:.o=.d) $(UACPI_OBJS:.o=.d)
 
 KERNEL := kernel.bin
 
@@ -181,6 +189,11 @@ $(OBJ_DIR)/microui/%.o: $(SRC_DIR)/microui/%.c | $(OBJ_DIR)
 $(OBJ_DIR)/bearssl/%.o: $(SRC_DIR)/bearssl/%.c | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w $(BEARSSL_INC) $(CPPFLAGS) -c -o $@ $<
+
+# Vendored uACPI: verbatim (-w), barebones tables-only mode + builtin strings.
+$(OBJ_DIR)/uacpi/%.o: $(SRC_DIR)/uacpi/%.c | $(OBJ_DIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -w $(UACPI_DEF) $(CPPFLAGS) -c -o $@ $<
 
 # Generated TLS trust-anchor table: -w (its initialisers cast away const). An
 # explicit target so it overrides the generic src/%.o gauntlet rule.

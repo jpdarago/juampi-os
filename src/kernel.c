@@ -28,6 +28,7 @@
 #include <smp.h>
 #include <parallel.h>
 #include <acpi.h>
+#include <uacpi_glue.h>
 #include <apic.h>
 #include <net.h>
 #include <tls.h>
@@ -306,9 +307,17 @@ void kmain(void)
     // and start the per-core LAPIC timer that drives the tick.
     gdt_init(mem);
 
-    acpi_init(rsdp_request.response != NULL
-                      ? (uint64_t)(uintptr_t)rsdp_request.response->address
-                      : 0);
+    uint64_t rsdp = rsdp_request.response != NULL
+                            ? (uint64_t)(uintptr_t)rsdp_request.response->address
+                            : 0;
+    acpi_init(rsdp);
+    // Bring up the vendored uACPI table subsystem alongside the hand-rolled
+    // parser (barebones mode for now; see docs/acpi-uacpi.md).
+    if (uacpi_early_tables_init(rsdp)) {
+        uacpi_report();
+    } else {
+        console_print("juampiOS: uacpi early table access unavailable\n");
+    }
 
     interrupts_init();      // IDT + LAPIC + IOAPIC; 8259 masked off
     ktime_init();           // TSC via CPUID / ACPI PM timer (PIT-free)
