@@ -414,7 +414,8 @@ void kmain(void)
     // ----------
     audio_init();
     if (audio_present()) {
-        console_printf("juampiOS: audio up (%s)\n", audio_backend_name());
+        console_printf("juampiOS: audio up (%s) irq=%s\n", audio_backend_name(),
+                       audio_irq_driven() ? "intx" : "polled");
     } else if (audio_fail_reason() != NULL) {
         console_printf("juampiOS: audio init FAILED (%s)\n",
                        audio_fail_reason());

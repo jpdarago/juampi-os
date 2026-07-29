@@ -12,12 +12,14 @@
 #include "lua.h"
 #include "lauxlib.h"
 
-// audio.info() -> present, backend.
+// audio.info() -> present, backend, irq_driven, irq_count.
 static int l_info(lua_State* L)
 {
     lua_pushboolean(L, audio_present());
     lua_pushstring(L, audio_backend_name());
-    return 2;
+    lua_pushboolean(L, audio_irq_driven());
+    lua_pushinteger(L, (lua_Integer)audio_irq_count());
+    return 4;
 }
 
 // audio.tone(freq [,ms=200 [,gain=0.5]]) -> voice id | nil.
@@ -118,9 +120,11 @@ static int l_stop(lua_State* L)
 }
 
 static const lua_fndoc audiolib[] = {
-        {"info", l_info, "Audio backend state.",
+        {"info", l_info, "Audio backend + interrupt state.",
          .rets = {{"present", "boolean", "true if an output device is up"},
-                  {"backend", "string", "backend name (ac97 / none)"}}},
+                  {"backend", "string", "backend name (ac97 / none)"},
+                  {"irq", "boolean", "true when ISR-fed (else polled)"},
+                  {"irqs", "number", "completion interrupts taken"}}},
         {"tone", l_tone, "Play a sine tone through the mixer.",
          .args = {{"freq", "number", "frequency in Hz"},
                   {"ms", "number?", "duration in ms (default 200)"},

@@ -46,14 +46,28 @@ typedef struct {
 } voice;
 static voice voices[MAX_VOICES];
 
-// Release a voice's resources and mark it free.
+// Release a voice's resources and mark it free. Deactivate FIRST so a
+// completion ISR (which skips inactive voices) can never touch the buffer being
+// freed. Only ever called from non-IRQ context (audio_play_pcm / audio_stop).
 static void voice_free(voice* v)
 {
+    v->active = false;
     if (v->pcm != NULL) {
         heap_free(heap_default(), v->pcm);
         v->pcm = NULL;
     }
-    v->active = false;
+}
+
+// Reclaim PCM buffers of voices that finished in the pump path (which, being
+// IRQ-safe, marks them inactive but never frees). Non-IRQ context only.
+static void reap_finished(void)
+{
+    for (int i = 0; i < MAX_VOICES; i++) {
+        if (!voices[i].active && voices[i].pcm != NULL) {
+            heap_free(heap_default(), voices[i].pcm);
+            voices[i].pcm = NULL;
+        }
+    }
 }
 
 bool audio_present(void)
@@ -67,6 +81,16 @@ const char* audio_backend_name(void)
 const char* audio_fail_reason(void)
 {
     return ac97_backend.fail_reason();
+}
+bool audio_irq_driven(void)
+{
+    return backend != NULL && backend->irq_driven != NULL &&
+           backend->irq_driven();
+}
+uint64_t audio_irq_count(void)
+{
+    return backend != NULL && backend->irq_count != NULL ? backend->irq_count()
+                                                         : 0;
 }
 
 // Bhaskara I sine approximation on [0, PI]; good to ~0.2%, plenty for a table.
@@ -92,6 +116,11 @@ void audio_init(void)
     build_sine();
     if (ac97_backend.init()) {
         backend = &ac97_backend;
+        // Feed playback from the completion ISR (idle-loop pump is the
+        // backstop).
+        if (backend->enable_irq != NULL) {
+            backend->enable_irq(audio_pump);
+        }
         backend->start();
     }
 }
@@ -131,6 +160,7 @@ int audio_play_pcm(const int16_t* samples, uint32_t frames, uint32_t rate,
         (ch != 1 && ch != 2)) {
         return -1;
     }
+    reap_finished(); // free buffers of voices that ended in the pump
     for (int i = 0; i < MAX_VOICES; i++) {
         if (voices[i].active) {
             continue;
@@ -212,7 +242,10 @@ static void voice_mix(voice* v, int32_t* l, int32_t* r)
             v->pos = 0;
             idx = 0;
         } else {
-            voice_free(v);
+            // Runs in the ISR: mark done but don't free here (no heap in the
+            // pump path); reap_finished() reclaims the buffer in a safe
+            // context.
+            v->active = false;
             return;
         }
     }
@@ -241,12 +274,18 @@ static void mix_period(int16_t* out, uint32_t frames)
 
 void audio_pump(void)
 {
-    if (backend == NULL) {
+    // Reentrancy guard: the completion ISR and the idle loop both call this.
+    // On this single-core path a plain flag suffices — if the ISR fires while
+    // the idle pump holds it, the ISR simply skips (the ring has ~64 ms slack).
+    static volatile bool pumping;
+    if (backend == NULL || pumping) {
         return;
     }
+    pumping = true;
     int16_t* p;
     while ((p = backend->next_period()) != NULL) {
         mix_period(p, backend->period_frames());
         backend->commit_period();
     }
+    pumping = false;
 }

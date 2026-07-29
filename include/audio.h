@@ -26,6 +26,13 @@ typedef struct {
     void (*start)(void);              // begin DMA (idempotent)
     void (*stop)(void);               // halt DMA
     const char* (*fail_reason)(void); // why init failed, or NULL
+    // Route the device's completion interrupt to `refill` (the mixer's pump),
+    // so playback is fed from the ISR rather than only the idle loops. NULL, or
+    // a no-op when the device has no usable interrupt (then polling carries
+    // it).
+    void (*enable_irq)(void (*refill)(void));
+    bool (*irq_driven)(void);    // true once interrupts are delivering
+    uint64_t (*irq_count)(void); // completion interrupts taken
 } audio_output;
 
 // Bring up audio: select a backend (AC'97), start its DMA. Safe to call with no
@@ -34,9 +41,12 @@ void audio_init(void);
 bool audio_present(void);
 const char* audio_backend_name(void); // "ac97" / "none"
 const char* audio_fail_reason(void);  // backend init failure, or NULL
+bool audio_irq_driven(void);          // ISR-fed (false: polled from idle loops)
+uint64_t audio_irq_count(void);       // completion interrupts taken
 
-// Mix active voices into any free backend periods. Non-blocking; call from the
-// idle loops (like net_poll/xhci_poll) so playback stays fed between events.
+// Mix active voices into any free backend periods. Non-blocking and reentrancy-
+// guarded; called from both the completion ISR and the idle loops (like
+// net_poll/xhci_poll) so playback stays fed. Does no heap work (IRQ-safe).
 void audio_pump(void);
 
 // Play a synthesized sine tone of `freq` Hz for `ms` milliseconds at `gain`
