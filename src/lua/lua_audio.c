@@ -35,6 +35,34 @@ static int l_tone(lua_State* L)
     return 1;
 }
 
+// audio.play_pcm(data, rate [,channels=1 [,loop=false [,gain=0.7]]]) -> voice.
+// `data` is interleaved little-endian signed-16 PCM (e.g. from string.pack).
+static int l_play_pcm(lua_State* L)
+{
+    size_t len = 0;
+    const char* data = luaL_checklstring(L, 1, &len);
+    lua_Integer rate = luaL_checkinteger(L, 2);
+    lua_Integer ch = luaL_optinteger(L, 3, 1);
+    bool loop = lua_toboolean(L, 4);
+    lua_Number gain = luaL_optnumber(L, 5, 0.7);
+    if (rate <= 0 || (ch != 1 && ch != 2)) {
+        return luaL_error(L, "audio.play_pcm: bad rate/channels");
+    }
+    size_t frame_bytes = (size_t)ch * sizeof(int16_t);
+    if (len == 0 || len % frame_bytes != 0) {
+        return luaL_error(L, "audio.play_pcm: data not whole s16 frames");
+    }
+    int v = audio_play_pcm((const int16_t*)data, (uint32_t)(len / frame_bytes),
+                           (uint32_t)rate, (uint8_t)ch, loop, (float)gain);
+    if (v < 0) {
+        lua_pushnil(L);
+        lua_pushstring(L, audio_present() ? "no free voice" : "no audio device");
+        return 2;
+    }
+    lua_pushinteger(L, v);
+    return 1;
+}
+
 // audio.stop([voice]) -> stop one voice, or all when omitted.
 static int l_stop(lua_State* L)
 {
@@ -50,6 +78,15 @@ static const lua_fndoc audiolib[] = {
          .args = {{"freq", "number", "frequency in Hz"},
                   {"ms", "number?", "duration in ms (default 200)"},
                   {"gain", "number?", "0..1 loudness (default 0.5)"}},
+         .rets = {{"voice", "number?", "voice id, or nil on error"},
+                  {"err", "string?", "message when voice is nil"}}},
+        {"play_pcm", l_play_pcm,
+         "Play interleaved s16 PCM (resampled to the mixer rate).",
+         .args = {{"data", "string", "little-endian s16 samples"},
+                  {"rate", "number", "source sample rate in Hz"},
+                  {"channels", "number?", "1 or 2 (default 1)"},
+                  {"loop", "boolean?", "repeat until stopped"},
+                  {"gain", "number?", "0..1 loudness (default 0.7)"}},
          .rets = {{"voice", "number?", "voice id, or nil on error"},
                   {"err", "string?", "message when voice is nil"}}},
         {"stop", l_stop, "Stop a voice, or all voices.",

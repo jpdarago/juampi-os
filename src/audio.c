@@ -5,6 +5,7 @@
 // from the idle loops so playback stays fed without blocking the shell.
 
 #include <audio.h>
+#include <memory.h> // heap for owned PCM voice buffers
 #include <utils.h>
 
 extern const audio_output ac97_backend;
@@ -18,16 +19,42 @@ static const audio_output* backend;
 #define SINE_AMP 10000
 static int16_t sine_tab[SINE_LEN];
 
-// A playing voice. `phase` is 16.16 fixed point in sine-table units (top bits
-// index the table); `inc` advances it by freq/rate per frame. gain is Q8.
+// A playing voice: either a synthesized sine tone or a PCM sample stream. gain
+// is Q8 (256 = unity). Both advance a fixed-point cursor per output frame.
+//
+//  - TONE: `phase`/`inc` are 16.16 in sine-table units; `frames_left` counts
+//    down the note.
+//  - PCM: `pcm` is an owned interleaved-s16 buffer at `src_rate`/`channels`;
+//    `pos`/`step` are a 16.16 fixed-point source-frame cursor advanced by
+//    src_rate/AUDIO_RATE per output frame, linearly interpolated and (for mono)
+//    duplicated to stereo. Freed when it finishes or is stopped.
 #define MAX_VOICES 8
+typedef enum { VOICE_TONE, VOICE_PCM } voice_kind;
 typedef struct {
     bool active;
-    uint32_t phase, inc;
-    uint32_t frames_left;
+    voice_kind kind;
     int32_t gain; // Q8 (256 = unity)
+    bool loop;
+    // tone
+    uint32_t phase, inc, frames_left;
+    // pcm
+    int16_t* pcm; // owned, heap
+    uint32_t nframes;
+    uint8_t channels;
+    uint64_t pos;  // 16.16 fixed-point source-frame cursor
+    uint32_t step; // source frames per output frame, 16.16
 } voice;
 static voice voices[MAX_VOICES];
+
+// Release a voice's resources and mark it free.
+static void voice_free(voice* v)
+{
+    if (v->pcm != NULL) {
+        heap_free(heap_default(), v->pcm);
+        v->pcm = NULL;
+    }
+    v->active = false;
+}
 
 bool audio_present(void)
 {
@@ -78,6 +105,9 @@ int audio_tone(uint32_t freq, uint32_t ms, float gain)
         if (voices[i].active) {
             continue;
         }
+        voices[i].kind = VOICE_TONE;
+        voices[i].loop = false;
+        voices[i].pcm = NULL;
         voices[i].phase = 0;
         // per-frame phase step, 16.16 in table units: freq * SINE_LEN / rate
         voices[i].inc =
@@ -91,14 +121,49 @@ int audio_tone(uint32_t freq, uint32_t ms, float gain)
     return -1; // no free voice
 }
 
+// Play `frames` of interleaved signed-16 PCM at `rate` Hz with `ch` channels
+// (1 or 2). The samples are copied into a voice-owned buffer, resampled to the
+// mixer rate and (for mono) fanned to stereo. Returns a voice id or -1.
+int audio_play_pcm(const int16_t* samples, uint32_t frames, uint32_t rate,
+                   uint8_t ch, bool loop, float gain)
+{
+    if (backend == NULL || samples == NULL || frames == 0 || rate == 0 ||
+        (ch != 1 && ch != 2)) {
+        return -1;
+    }
+    for (int i = 0; i < MAX_VOICES; i++) {
+        if (voices[i].active) {
+            continue;
+        }
+        size_t bytes = (size_t)frames * ch * sizeof(int16_t);
+        int16_t* buf = alloc(&heap_default()->base, 1, 1, (ptrdiff_t)bytes);
+        if (buf == NULL) {
+            return -1;
+        }
+        memcpy(buf, samples, bytes);
+        voices[i].kind = VOICE_PCM;
+        voices[i].pcm = buf;
+        voices[i].nframes = frames;
+        voices[i].channels = ch;
+        voices[i].loop = loop;
+        voices[i].pos = 0;
+        voices[i].step = (uint32_t)(((uint64_t)rate << 16) / AUDIO_RATE);
+        int32_t g = (int32_t)(gain * 256.0f);
+        voices[i].gain = g < 0 ? 0 : (g > 256 ? 256 : g);
+        voices[i].active = true;
+        return i;
+    }
+    return -1;
+}
+
 void audio_stop(int voice_id)
 {
     if (voice_id < 0) {
         for (int i = 0; i < MAX_VOICES; i++) {
-            voices[i].active = false;
+            voice_free(&voices[i]);
         }
     } else if (voice_id < MAX_VOICES) {
-        voices[voice_id].active = false;
+        voice_free(&voices[voice_id]);
     }
 }
 
@@ -113,25 +178,64 @@ static inline int16_t clamp16(int32_t v)
     return (int16_t)v;
 }
 
+// Linearly interpolate channel `c` of a PCM voice at its fractional cursor.
+static int32_t pcm_sample(const voice* v, uint32_t idx, uint8_t c,
+                          uint32_t frac)
+{
+    const int16_t* p = v->pcm;
+    uint32_t j =
+            idx + 1 < v->nframes ? idx + 1 : idx; // clamp at the last frame
+    int32_t a = p[idx * v->channels + c];
+    int32_t b = p[j * v->channels + c];
+    return a + (((b - a) * (int32_t)frac) >> 16);
+}
+
+// Accumulate one voice's contribution to a stereo output frame into l/r, and
+// advance its cursor. Deactivates (freeing PCM) when the voice ends.
+static void voice_mix(voice* v, int32_t* l, int32_t* r)
+{
+    if (v->kind == VOICE_TONE) {
+        uint32_t idx = (v->phase >> 16) & (SINE_LEN - 1);
+        int32_t s = (sine_tab[idx] * v->gain) >> 8;
+        *l += s;
+        *r += s;
+        v->phase += v->inc;
+        if (--v->frames_left == 0) {
+            v->active = false;
+        }
+        return;
+    }
+    // PCM
+    uint32_t idx = (uint32_t)(v->pos >> 16);
+    if (idx >= v->nframes) {
+        if (v->loop) {
+            v->pos = 0;
+            idx = 0;
+        } else {
+            voice_free(v);
+            return;
+        }
+    }
+    uint32_t frac = (uint32_t)(v->pos & 0xFFFF);
+    int32_t sl = pcm_sample(v, idx, 0, frac);
+    int32_t sr = v->channels == 2 ? pcm_sample(v, idx, 1, frac) : sl;
+    *l += (sl * v->gain) >> 8;
+    *r += (sr * v->gain) >> 8;
+    v->pos += v->step;
+}
+
 // Render exactly `frames` stereo frames of mixed voice output into `out`.
 static void mix_period(int16_t* out, uint32_t frames)
 {
     for (uint32_t f = 0; f < frames; f++) {
-        int32_t acc = 0;
+        int32_t l = 0, r = 0;
         for (int v = 0; v < MAX_VOICES; v++) {
-            if (!voices[v].active) {
-                continue;
-            }
-            uint32_t idx = (voices[v].phase >> 16) & (SINE_LEN - 1);
-            acc += (sine_tab[idx] * voices[v].gain) >> 8;
-            voices[v].phase += voices[v].inc;
-            if (--voices[v].frames_left == 0) {
-                voices[v].active = false;
+            if (voices[v].active) {
+                voice_mix(&voices[v], &l, &r);
             }
         }
-        int16_t s = clamp16(acc);
-        out[2 * f] = s;     // left
-        out[2 * f + 1] = s; // right (mono tone duplicated)
+        out[2 * f] = clamp16(l);
+        out[2 * f + 1] = clamp16(r);
     }
 }
 

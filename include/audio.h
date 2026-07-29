@@ -43,6 +43,13 @@ void audio_pump(void);
 // (0..1). Returns a voice id (>=0) or -1 if no free voice / no device.
 int audio_tone(uint32_t freq, uint32_t ms, float gain);
 
+// Play `frames` of interleaved signed-16 PCM at `rate` Hz with `ch` channels
+// (1 or 2), resampled to the mixer format and (for mono) fanned to stereo. The
+// samples are copied into a voice-owned buffer. `loop` repeats until stopped.
+// Returns a voice id (>=0) or -1 if no free voice / no device / bad args.
+int audio_play_pcm(const int16_t* samples, uint32_t frames, uint32_t rate,
+                   uint8_t ch, bool loop, float gain);
+
 // Stop a voice (id from audio_tone), or all voices when id < 0.
 void audio_stop(int voice);
 
