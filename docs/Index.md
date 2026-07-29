@@ -30,7 +30,7 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
   *Status: in progress (M11).*
 - [[acpi-uacpi]] — follow-up proposal: swap the hand-rolled table-only ACPI
   layer for uACPI (AML interpreter) when the real XPS becomes a firm target.
-  *Status: in progress (barebones landed).*
+  *Status: in progress (full AML init + power button).*
 
 ## By status
 

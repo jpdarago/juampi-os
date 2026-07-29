@@ -14,12 +14,13 @@ created: 2026-07-28
 > implementation with a real AML interpreter — following the incremental path
 > below.
 
-> [!success] Status — **Steps 1–2 landed** (b54b4cf, 50606f0). uACPI 6.0.0 is
-> vendored in **barebones mode** (tables only, no AML) and `acpi.c` now parses
-> the FADT/MADT/DSDT through it — the hand-rolled RSDP/SDT walk is gone (−160
-> lines). Interrupts (IOAPIC), PM timer, and _S5 shutdown all run off uACPI.
-> Step 3 (full init: AML → _S5 via `enter_sleep_state`, _PRT, power button) is
-> next and is the big lift.
+> [!success] Status — **Steps 1–3 landed** (b54b4cf, 50606f0, 7c4265a,
+> 9eb410d). uACPI 6.0.0 is vendored and running in **full mode** (AML
+> interpreter + namespace): `acpi.c` parses tables through it (hand-rolled walk
+> gone), `uacpi_full_init()` loads the namespace, `acpi_shutdown()` powers off
+> via AML `_S5` (`uacpi_enter_sleep_state`), and the **power button** shuts down
+> gracefully (SCI → fixed-event handler). Remaining: `_PRT` PCI IRQ routing, EC
+> / battery / thermal, CPU C-states.
 
 ## What we have today (`src/acpi.c`, ~420 lines)
 
@@ -113,15 +114,15 @@ hand-writing an AML interpreter is precisely the rabbit hole uACPI avoids.
    structs; the hand-rolled RSDP/SDT walk + table structs + `map_phys` are gone.
    The `_S5` byte-scan stays (soft-off needs AML — deferred to step 3). Public
    `acpi.h` API unchanged. MCFG (ECAM) / HPET are now trivially reachable too.
-3. Drop barebones and do full `uacpi_initialize` + namespace load (needs the
-   larger glue: alloc, mutex/event/spinlock, io/pci, interrupts, deferred work)
-   → proper `_S5` shutdown (`uacpi_prepare_for_sleep_state` / `enter_sleep_state`)
-   and `_PRT` PCI IRQ routing (feeds the audio INTx + real-HW INTx).
-4. Later: SCI power button, EC, battery/thermal, CPU C-states.
-
-Note: step 3's full init is the big lift (many more callbacks, and the AML
-interpreter compiled in — drop `UACPI_BAREBONES_MODE`). Steps 1–2 are pure
-robustness wins with the minimal glue.
+3. **[done]** Dropped barebones; full `uacpi_initialize` + namespace load with
+   the larger glue (alloc, mutex/event/spinlock, io/pci, SCI interrupt, sync
+   deferred work — all trivialised by the single-core cooperative model).
+   `acpi_shutdown()` now uses `uacpi_enter_sleep_state(S5)` (byte-scan kept only
+   as a fallback), and the **power button** shuts down via a fixed-event handler
+   (`uacpi_finalize_gpe_initialization` + `uacpi_install_fixed_event_handler`).
+4. **[next]** `_PRT` PCI IRQ routing (would feed the AC'97 INTx + real-HW INTx),
+   EC / battery / thermal, CPU C-states. The `uacpi_kernel_schedule_work` glue
+   is synchronous — heavy runtime GPE handlers would want a real work queue.
 
 The most concrete near-term payoff that intersects current work is **`_PRT` for
 interrupt-driven drivers on real hardware**; the biggest strategic one is **not
