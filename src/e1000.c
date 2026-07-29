@@ -8,6 +8,7 @@
 #include <frames.h>
 #include <paging.h>
 #include <pci.h>
+#include <mmio.h> // register access + dma_wmb before the TX doorbell
 #include <utils.h>
 
 // PCI identity of the card this driver binds to.
@@ -106,12 +107,12 @@ static uint32_t tx_cur;           // next descriptor to fill
 
 static inline uint32_t reg_read(uint32_t off)
 {
-    return *(volatile uint32_t*)(mmio + off);
+    return mmio_r32(mmio, off);
 }
 
 static inline void reg_write(uint32_t off, uint32_t val)
 {
-    *(volatile uint32_t*)(mmio + off) = val;
+    mmio_w32(mmio, off, val);
 }
 
 // Read the MAC. On both QEMU and real hardware the card auto-loads receive
@@ -258,10 +259,9 @@ bool e1000_tx(const void* frame, uint16_t len)
     tx_cur = (tx_cur + 1) % N_TX;
     // Make the descriptor writes above globally visible before we ring the
     // doorbell, so the card's DMA engine can never read a half-initialized
-    // descriptor once it sees TDT advance. (x86 keeps stores in program order,
-    // so this is conservative here, but it documents the required ordering and
-    // stays correct if the ring is ever mapped write-combining.)
-    __asm__ __volatile__("mfence" ::: "memory");
+    // descriptor once it sees TDT advance (dma_wmb also covers a
+    // write-combining ring mapping).
+    dma_wmb();
     reg_write(REG_TDT,
               tx_cur); // doorbell: hand descriptor tx_cur-1 to the card
 

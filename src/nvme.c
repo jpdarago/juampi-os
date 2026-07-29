@@ -20,6 +20,7 @@
 #include <paging.h>
 #include <frames.h>
 #include <dma.h>
+#include <mmio.h> // register access + doorbell (dma_wmb) helpers
 #include <ktime.h>
 #include <apic.h> // lapic_id for the MSI-X message address
 #include <idt.h>  // register_interrupt_handler, interrupt_frame
@@ -173,19 +174,19 @@ static struct {
 
 static uint32_t reg32(uint32_t off)
 {
-    return *(volatile uint32_t*)(regs + off);
+    return mmio_r32(regs, off);
 }
 static void wreg32(uint32_t off, uint32_t v)
 {
-    *(volatile uint32_t*)(regs + off) = v;
+    mmio_w32(regs, off, v);
 }
 static uint64_t reg64(uint32_t off)
 {
-    return *(volatile uint64_t*)(regs + off);
+    return mmio_r64(regs, off);
 }
 static void wreg64(uint32_t off, uint64_t v)
 {
-    *(volatile uint64_t*)(regs + off) = v;
+    mmio_w64(regs, off, v);
 }
 
 // Doorbell register for queue `qid`: submission (is_cq=0) or completion (=1).
@@ -202,10 +203,9 @@ static int submit(nvme_queue* q, struct nvme_command* cmd)
     cmd->cid = q->cid++;
     q->sq[q->sq_tail] = *cmd;
     q->sq_tail = (uint16_t)((q->sq_tail + 1) % q->depth);
-    // Compiler barrier: the SQ entry stores are plain writes and must not be
-    // sunk past the (volatile) doorbell write that hands the entry over.
-    __asm__ __volatile__("" ::: "memory");
-    *q->sq_tail_db = q->sq_tail;
+    // Hand the entry to the controller: the SQ writes must be visible before
+    // the doorbell store (mmio_doorbell orders them).
+    mmio_doorbell32(q->sq_tail_db, q->sq_tail);
 
     volatile struct nvme_completion* c = &q->cq[q->cq_head];
     uint64_t deadline = ktime_ms() + 5000;
@@ -213,7 +213,7 @@ static int submit(nvme_queue* q, struct nvme_command* cmd)
         if (ktime_ms() > deadline || (reg32(REG_CSTS) & CSTS_CFS)) {
             return -1;
         }
-        __asm__ __volatile__("pause");
+        cpu_relax();
     }
     uint16_t status = (uint16_t)(c->status >> 1); // strip the phase bit
     q->cq_head = (uint16_t)((q->cq_head + 1) % q->depth);
@@ -256,9 +256,9 @@ static int submit_io_irq(struct nvme_command* cmd)
     io_q.sq_tail = (uint16_t)((io_q.sq_tail + 1) % io_q.depth);
     io_irq.done = false;
     io_irq.status = -1;
-    // Compiler barrier: the SQ entry + flag stores must precede the doorbell.
-    __asm__ __volatile__("" ::: "memory");
-    *io_q.sq_tail_db = io_q.sq_tail;
+    // Hand the entry over: the SQ entry + flag stores must precede the
+    // doorbell.
+    mmio_doorbell32(io_q.sq_tail_db, io_q.sq_tail);
 
     uint64_t deadline = ktime_ms() + 5000;
     __asm__ __volatile__("cli");
@@ -298,7 +298,7 @@ static bool wait_ready(uint32_t want)
         if (ktime_ms() > deadline || (reg32(REG_CSTS) & CSTS_CFS)) {
             return false;
         }
-        __asm__ __volatile__("pause");
+        cpu_relax();
     }
     return true;
 }

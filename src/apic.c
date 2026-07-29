@@ -4,6 +4,7 @@
 // are hidden behind lapic_read/write. Bases come from the ACPI MADT, never
 // hardcoded (though the architectural defaults are used as a backstop).
 
+#include <barrier.h>
 #include <apic.h>
 #include <acpi.h>
 #include <ktime.h>
@@ -114,7 +115,7 @@ void lapic_timer_start(uint32_t hz)
     lapic_write(REG_TIMER_INIT, 0xFFFFFFFFu);
     uint64_t t0 = ktime_ns();
     while (ktime_ns() - t0 < 10000000ull) {
-        __asm__ __volatile__("pause");
+        cpu_relax();
     }
     uint32_t counted = 0xFFFFFFFFu - lapic_read(REG_TIMER_CUR);
     lapic_write(REG_TIMER_INIT, 0); // stop

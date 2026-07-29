@@ -1,6 +1,7 @@
 // kernel.c - Startup routine of the operating system kernel.
 // Limine jumps to kmain in 64-bit long mode (see docs/x86-64-port.md).
 
+#include <barrier.h>
 #include <utils.h>
 #include <idt.h>
 #include <alloc.h>
@@ -325,7 +326,7 @@ void kmain(void)
     // mis-programmed timer can't hang boot.
     uint64_t irq_guard = rdtsc() + 20000000000ull; // ~4-6 s
     while (timer_ticks() < 3 && rdtsc() < irq_guard) {
-        __asm__ __volatile__("pause");
+        cpu_relax();
     }
 
     console_printf("juampiOS: int3 handled=%d, timer ticks=%lu\n", bp_hits,

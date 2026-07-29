@@ -21,6 +21,7 @@
 #include <paging.h>
 #include <frames.h>
 #include <dma.h>
+#include <mmio.h> // register access + doorbell (dma_wmb) helpers
 #include <ktime.h>
 #include <idt.h>      // register_interrupt_handler, interrupt_frame
 #include <keyboard.h> // keyboard_inject: HID keyboard feeds the input ring
@@ -238,15 +239,15 @@ static bool hid_dispatch(const struct trb* ev);
 
 static uint32_t r32(volatile uint8_t* base, uint32_t o)
 {
-    return *(volatile uint32_t*)(base + o);
+    return mmio_r32(base, o);
 }
 static void w32(volatile uint8_t* base, uint32_t o, uint32_t v)
 {
-    *(volatile uint32_t*)(base + o) = v;
+    mmio_w32(base, o, v);
 }
 static void w64(volatile uint8_t* base, uint32_t o, uint64_t v)
 {
-    *(volatile uint64_t*)(base + o) = v;
+    mmio_w64(base, o, v);
 }
 
 static void ring_init(ring* r)
@@ -328,7 +329,7 @@ static bool next_event(struct trb* out, uint64_t deadline)
         if (evt_irq.enabled) {
             __asm__ __volatile__("sti; hlt; cli");
         } else {
-            __asm__ __volatile__("pause");
+            cpu_relax();
         }
     }
 }
@@ -381,8 +382,7 @@ static bool wait_transfer(uint32_t slot, uint32_t dci, struct trb* out,
 static bool run_command(uint64_t param, uint32_t control, struct trb* ev)
 {
     ring_push(&cmd, param, 0, control);
-    __asm__ __volatile__("" ::: "memory");
-    db[0] = 0; // command doorbell (slot 0, target 0)
+    mmio_doorbell32(&db[0], 0); // command doorbell (slot 0, target 0)
     return wait_event(TRB_CMD_COMPLETION, ev, 1000);
 }
 
@@ -408,8 +408,7 @@ static bool control_in(usb_device* d, uint64_t setup, uintptr_t data_pa,
     ring_push(&d->ep0, setup, 8, TRB_TYPE(TRB_SETUP_STAGE) | TRB_IDT | TRT_IN);
     ring_push(&d->ep0, data_pa, len, TRB_TYPE(TRB_DATA_STAGE) | TRB_DIR_IN);
     ring_push(&d->ep0, 0, 0, TRB_TYPE(TRB_STATUS_STAGE) | TRB_IOC);
-    __asm__ __volatile__("" ::: "memory");
-    db[d->slot] = 1; // EP0 doorbell (DCI 1)
+    mmio_doorbell32(&db[d->slot], 1); // EP0 doorbell (DCI 1)
     struct trb ev;
     if (!wait_transfer(d->slot, 1, &ev, 1000)) {
         return false;
@@ -424,8 +423,7 @@ static bool control_no_data(usb_device* d, uint64_t setup)
 {
     ring_push(&d->ep0, setup, 8, TRB_TYPE(TRB_SETUP_STAGE) | TRB_IDT);
     ring_push(&d->ep0, 0, 0, TRB_TYPE(TRB_STATUS_STAGE) | TRB_DIR_IN | TRB_IOC);
-    __asm__ __volatile__("" ::: "memory");
-    db[d->slot] = 1;
+    mmio_doorbell32(&db[d->slot], 1);
     struct trb ev;
     if (!wait_transfer(d->slot, 1, &ev, 1000)) {
         return false;
@@ -451,8 +449,7 @@ static bool get_descriptor(usb_device* d, uint16_t value, uintptr_t buf_pa,
 static uint8_t bulk_xfer(usb_endpoint* ep, uintptr_t data_pa, uint32_t len)
 {
     ring_push(&ep->r, data_pa, len, TRB_TYPE(TRB_NORMAL) | TRB_IOC | TRB_ISP);
-    __asm__ __volatile__("" ::: "memory");
-    db[msc.slot] = ep->dci;
+    mmio_doorbell32(&db[msc.slot], ep->dci);
     struct trb ev;
     if (!wait_transfer(msc.slot, ep->dci, &ev, 2000)) {
         return CC_TIMEOUT;
@@ -796,8 +793,7 @@ static void hid_post(hid_dev* h)
 {
     ring_push(&h->ep.r, h->report.pa, 8,
               TRB_TYPE(TRB_NORMAL) | TRB_IOC | TRB_ISP);
-    __asm__ __volatile__("" ::: "memory");
-    db[h->slot] = h->ep.dci;
+    mmio_doorbell32(&db[h->slot], h->ep.dci);
 }
 
 // Translate one 8-byte boot keyboard report ([modifiers][rsvd][keys x6]) into
@@ -980,7 +976,7 @@ static void delay_ms(uint64_t ms)
 {
     uint64_t end = ktime_ms() + ms;
     while (ktime_ms() < end) {
-        __asm__ __volatile__("pause");
+        cpu_relax();
     }
 }
 

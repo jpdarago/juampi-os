@@ -1,3 +1,4 @@
+#include <barrier.h>
 #include <serial.h>
 #include <ports.h>
 
@@ -36,7 +37,7 @@ char serial_getc(void)
 {
     int c;
     while ((c = serial_poll()) < 0) {
-        __asm__ __volatile__("pause");
+        cpu_relax();
     }
     return (char)c;
 }

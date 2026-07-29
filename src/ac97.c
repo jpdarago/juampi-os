@@ -13,6 +13,7 @@
 #include <pci.h>
 #include <ports.h>
 #include <dma.h>
+#include <barrier.h> // dma_wmb before the LVI doorbell; cpu_relax in spins
 #include <utils.h>
 
 // PCI: multimedia / audio device. QEMU's AC97 is 8086:2415.
@@ -95,6 +96,9 @@ static int16_t* ac97_next_period(void)
 
 static void ac97_commit_period(void)
 {
+    // The mixer's writes into this period buffer must be visible before we
+    // advance LVI to hand it to the DMA engine.
+    dma_wmb();
     ac.lvi = (uint8_t)((ac.lvi + 1) % BDL_ENTRIES);
     w8(NABM_PO_LVI, ac.lvi);
 }
@@ -143,6 +147,7 @@ static bool ac97_init(void)
             ready = true;
             break;
         }
+        cpu_relax();
     }
     if (!ready) {
         ac.fail = "codec not ready";
@@ -158,6 +163,7 @@ static bool ac97_init(void)
     // Reset the PCM-Out DMA engine and wait for the reset bit to self-clear.
     w8(NABM_PO_CR, CR_RR);
     for (int i = 0; i < 1000 && (r8(NABM_PO_CR) & CR_RR); i++) {
+        cpu_relax();
     }
 
     // Allocate the BDL + all 32 period buffers (zeroed = silence). Every BDL
