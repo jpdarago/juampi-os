@@ -98,6 +98,14 @@ void gfx_blit(gfx_surface* s, int64_t x, int64_t y, uint64_t width,
 // therefore overwritten by the next flip.
 bool gfx_buffer(bool on);
 bool gfx_buffered(void);
+// gfx_flip() is damage-tracked: it diffs the back buffer against a shadow of
+// the framebuffer and copies only the changed tiles to VRAM (an idle desktop
+// flushes a handful instead of the whole screen). gfx_flip_full() forces a
+// whole-screen copy (used after a mode change). gfx_flip_tiles() reports how
+// many tiles the last flip pushed — 0 means the frame was identical — for
+// tests/benchmarks.
 void gfx_flip(void);
+void gfx_flip_full(void);
+uint32_t gfx_flip_tiles(void);
 
 #endif

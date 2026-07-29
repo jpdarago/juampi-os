@@ -25,6 +25,16 @@ static uint8_t r_shift, g_shift, b_shift;
 // go straight to the framebuffer, as before.
 static uint32_t* back;
 
+// Damage-tracked flip: a shadow copy of what is currently in the framebuffer,
+// packed like `back`. gfx_flip() diffs `back` against `shadow` in tiles and
+// copies only the changed tiles to VRAM (the write-combining framebuffer is the
+// expensive part; an idle desktop then flushes a handful of tiles instead of
+// the whole ~4 MB). Allocated alongside `back`.
+static uint32_t* shadow;
+static uint32_t
+        last_flip_tiles; // tiles flushed by the last gfx_flip (for tests)
+#define GFX_TILE 32      // flush granularity, in pixels (square tiles)
+
 // Start of scanline y in the current screen target: the back buffer if
 // double-buffering, else the hardware framebuffer. (Used only by snapshot /
 // restore now; all drawing goes through explicit gfx_surface targets.)
@@ -333,17 +343,68 @@ bool gfx_buffer(bool on)
     if (on && back == NULL) {
         back = new (&heap_default()->base, uint32_t,
                     (ptrdiff_t)(width * height));
-        // Seed the back buffer with what's on screen, so enabling buffering is
-        // transparent: pixels never redrawn keep their current value until the
-        // first flip.
+        shadow = new (&heap_default()->base, uint32_t,
+                      (ptrdiff_t)(width * height));
+        // Seed both buffers with what's on screen, so enabling buffering is
+        // transparent: pixels never redrawn keep their current value, and the
+        // shadow starts equal to VRAM so the first flip only pushes real
+        // change.
         for (uint64_t y = 0; y < height; y++) {
             memcpy(back + y * width, fb + y * pitch, width * 4);
         }
+        memcpy(shadow, back, width * height * 4);
     } else if (!on && back != NULL) {
         heap_free(heap_default(), back);
+        heap_free(heap_default(), shadow);
         back = NULL;
+        shadow = NULL;
     }
     return back != NULL;
+}
+
+// Whether two rows of `n` packed pixels differ, compared two pixels at a time.
+// (-fno-strict-aliasing makes the 64-bit view of the 4-byte-aligned rows safe.)
+static inline bool row_differs(const uint32_t* a, const uint32_t* b, uint64_t n)
+{
+    uint64_t i = 0;
+    for (; i + 2 <= n; i += 2) {
+        if (*(const uint64_t*)(a + i) != *(const uint64_t*)(b + i)) {
+            return true;
+        }
+    }
+    return i < n && a[i] != b[i];
+}
+
+// Copy one tile's rows from the back buffer to both VRAM and the shadow.
+static void flip_tile(uint64_t x0, uint64_t y0, uint64_t x1, uint64_t y1)
+{
+    uint64_t bytes = (x1 - x0) * 4;
+    for (uint64_t y = y0; y < y1; y++) {
+        const uint32_t* src = back + y * width + x0;
+        memcpy(fb + y * pitch + x0 * 4, src, bytes);
+        memcpy(shadow + y * width + x0, src, bytes);
+    }
+}
+
+// Push the whole back buffer to VRAM (and refresh the shadow). Used for the
+// first frame after a mode change, when tile diffing has no valid baseline.
+void gfx_flip_full(void)
+{
+    if (fb == NULL || back == NULL) {
+        return;
+    }
+    if (pitch == width * 4) {
+        memcpy(fb, back, width * height * 4);
+    } else {
+        for (uint64_t y = 0; y < height; y++) {
+            memcpy(fb + y * pitch, back + y * width, width * 4);
+        }
+    }
+    if (shadow != NULL) {
+        memcpy(shadow, back, width * height * 4);
+    }
+    last_flip_tiles = (uint32_t)(((width + GFX_TILE - 1) / GFX_TILE) *
+                                 ((height + GFX_TILE - 1) / GFX_TILE));
 }
 
 void gfx_flip(void)
@@ -351,15 +412,45 @@ void gfx_flip(void)
     if (fb == NULL || back == NULL) {
         return;
     }
-    if (pitch == width * 4) {
-        // Rows are contiguous in the framebuffer: copy the whole buffer at
-        // once.
-        memcpy(fb, back, width * height * 4);
-    } else {
-        for (uint64_t y = 0; y < height; y++) {
-            memcpy(fb + y * pitch, back + y * width, width * 4);
+    if (shadow == NULL) {
+        gfx_flip_full();
+        return;
+    }
+    // Diff back vs shadow tile by tile; flush only tiles that changed. The
+    // compares are cached-RAM reads (cheap); the win is avoiding the ~4 MB of
+    // write-combining VRAM traffic a full copy costs every frame.
+    uint32_t tiles = 0;
+    for (uint64_t ty = 0; ty < height; ty += GFX_TILE) {
+        uint64_t y1 = ty + GFX_TILE;
+        if (y1 > height) {
+            y1 = height;
+        }
+        for (uint64_t tx = 0; tx < width; tx += GFX_TILE) {
+            uint64_t x1 = tx + GFX_TILE;
+            if (x1 > width) {
+                x1 = width;
+            }
+            uint64_t tw = x1 - tx;
+            bool dirty = false;
+            for (uint64_t y = ty; y < y1; y++) {
+                if (row_differs(back + y * width + tx, shadow + y * width + tx,
+                                tw)) {
+                    dirty = true;
+                    break;
+                }
+            }
+            if (dirty) {
+                flip_tile(tx, ty, x1, y1);
+                tiles++;
+            }
         }
     }
+    last_flip_tiles = tiles;
+}
+
+uint32_t gfx_flip_tiles(void)
+{
+    return last_flip_tiles;
 }
 
 // Heap snapshot of the draw target, used by the UI loop to keep the shell text
@@ -522,7 +613,9 @@ bool gfx_set_mode(uint32_t w, uint32_t h)
     // Adopt the new geometry (DISPI 32bpp is xRGB: blue 0, green 8, red 16).
     if (back != NULL) {
         heap_free(heap_default(), back);
+        heap_free(heap_default(), shadow);
         back = NULL;
+        shadow = NULL;
     }
     fb = fbwin;
     width = w;

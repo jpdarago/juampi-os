@@ -5,6 +5,7 @@
 #include <memory.h>
 #include <net.h>
 #include <xhci.h>
+#include <gfx.h>
 
 #include <printf/printf.h>
 
@@ -97,14 +98,20 @@ static void emit(char c)
     if (extra_sink) {
         extra_sink(extra_sink_ctx, c);
     }
+    // flanterm draws straight to the raw framebuffer. When a compositor owns
+    // the screen (double-buffering: the windowed desktop / editor), those
+    // writes are stale — they used to be clobbered by the full flip every
+    // frame, but damage-tracked flipping would leave them as corruption. Skip
+    // flanterm then; the desktop terminal grid (extra_sink) is the display.
+    bool fbterm = ft != NULL && !gfx_buffered();
     if (c == '\n') {
         serial_putc('\r');
-        if (ft) {
+        if (fbterm) {
             flanterm_write(ft, "\r", 1);
         }
     }
     serial_putc(c);
-    if (ft) {
+    if (fbterm) {
         flanterm_write(ft, &c, 1);
     }
 }

@@ -83,6 +83,14 @@ static int l_flip(lua_State* L)
     return 0;
 }
 
+// fb.fliptiles() -> tiles flushed by the last flip (0 = frame unchanged). A
+// window into the damage-tracked compositor for diagnostics/benchmarks.
+static int l_fliptiles(lua_State* L)
+{
+    lua_pushinteger(L, gfx_flip_tiles());
+    return 1;
+}
+
 // fb.image(name [,x,y [,key [,tol]]]) -> width, height. Decode a QOI image
 // shipped as a Limine module and blit it. x/y default to centring the image on
 // screen. If `key` (an 0xRRGGBB colour) is given, pixels within `tol` (default
@@ -218,6 +226,9 @@ static const lua_fndoc fblib[] = {
          .args = {{"on", "boolean?", "true (default) to enable"}},
          .rets = {{"active", "boolean", "whether buffering is now on"}}},
         {"flip", l_flip, "Copy the back buffer to the screen (no-op unbuffered)."},
+        {"fliptiles", l_fliptiles,
+         "Tiles the last flip pushed to VRAM (0 = frame unchanged).",
+         .rets = {{"n", "number", "changed 32x32 tiles flushed"}}},
         {"setmode", l_setmode, "Switch to a w*h 32bpp video mode at runtime.",
          .args = {{"w", "number", "width"}, {"h", "number", "height"}},
          .rets = {{"ok", "boolean", "true if the mode was set"}}},
