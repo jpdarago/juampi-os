@@ -114,6 +114,13 @@ local vx, vy = 4, 3 -- velocity
 local phi = 0       -- spin angle
 local spin = 0.10   -- spin per frame; reverses on a side wall
 
+-- A "boing" on every wall bounce, if there's an audio device (harmless
+-- otherwise). pcall so a missing sound asset never breaks the animation.
+local has_audio = audio and select(1, audio.info())
+local function boing_sfx()
+    if has_audio then pcall(audio.play, "boing.qoa", false, 0.7) end
+end
+
 -- Draw one frame (backdrop + physics step + shadow + ball) into the current
 -- draw target (the canvas when windowed, the framebuffer otherwise).
 local function frame()
@@ -123,13 +130,17 @@ local function frame()
     bx, by = bx + vx, by + vy
     if bx < R then
         bx, vx, spin = R, -vx, -spin
+        boing_sfx()
     elseif bx > W - R then
         bx, vx, spin = W - R, -vx, -spin
+        boing_sfx()
     end
     if by < R then
         by, vy = R, -vy
+        boing_sfx()
     elseif by > H - R then
         by, vy = H - R, -vy
+        boing_sfx()
     end
     oval(bx, H - 14, R, R // 5, 0x0a0a12)
     draw_ball(bx, by, phi)
