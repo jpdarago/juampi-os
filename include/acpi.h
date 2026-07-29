@@ -10,10 +10,10 @@
 // (soft-off) sleep value; no AML interpreter. Fallbacks cover the case where
 // the tables are missing.
 
-// Parse the ACPI tables reachable from the RSDP (Limine gives us its address).
-// Safe to call with 0 / a bad pointer (leaves power control on its fallbacks).
-// Also parses the MADT (for the LAPIC/IOAPIC, see below) and the FADT PM timer.
-void acpi_init(uint64_t rsdp_addr);
+// Parse the ACPI tables via uACPI (FADT power control, MADT topology, DSDT _S5
+// soft-off value). Requires uacpi_early_tables_init() to have run first; safe
+// if the tables are missing (leaves power control on its fallbacks).
+void acpi_init(void);
 
 // Power off (ACPI S5). Does not return.
 __attribute__((noreturn)) void acpi_shutdown(void);

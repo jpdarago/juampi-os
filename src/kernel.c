@@ -307,17 +307,19 @@ void kmain(void)
     // and start the per-core LAPIC timer that drives the tick.
     gdt_init(mem);
 
-    uint64_t rsdp = rsdp_request.response != NULL
-                            ? (uint64_t)(uintptr_t)rsdp_request.response->address
-                            : 0;
-    acpi_init(rsdp);
-    // Bring up the vendored uACPI table subsystem alongside the hand-rolled
-    // parser (barebones mode for now; see docs/acpi-uacpi.md).
+    // Bring up uACPI table access first (barebones mode; see
+    // docs/acpi-uacpi.md), then acpi_init() reads the FADT/MADT/DSDT through
+    // it.
+    uint64_t rsdp =
+            rsdp_request.response != NULL
+                    ? (uint64_t)(uintptr_t)rsdp_request.response->address
+                    : 0;
     if (uacpi_early_tables_init(rsdp)) {
         uacpi_report();
     } else {
         console_print("juampiOS: uacpi early table access unavailable\n");
     }
+    acpi_init();
 
     interrupts_init();      // IDT + LAPIC + IOAPIC; 8259 masked off
     ktime_init();           // TSC via CPUID / ACPI PM timer (PIT-free)
