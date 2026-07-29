@@ -3,6 +3,7 @@
 // (src/e1000.c, src/net.c). See docs/networking.md.
 
 #include <net.h>
+#include <e1000.h> // RX interrupt diagnostics (net.rxirqs)
 #include <luadoc.h>
 
 #include "lua.h"
@@ -53,6 +54,15 @@ static int l_mac(lua_State* L)
     buf[n] = '\0';
     lua_pushstring(L, buf);
     return 1;
+}
+
+// net.rxirqs() -> irq_driven, count. Whether NIC receive is interrupt-driven
+// and how many RX interrupts have fired (diagnostic; proves the ISR runs).
+static int l_rxirqs(lua_State* L)
+{
+    lua_pushboolean(L, e1000_irq_driven());
+    lua_pushinteger(L, (lua_Integer)e1000_irq_count());
+    return 2;
 }
 
 // net.config(ip, mask, gateway) — all dotted-quad strings.
@@ -361,6 +371,9 @@ static const lua_fndoc netlib[] = {
          .rets = {{"addr", "string?", "dotted-quad, or nil if unconfigured"}}},
         {"mac", l_mac, "The NIC's MAC address.",
          .rets = {{"mac", "string?", "xx:xx:xx:xx:xx:xx, or nil"}}},
+        {"rxirqs", l_rxirqs, "NIC receive-interrupt state (diagnostic).",
+         .rets = {{"irq", "boolean", "true if RX is interrupt-driven"},
+                  {"count", "number", "receive interrupts taken"}}},
         {"config", l_config, "Set a static IPv4 configuration.",
          .args = {{"ip", "string", "dotted-quad address"},
                   {"mask", "string", "dotted-quad netmask"},

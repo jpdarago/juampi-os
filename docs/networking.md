@@ -80,7 +80,19 @@ void net_poll(void);   // drain RX ring -> layers; service timers; non-blocking
 > pulled from the descriptor ring, not pushed. This matches `ata.c`'s existing
 > timed-poll idiom and keeps every layer re-entrancy-free.
 
-Interrupt-driven RX is a possible **Phase 4** optimization, not part of v1.
+> [!done] Update — interrupt-driven RX landed. The APIC arrived with the
+> real-hardware work ([[x86-64-port]]), and `_PRT` PCI interrupt routing with the
+> uACPI integration, so the e1000 now enables its receive interrupt
+> (`e1000_enable_irq`, legacy INTx routed via `acpi_pci_route`). **Crucially the
+> ISR still does not run the stack** — it only bumps a counter (`net.rxirqs()`);
+> the interrupt's job is to *wake* the idle `hlt` in `console_getch()`, which then
+> drains via `net_poll()` in the main thread. So RX is now serviced promptly when
+> idle (immediately, vs waiting for the next 100 Hz timer tick) and the CPU sleeps
+> instead of spin-polling — without giving up the re-entrancy-free single-threaded
+> processing above. Legacy INTx is shareable, so the interrupt dispatcher
+> (`src/interrupts.c`) now calls every handler registered on a vector; the e1000
+> and an audio codec can sit on the same GSI. Foreground blocking sockets still
+> tight-poll `net_poll()` (that path is already active work, not idle).
 
 ### 1.2 DMA buffers from the frame allocator + HHDM
 

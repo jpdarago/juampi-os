@@ -360,6 +360,9 @@ test: boot.img $(DISK_IMG)
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" \
 		INPUT='run("hello.elf")' MARKER=LAB_OK tests/boot-smoke.sh
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/net-smoke.sh
+	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" \
+		INPUT='net.ping("10.0.2.2"); local d,c=net.rxirqs(); assert(d and c>0); print("NICIRQ_OK")' \
+		MARKER=NICIRQ_OK tests/boot-smoke.sh
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/udp-smoke.sh
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/tcp-smoke.sh
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/prt-smoke.sh

@@ -9,6 +9,9 @@
 #include <paging.h>
 #include <pci.h>
 #include <mmio.h> // register access + dma_wmb before the TX doorbell
+#include <idt.h> // register_interrupt_handler, irq_unmask/route, interrupt_frame
+#include <acpi.h> // acpi_pci_route (_PRT)
+#include <console.h>
 #include <utils.h>
 
 // PCI identity of the card this driver binds to.
@@ -20,7 +23,9 @@
 #define REG_STATUS 0x0008
 #define REG_EERD 0x0014
 #define REG_ICR 0x00C0
+#define REG_IMS 0x00D0
 #define REG_IMC 0x00D8
+#define REG_RDTR 0x2820
 #define REG_RCTL 0x0100
 #define REG_TCTL 0x0400
 #define REG_TIPG 0x0410
@@ -62,6 +67,10 @@
 // RX descriptor status bits
 #define RXD_STAT_DD (1u << 0)  // descriptor done
 #define RXD_STAT_EOP (1u << 1) // end of packet
+// Interrupt cause / mask bits (ICR/IMS) — the receive-side causes we enable.
+#define ICR_RXDMT0 (1u << 4) // RX descriptor ring below min threshold
+#define ICR_RXO (1u << 6)    // receiver overrun
+#define ICR_RXT0 (1u << 7)   // receiver timer (a packet was received)
 
 #define N_RX 32
 #define N_TX 8
@@ -97,6 +106,11 @@ typedef struct __attribute__((packed)) {
 static volatile uint8_t* mmio; // mapped BAR0
 static bool present;           // card found + configured
 static uint8_t mac[6];
+
+// PCI location + INTx receive-interrupt state.
+static uint8_t pci_dev, irq_pin, irq_line;
+static bool irq_on, irq_via_prt;
+static volatile uint64_t rx_ints; // receive interrupts taken (diagnostic)
 
 static volatile rx_desc* rx_ring; // N_RX descriptors
 static volatile tx_desc* tx_ring; // N_TX descriptors
@@ -188,6 +202,10 @@ bool e1000_init(void)
         return false;
     }
     pci_enable_bus_master(a);
+    pci_dev = a.dev;
+    uint32_t intr = pci_read32(a.bus, a.dev, a.func, 0x3C);
+    irq_line = (uint8_t)(intr & 0xFF);       // PCI Interrupt Line
+    irq_pin = (uint8_t)((intr >> 8) & 0xFF); // PCI Interrupt Pin (1=INTA)
 
     mmio = iomap(pci_bar(a, 0), NICWIN_SZ, PAGEF_P | PAGEF_RW | PAGEF_UC);
 
@@ -310,4 +328,61 @@ bool e1000_rx_poll(e1000_frame* out)
         reg_write(REG_RDT, idx);
     }
     return false;
+}
+
+// Receive ISR. Legacy INTx is level-triggered and shared, so reading ICR both
+// tells us why we were called and de-asserts the line; a read of 0 means the
+// interrupt was some other device on the shared GSI (a harmless no-op here). We
+// deliberately do NOT run the protocol stack from interrupt context — that path
+// also transmits (ARP/TCP acks) and touches BSP-only state that isn't reentrant
+// against a foreground send. Instead we just count, and the frames are drained
+// by net_poll() from the main thread (the interrupt wakes the idle `hlt`).
+static void e1000_irq(interrupt_frame* f)
+{
+    (void)f;
+    uint32_t icr = reg_read(REG_ICR); // read-to-clear
+    if (icr & (ICR_RXT0 | ICR_RXO | ICR_RXDMT0)) {
+        rx_ints++;
+    }
+}
+
+void e1000_enable_irq(void)
+{
+    if (!present || irq_on) {
+        return;
+    }
+    // Prefer the ACPI _PRT (correct GSI + level/active-low polarity for PCI
+    // INTx); fall back to the firmware-programmed PCI Interrupt Line register.
+    uint32_t gsi;
+    uint16_t flags;
+    if (irq_pin >= 1 && irq_pin <= 4 &&
+        acpi_pci_route(pci_dev, (uint8_t)(irq_pin - 1), &gsi, &flags)) {
+        irq_line = (uint8_t)gsi;
+        irq_via_prt = true;
+        register_interrupt_handler(32 + gsi, e1000_irq);
+        irq_route_gsi(gsi, flags);
+        irq_on = true;
+    } else if (irq_line != 0 && irq_line != 0xFF) {
+        register_interrupt_handler((uint32_t)(32 + irq_line), e1000_irq);
+        irq_unmask(irq_line);
+        irq_on = true;
+    }
+    if (!irq_on) {
+        return;
+    }
+    reg_write(REG_RDTR, 0);  // no receive delay: interrupt per packet
+    (void)reg_read(REG_ICR); // clear any stale causes
+    reg_write(REG_IMS, ICR_RXT0 | ICR_RXO | ICR_RXDMT0); // unmask RX causes
+    console_printf("juampiOS: e1000 rx irq gsi=%u (%s)\n", (unsigned)irq_line,
+                   irq_via_prt ? "_PRT" : "Interrupt Line");
+}
+
+bool e1000_irq_driven(void)
+{
+    return irq_on;
+}
+
+uint64_t e1000_irq_count(void)
+{
+    return rx_ints;
 }

@@ -17,14 +17,43 @@
 // It takes no EOI.
 #define SPURIOUS_VECTOR 0x2F
 
-static interrupt_handler handlers[256];
+// Up to this many handlers may share one vector. Legacy PCI INTx lines are
+// level-triggered and shareable: several devices (e.g. the e1000 NIC and an
+// audio codec) can route to the same GSI, so the dispatcher must call every
+// registered handler and let each check whether its own device asserted the
+// line. MSI-X vectors and exceptions just use a one-element chain.
+#define VEC_HANDLERS 4
+static interrupt_handler handlers[256][VEC_HANDLERS];
 static volatile uint64_t ticks;
 
 void register_interrupt_handler(uint32_t vector, interrupt_handler h)
 {
-    if (vector < 256) {
-        handlers[vector] = h;
+    if (vector >= 256) {
+        return;
     }
+    for (int i = 0; i < VEC_HANDLERS; i++) {
+        if (handlers[vector][i] == h) {
+            return; // already registered (idempotent)
+        }
+        if (handlers[vector][i] == NULL) {
+            handlers[vector][i] = h;
+            return;
+        }
+    }
+}
+
+// Run every handler registered for this vector; returns true if at least one
+// ran. On a shared line the handlers whose device didn't fire are no-ops.
+static bool run_handlers(interrupt_frame* f)
+{
+    bool ran = false;
+    for (int i = 0; i < VEC_HANDLERS; i++) {
+        if (handlers[f->vector][i] != NULL) {
+            handlers[f->vector][i](f);
+            ran = true;
+        }
+    }
+    return ran;
 }
 
 uint64_t timer_ticks(void)
@@ -101,12 +130,8 @@ static void exception_panic(interrupt_frame* f)
 // Called from the assembly stubs with the saved register frame.
 void interrupt_dispatch(interrupt_frame* f)
 {
-    interrupt_handler h = handlers[f->vector];
-
     if (f->vector >= 32 && f->vector < 48) {
-        if (h) {
-            h(f);
-        }
+        run_handlers(f);
         // The LAPIC spurious vector must NOT be acknowledged; everything else
         // (timer + IOAPIC-routed device IRQs) EOIs to the Local APIC.
         if (f->vector != SPURIOUS_VECTOR) {
@@ -115,8 +140,7 @@ void interrupt_dispatch(interrupt_frame* f)
         return;
     }
 
-    if (h) {
-        h(f);
+    if (run_handlers(f)) {
         return;
     }
 

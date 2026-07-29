@@ -56,7 +56,8 @@ Features
   DMA) and **AC'97**, probed in order — with **QOA** audio decoding, sine-tone
   synthesis, and interrupt-driven playback whose completion IRQ is routed
   through the ACPI `_PRT`. Driven from Lua as `audio.*`.
-* **Networking:** an Intel **e1000** NIC driver and a small IPv4 stack —
+* **Networking:** an Intel **e1000** NIC driver (interrupt-driven receive,
+  routed via the ACPI `_PRT`) and a small IPv4 stack —
   Ethernet/ARP/IPv4/ICMP, **UDP** and **TCP** (client *and* server), **DHCP**,
   **DNS**, and an **HTTP/HTTPS** client (TLS 1.2 via BearSSL with a curated
   root set) — over QEMU user-mode networking.
@@ -139,7 +140,6 @@ TODOs
   path over the codec's HDA link is the next real-hardware target).
 * Preemptive scheduling (kernel threads are cooperative) and LAPIC IPIs.
 * Processes and `fork`/copy-on-write on the 64-bit base.
-* Interrupt-driven NIC receive (RX is polled today).
 * USB polish: host-side key repeat, transaction translators (low/full-speed
   devices behind high-speed hubs).
 * Port a libc (musl) for a richer ring-3 userland.

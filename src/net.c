@@ -507,6 +507,7 @@ void net_init(void)
         return;
     }
     e1000_mac(my_mac);
+    e1000_enable_irq(); // interrupt-driven RX (wakes the idle hlt on arrival)
     ready = true; // the poll pump + UDP must work during the DHCP exchange
 
     // Prefer a DHCP lease; fall back to QEMU user-mode defaults (10.0.2.15/24
