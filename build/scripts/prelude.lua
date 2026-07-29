@@ -94,6 +94,7 @@ Core globals:
   files([path])      graphical file browser
   dump(v) / pp(v)    pretty-print a value or table
   clear()            clear the screen
+  quit()             power the machine off (ACPI S5)
   help() / help(lib) this reference;  ref(topic) for a page]==]
 
 local KEYS = [==[Shell line editor:

@@ -6,6 +6,7 @@
 #include <luashell.h>
 #include <console.h>
 #include <kmodule.h>
+#include <acpi.h> // acpi_shutdown for quit()
 
 #include <printf/printf.h>
 #include <string.h>
@@ -67,6 +68,16 @@ static int l_clear(lua_State* Ls)
     return 0;
 }
 
+// quit(): power the machine off (ACPI S5). Does not return. A top-level alias
+// for k.shutdown(), since "quit" is what people reach for.
+static int l_quit(lua_State* Ls)
+{
+    (void)Ls;
+    console_print("juampiOS: shutting down\n");
+    acpi_shutdown();
+    return 0; // unreachable
+}
+
 void luashell_init(void)
 {
     L = luaL_newstate();
@@ -101,6 +112,8 @@ void luashell_init(void)
     lua_edit_open(L); // the edit() global (full-screen editor)
     lua_pushcfunction(L, l_clear);
     lua_setglobal(L, "clear");
+    lua_pushcfunction(L, l_quit);
+    lua_setglobal(L, "quit");
 
     // Clear any half-entered input (e.g. when re-initializing after a recovered
     // fault longjmp'd out mid-evaluation).
