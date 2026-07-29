@@ -365,6 +365,9 @@ test: boot.img $(DISK_IMG)
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/prt-smoke.sh
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/hda-smoke.sh
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" \
+		INPUT='assert(k.time()>0 and k.date().year>=2026); assert(type((input.mouse()))=="number"); fb.text(0,0,"x"); k.sleep(1); print("API_OK")' \
+		MARKER=API_OK tests/boot-smoke.sh
+	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" \
 		INPUT='run("parallel.lua")' MARKER=PARALLEL_OK tests/boot-smoke.sh
 
 # --- Formatting / linting ---------------------------------------------------

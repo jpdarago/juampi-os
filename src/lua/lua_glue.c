@@ -29,6 +29,7 @@ int luaopen_http(lua_State* L);   // HTTP/1.1 client (lua_http.c)
 int luaopen_ui(lua_State* L);     // microui popups/windows (lua_ui.c)
 int luaopen_usb(lua_State* L);    // USB device introspection (lua_usb.c)
 int luaopen_audio(lua_State* L);  // tones + mixer state (lua_audio.c)
+int luaopen_input(lua_State* L);  // raw keyboard/mouse polling (lua_input.c)
 // The unified launch/benchmark surface (lua_run.c): sets the run/bench globals.
 void lua_run_open(lua_State* L);
 // The edit() global: the full-screen editor (lua_edit.c -> src/editor.c).
@@ -103,6 +104,7 @@ void luashell_init(void)
             {"ui", luaopen_ui},     // microui popups & windows
             {"usb", luaopen_usb},   // USB devices + HID status
             {"audio", luaopen_audio}, // tones + audio mixer state
+            {"input", luaopen_input}, // raw keyboard/mouse polling
     };
     for (unsigned i = 0; i < sizeof(libs) / sizeof(libs[0]); i++) {
         luaL_requiref(L, libs[i].name, libs[i].func, 1);

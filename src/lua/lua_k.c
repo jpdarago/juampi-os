@@ -5,12 +5,16 @@
 // (symbolized) exception handler; that is the deal for "full access".
 
 #include <ktime.h>
+#include <rtc.h>
 #include <frames.h>
 #include <ksym.h>
 #include <ports.h>
 #include <memory.h>
 #include <smp.h>
 #include <acpi.h>
+#include <net.h>   // net_poll — keep the stack live during k.sleep
+#include <xhci.h>  // xhci_poll — pump USB HID during k.sleep
+#include <audio.h> // audio_pump — keep the mixer fed during k.sleep
 
 #include <printf/printf.h>
 #include <stdint.h>
@@ -45,6 +49,57 @@ static int l_uptime(lua_State* L)
 {
     lua_pushnumber(L, ktime_ns() / 1e9);
     return 1;
+}
+
+// k.time() -> seconds since the Unix epoch (UTC), from the CMOS RTC, or 0 if no
+// RTC is readable.
+static int l_time(lua_State* L)
+{
+    lua_pushinteger(L, (lua_Integer)rtc_epoch());
+    return 1;
+}
+
+// k.date() -> a table {year,month,day,hour,min,sec} of the current wall-clock
+// time (UTC), or nil if the RTC is unreadable.
+static int l_date(lua_State* L)
+{
+    struct rtc_time t;
+    if (!rtc_read(&t)) {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_createtable(L, 0, 6);
+    lua_pushinteger(L, t.year);
+    lua_setfield(L, -2, "year");
+    lua_pushinteger(L, t.month);
+    lua_setfield(L, -2, "month");
+    lua_pushinteger(L, t.day);
+    lua_setfield(L, -2, "day");
+    lua_pushinteger(L, t.hour);
+    lua_setfield(L, -2, "hour");
+    lua_pushinteger(L, t.minute);
+    lua_setfield(L, -2, "min");
+    lua_pushinteger(L, t.second);
+    lua_setfield(L, -2, "sec");
+    return 1;
+}
+
+// k.sleep(ms) -> pause for `ms` milliseconds while keeping the idle work moving
+// (network, USB input, audio mixer) — a busy loop on k.ms() would starve them.
+static int l_sleep(lua_State* L)
+{
+    lua_Integer ms = luaL_checkinteger(L, 1);
+    if (ms <= 0) {
+        return 0;
+    }
+    uint64_t deadline = ktime_ms() + (uint64_t)ms;
+    while (ktime_ms() < deadline) {
+        net_poll();
+        xhci_poll();
+        audio_pump();
+        __asm__ __volatile__("pause");
+    }
+    return 0;
 }
 static int l_tsc_hz(lua_State* L)
 {
@@ -309,6 +364,13 @@ static const lua_fndoc klib[] = {
          .rets = {{"ms", "number", "milliseconds"}}},
         {"uptime", l_uptime, "Seconds since boot (fractional).",
          .rets = {{"seconds", "number", "uptime in seconds"}}},
+        {"time", l_time, "Unix time (seconds since 1970 UTC) from the CMOS RTC.",
+         .rets = {{"epoch", "number", "seconds since the epoch, or 0"}}},
+        {"date", l_date, "Current wall-clock date/time (UTC) from the RTC.",
+         .rets = {{"t", "table?",
+                   "{year,month,day,hour,min,sec}, or nil if no RTC"}}},
+        {"sleep", l_sleep, "Pause for N ms, pumping network/USB/audio meanwhile.",
+         .args = {{"ms", "number", "milliseconds to sleep"}}},
         {"tsc_hz", l_tsc_hz, "Calibrated TSC frequency.",
          .rets = {{"hz", "number", "TSC ticks per second"}}},
         {"ncores", l_ncores, "Number of CPU cores online.",

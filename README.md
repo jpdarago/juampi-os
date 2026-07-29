@@ -65,10 +65,11 @@ Features
   button, and PCI interrupt routing (`_PRT`); hardware RNG (RDRAND).
 * **Lua 5.4 in ring 0:** boots to a syntax-highlighted REPL with history and
   in-line editing, typed self-documenting libraries (`help()` shows real
-  signatures) — `k` (kernel introspection), `fb` (graphics), `audio` (mixer,
-  tones, QOA playback), `fs`/`disk` (filesystem + raw NVMe/USB/ATA blocks),
-  `pci`, `usb`, `net`/`http`, `thread`/`mem` (parallelism), `ui` (windows) —
-  plus `run()` and `bench()`.
+  signatures) — `k` (kernel introspection, RTC wall clock, `sleep`), `fb`
+  (graphics + text), `input` (raw keyboard/mouse), `audio` (mixer, tones, QOA
+  playback), `fs`/`disk` (filesystem + raw NVMe/USB/ATA blocks), `pci`, `usb`,
+  `net`/`http`, `thread`/`mem` (parallelism), `ui` (windows) — plus `run()` and
+  `bench()`.
 * **Parallel Lua:** one interpreter per core, each with its own heap, with
   `thread.spawn`/`join` and shared-memory buffers for genuine multicore Lua.
 

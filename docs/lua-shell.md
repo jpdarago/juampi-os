@@ -66,6 +66,11 @@ through a `k` library:
 
 - **Time / profiling:** `k.rdtsc()`, `k.ns/us/ms()`, `k.uptime()`, `k.tsc_hz()`
   (benchmarking is the top-level `bench()` — see "Running scripts").
+- **Wall clock:** `k.time()` (Unix seconds) and `k.date()` (`{year,month,day,
+  hour,min,sec}`) read the CMOS RTC — the real date/time, not just
+  monotonic-since-boot; the same clock validates TLS certificate dates.
+- **Sleeping:** `k.sleep(ms)` pauses while still pumping the network, USB input
+  and audio mixer, so a timed loop doesn't starve them.
 - **SMP:** `k.ncores()`, `k.cpu()` (the core the shell runs on).
 - **Memory / CPU:** `k.freemem()`, `k.totalmem()`, `k.freeframes()`,
   `k.cpuid(leaf [,sub])`, `k.cpubrand()`, `k.rdmsr/wrmsr(msr [,val])`.
@@ -86,10 +91,16 @@ explorer, profiler, and prototyping surface you can poke at freely.
 ## The `fb` library — framebuffer graphics from Lua
 
 `fb.width/height()`, `fb.pixel(x,y,rgb)`, `fb.rect(x,y,w,h,rgb)`,
-`fb.line(x0,y0,x1,y1,rgb)`, `fb.clear(rgb)` draw directly to the Limine
-framebuffer (colours are `0xRRGGBB`). It shares the surface with the text
-console, so graphics and text overwrite each other — good for *visualizing* what
-the `k` library measures.
+`fb.line(x0,y0,x1,y1,rgb)`, `fb.text(x,y,str[,rgb])` (the built-in 8x16 font),
+`fb.clear(rgb)` draw directly to the Limine framebuffer (colours are
+`0xRRGGBB`). It shares the surface with the text console, so graphics and text
+overwrite each other — good for *visualizing* what the `k` library measures.
+
+Interactive framebuffer programs pair this with the **`input`** library:
+`input.key()` returns the next pending character (or nil — non-blocking) and
+`input.mouse()` returns the absolute cursor `x, y, buttons, present`. Together
+with `k.sleep(ms)` for frame pacing, that's enough to write a fullscreen game or
+demo in Lua without going through the microui `ui` windows.
 
 `fb.setmode(w,h)` changes the display resolution at runtime (32bpp, via the QEMU
 stdvga Bochs-DISPI registers), re-pointing both graphics and the console at the

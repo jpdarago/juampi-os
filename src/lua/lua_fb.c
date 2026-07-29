@@ -63,6 +63,14 @@ static int l_line(lua_State* L)
              (uint32_t)luaL_checkinteger(L, 5));
     return 0;
 }
+static int l_text(lua_State* L)
+{
+    size_t n;
+    const char* str = luaL_checklstring(L, 3, &n);
+    gfx_text(fb_cur(), luaL_checkinteger(L, 1), luaL_checkinteger(L, 2), str, n,
+             (uint32_t)luaL_optinteger(L, 4, 0xFFFFFF));
+    return 0;
+}
 
 // fb.buffer([on]) -> bool. Turn double buffering on (default) or off, returning
 // whether it is now active. While on, drawing goes to an off-screen buffer and
@@ -214,6 +222,11 @@ static const lua_fndoc fblib[] = {
                   {"x1", "number", ""},
                   {"y1", "number", ""},
                   COLOR("0xRRGGBB colour")}},
+        {"text", l_text, "Draw a string in the built-in 8x16 font.",
+         .args = {{"x", "number", "left"},
+                  {"y", "number", "top"},
+                  {"str", "string", "text to draw"},
+                  {"color", "number?", "0xRRGGBB, default white"}}},
         {"image", l_image, "Decode a QOI module image and blit it.",
          .args = {{"name", "string", "image module name"},
                   {"x", "number?", "left (default: centre)"},
