@@ -61,3 +61,36 @@ uint64_t elf64_load_exec(void* image)
 {
     return load_segments(image, PAGEF_P | PAGEF_RW);
 }
+
+static bool name_eq(const char* a, const char* b)
+{
+    while (*a && *a == *b) {
+        a++;
+        b++;
+    }
+    return *a == *b;
+}
+
+uint64_t elf64_symbol(const void* image, const char* name)
+{
+    const Elf64_Ehdr* eh = image;
+    if (eh->e_shoff == 0 || eh->e_shentsize != sizeof(Elf64_Shdr)) {
+        return 0;
+    }
+    const uint8_t* base = image;
+    const Elf64_Shdr* sh = (const Elf64_Shdr*)(base + eh->e_shoff);
+    for (uint32_t i = 0; i < eh->e_shnum; i++) {
+        if (sh[i].sh_type != SHT_SYMTAB || sh[i].sh_entsize == 0) {
+            continue;
+        }
+        const Elf64_Sym* sym = (const Elf64_Sym*)(base + sh[i].sh_offset);
+        uint32_t n = (uint32_t)(sh[i].sh_size / sh[i].sh_entsize);
+        const char* str = (const char*)(base + sh[sh[i].sh_link].sh_offset);
+        for (uint32_t j = 0; j < n; j++) {
+            if (sym[j].st_name != 0 && name_eq(str + sym[j].st_name, name)) {
+                return sym[j].st_value;
+            }
+        }
+    }
+    return 0;
+}

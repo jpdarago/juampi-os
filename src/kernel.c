@@ -4,6 +4,7 @@
 #include <barrier.h>
 #include <utils.h>
 #include <idt.h>
+#include <syscall.h>
 #include <alloc.h>
 #include <arena.h>
 #include <memory.h>
@@ -329,6 +330,7 @@ void kmain(void)
     keyboard_init(); // PS/2 keyboard on IRQ 1, routed through the IOAPIC
     mouse_init();    // PS/2 mouse on IRQ 12, routed through the IOAPIC
     register_interrupt_handler(3, breakpoint_handler); // int3 -> non-fatal
+    syscall_init(); // int 0x80 syscall boundary for hosted (newlib) programs
     __asm__ __volatile__("sti");
 
     // A breakpoint trap must be caught and returned from cleanly...

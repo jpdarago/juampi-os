@@ -35,7 +35,30 @@ typedef struct {
     uint64_t p_align;
 } __attribute__((__packed__)) Elf64_Phdr;
 
+typedef struct {
+    uint32_t sh_name;
+    uint32_t sh_type;
+    uint64_t sh_flags;
+    uint64_t sh_addr;
+    uint64_t sh_offset;
+    uint64_t sh_size;
+    uint32_t sh_link;
+    uint32_t sh_info;
+    uint64_t sh_addralign;
+    uint64_t sh_entsize;
+} __attribute__((__packed__)) Elf64_Shdr;
+
+typedef struct {
+    uint32_t st_name;
+    uint8_t st_info;
+    uint8_t st_other;
+    uint16_t st_shndx;
+    uint64_t st_value;
+    uint64_t st_size;
+} __attribute__((__packed__)) Elf64_Sym;
+
 #define PT_LOAD 1
+#define SHT_SYMTAB 2
 
 // Load an ELF64 image (already in memory at `image`) into the current address
 // space, mapping each loadable segment as user pages. Returns the entry point,
@@ -45,5 +68,10 @@ uint64_t elf64_load(void* image);
 // Like elf64_load but maps segments as kernel-only pages, for a binary that is
 // called directly in ring 0 (the "sterile lab" — see lab.h). Returns the entry.
 uint64_t elf64_load_exec(void* image);
+
+// Look up a symbol's address (st_value) by name in the image's symbol table.
+// Returns 0 if there is no symbol table or no such symbol. Used to tell a
+// hosted program (defines `_start`) from a lab program (entry `bench`).
+uint64_t elf64_symbol(const void* image, const char* name);
 
 #endif

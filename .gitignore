@@ -60,3 +60,8 @@ build/lab/*.elf
 # Host tool binary for regenerating the logo (`make logo`); the logo.qoi it
 # produces is a checked-in asset, so it is NOT ignored.
 build/tools/png2qoi
+
+# newlib autotools scratch build (vendored subset comes later)
+.newlib/
+build/disk/chello.elf
+build/hosted/*.elf

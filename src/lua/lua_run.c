@@ -10,6 +10,8 @@
 #include <lab.h>
 #include <kmodule.h>
 #include <ext2.h>
+#include <elf64.h>   // elf64_symbol — tell a hosted program from a lab one
+#include <syscall.h> // hosted_run
 #include <memory.h>
 #include <ktime.h>
 #include <console.h>
@@ -186,6 +188,25 @@ static int l_run(lua_State* L)
     }
 
     if (is_elf(data, size)) {
+        // A hosted (newlib) program defines _start (via our crt0); it does text
+        // I/O through syscalls, so just run it — its stdout already flows to the
+        // console/terminal. Lab programs (entry `bench`) take the path below.
+        if (elf64_symbol(data, "_start") != 0) {
+            char arg0[64];
+            size_t k = 0;
+            while (name[k] != '\0' && k < sizeof(arg0) - 1) {
+                arg0[k] = name[k];
+                k++;
+            }
+            arg0[k] = '\0';
+            char* av[2] = {arg0, NULL};
+            int r = hosted_run(data, size, 1, av);
+            if (owned != NULL) {
+                ext2_free(owned);
+            }
+            lua_pushinteger(L, r);
+            return 1;
+        }
         long arg = (long)luaL_optinteger(L, 2, 0);
         // On the windowed desktop, render the program into an off-screen canvas
         // buffer; if it fetched the framebuffer (drew graphics), show it in a
