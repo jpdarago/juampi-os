@@ -1,21 +1,24 @@
 ---
-title: ACPI — uACPI follow-up
-tags: [design, acpi, proposal, follow-up, real-hardware]
-status: proposed
+title: ACPI — uACPI integration
+tags: [design, acpi, in-progress, real-hardware]
+status: in-progress
 related: ["[[x86-64-port]]", "[[Index]]"]
 created: 2026-07-28
 ---
 
-# ACPI — integrating uACPI (follow-up project)
+# ACPI — integrating uACPI
 
-> [!abstract] Proposal
-> Replace the kernel's hand-rolled, table-only ACPI layer with
+> [!abstract] Goal
+> Replace the kernel's hand-rolled ACPI layer with
 > [uACPI](https://github.com/uACPI/uACPI) — a portable, freestanding ACPI
-> implementation with a real AML interpreter — **when the Dell XPS becomes a
-> firm target**. Not needed for QEMU-first development.
+> implementation with a real AML interpreter — following the incremental path
+> below.
 
-> [!note] Status — **not scheduled.** Deliberately deferred. This note captures
-> what it buys us and the incremental path, so the decision + trigger survive.
+> [!success] Status — **Step 1 landed** (commit b54b4cf). uACPI 6.0.0 is
+> vendored and running in **barebones mode** (table subsystem only, no AML),
+> alongside the hand-rolled parser: it enumerates all ACPI tables and confirms
+> FADT/MADT at boot. Steps 2–3 (replace the parser; full init for _S5 / _PRT)
+> are next.
 
 ## What we have today (`src/acpi.c`, ~420 lines)
 
@@ -98,14 +101,25 @@ daily target**: graceful shutdown, power button, battery/thermal via EC, correct
 IRQ routing, and robust firmware handling all become real needs — and
 hand-writing an AML interpreter is precisely the rabbit hole uACPI avoids.
 
-## Incremental path (if/when)
+## Incremental path
 
-1. Vendor uACPI + glue; use `uacpi_setup_early_table_access` to replace **only**
-   the hand-rolled SDT/MADT/FADT walk (tested discovery, **no AML yet**). Low
-   risk; also brings MCFG/HPET.
-2. Full `uacpi_initialize` + namespace load → proper `_S5` shutdown and `_PRT`
-   PCI IRQ routing (feeds the audio IRQ + real-HW INTx).
-3. Later: SCI power button, EC, battery/thermal, CPU C-states.
+1. **[done]** Vendor uACPI + glue in barebones mode (`UACPI_BAREBONES_MODE` +
+   `UACPI_USE_BUILTIN_STRING`; four callbacks: get_rsdp / map / unmap / log),
+   `uacpi_setup_early_table_access`, boot report. Runs beside the hand-rolled
+   parser. (`src/uacpi/`, `src/uacpi_glue.c`.)
+2. **[next]** Point `src/acpi.c`'s consumers at uACPI table lookups
+   (`uacpi_table_find_by_signature` / `uacpi_table_fadt`) and retire the
+   hand-rolled SDT/MADT/FADT walk + the fragile `_S5` byte-scan. Still barebones
+   (no AML) — pure table access, but tested. Could also expose MCFG (ECAM) / HPET.
+3. Drop barebones and do full `uacpi_initialize` + namespace load (needs the
+   larger glue: alloc, mutex/event/spinlock, io/pci, interrupts, deferred work)
+   → proper `_S5` shutdown (`uacpi_prepare_for_sleep_state` / `enter_sleep_state`)
+   and `_PRT` PCI IRQ routing (feeds the audio INTx + real-HW INTx).
+4. Later: SCI power button, EC, battery/thermal, CPU C-states.
+
+Note: step 3's full init is the big lift (many more callbacks, and the AML
+interpreter compiled in — drop `UACPI_BAREBONES_MODE`). Steps 1–2 are pure
+robustness wins with the minimal glue.
 
 The most concrete near-term payoff that intersects current work is **`_PRT` for
 interrupt-driven drivers on real hardware**; the biggest strategic one is **not
