@@ -18,6 +18,7 @@
 #include <keyboard.h>
 #include <mouse.h>
 #include <ktime.h>
+#include <rtc.h>
 #include <ksym.h>
 #include <gfx.h>
 #include <ata.h>
@@ -360,6 +361,17 @@ void kmain(void)
             ktime_tsc_invariant() ? "invariant" : "variable", ktime_ns());
     console_print(hz > 100000000ull ? "\njuampiOS: timekeeping OK\n"
                                     : "\njuampiOS: timekeeping FAILED\n");
+
+    // Wall clock (CMOS RTC): monotonic ktime above is since-boot; this is the
+    // real date/time, used for TLS cert validity and the k.time/k.date Lua API.
+    struct rtc_time now;
+    if (rtc_read(&now)) {
+        console_printf("juampiOS: rtc %04d-%02d-%02d %02d:%02d:%02d UTC\n",
+                       now.year, now.month, now.day, now.hour, now.minute,
+                       now.second);
+    } else {
+        console_print("juampiOS: rtc unavailable\n");
+    }
 
     // --- Block devices + filesystem. Both bring-ups poll with timeouts, so
     // they run after ktime_init(). ext2 then mounts on whichever device carries

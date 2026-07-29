@@ -4,14 +4,16 @@
 // send/recv calls. Entropy is drawn from the CPU RNG (RDRAND, TSC fallback)
 // since we don't wire an OS seeder. BSP-only, like the rest of the net stack.
 //
-// Limitation: BearSSL x509_minimal checks certificate validity against a
-// wall-clock time, and fails closed (reports "expired") if none is set. We have
-// no RTC, so we feed it a fixed build-date constant (see tls_connect); the
-// chain is otherwise cryptographically verified against the trust anchors.
+// Certificate validity: BearSSL x509_minimal checks the chain against a
+// wall-clock time and fails closed (reports "expired") if none is set. We read
+// the CMOS RTC for "now" (see tls_connect), falling back to a build-date
+// constant if the RTC is unavailable; the chain is otherwise cryptographically
+// verified against the trust anchors.
 
 #include <tls.h>
 #include <bearssl.h>
 #include <net.h>
+#include <rtc.h>
 
 #include <stdint.h>
 #include <stddef.h>
@@ -124,13 +126,14 @@ tls_conn* tls_connect(allocator* a, uint32_t ip, uint16_t port,
     br_ssl_client_init_full(&c->sc, &c->xc, tls_trust_anchors,
                             tls_trust_anchors_count);
 
-    // Certificate validity is checked against "now". With no RTC we use a fixed
-    // build-date constant — without it BearSSL fails closed (every cert reads
-    // as expired). BearSSL's epoch is days since 0000-01-01 (= unix/86400 +
-    // 719528) plus seconds-of-day. Bump this, or wire the CMOS RTC, as it
-    // drifts.
-    br_x509_minimal_set_time(&c->xc, 740187u /* ~2026-07-25 */,
-                             43200u /*noon*/);
+    // Certificate validity is checked against "now". BearSSL's epoch is days
+    // since 0000-01-01 (= unix/86400 + 719528) plus seconds-of-day. Read the
+    // real time from the CMOS RTC; fall back to a build-date constant only if
+    // the RTC is unreadable (else BearSSL fails closed, every cert "expired").
+    uint64_t now = rtc_epoch();
+    uint32_t days = now != 0 ? (uint32_t)(now / 86400u + 719528u) : 740187u;
+    uint32_t secs = now != 0 ? (uint32_t)(now % 86400u) : 43200u;
+    br_x509_minimal_set_time(&c->xc, days, secs);
 
     // Half-duplex buffer (request fully sent before the response is read).
     br_ssl_engine_set_buffer(&c->sc.eng, c->iobuf, sizeof c->iobuf, 0);
