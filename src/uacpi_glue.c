@@ -12,11 +12,13 @@
 // handling.
 
 #include <uacpi_glue.h>
+#include <acpi.h> // acpi_shutdown for the power-button handler
 #include <uacpi/kernel_api.h>
 #include <uacpi/tables.h>
 #include <uacpi/acpi.h>
 #include <uacpi/uacpi.h>
 #include <uacpi/sleep.h>
+#include <uacpi/event.h>
 
 #include <paging.h>  // phys_to_virt, hhdm_offset
 #include <memory.h>  // heap for uacpi_kernel_alloc/free
@@ -403,8 +405,20 @@ void uacpi_report(void)
                    have_fadt ? "ok" : "-", have_madt ? "ok" : "-");
 }
 
+// Fixed power-button event (QMP `system_powerdown` / a physical press): power
+// off gracefully. Runs from the SCI, but acpi_shutdown() never returns, so
+// re-entrancy doesn't matter.
+static uacpi_interrupt_ret power_button_handler(uacpi_handle ctx)
+{
+    (void)ctx;
+    console_print("juampiOS: power button -> shutdown\n");
+    acpi_shutdown();
+    return UACPI_INTERRUPT_HANDLED; // unreachable
+}
+
 // Full bring-up: enter ACPI mode, load and initialize the namespace so the AML
-// interpreter is usable. Must run after the heap, timers and interrupts are up.
+// interpreter is usable, then enable GPEs and the power button. Must run after
+// the heap, timers and interrupts are up.
 bool uacpi_full_init(void)
 {
     if (uacpi_initialize(0) != UACPI_STATUS_OK) {
@@ -417,6 +431,11 @@ bool uacpi_full_init(void)
         return false;
     }
     g_full_init = true;
+
+    // Best-effort: enable GPE handling and a graceful power-button shutdown.
+    uacpi_finalize_gpe_initialization();
+    uacpi_install_fixed_event_handler(UACPI_FIXED_EVENT_POWER_BUTTON,
+                                      power_button_handler, UACPI_NULL);
     return true;
 }
 
