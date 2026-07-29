@@ -124,6 +124,11 @@ FORMAT_FILES := $(filter-out $(INCLUDE_DIR)/limine.h,$(wildcard \
 # override the backend if you prefer, e.g. `make run QEMU_DISPLAY=curses`.
 QEMU         ?= qemu-system-x86_64
 QEMU_DISPLAY ?= gtk
+# Host audio backend for `make run`'s AC'97 device (a QEMU -audiodev driver;
+# see `qemu-system-x86_64 -audiodev help`). Override for your system, e.g.
+# `make run QEMU_AUDIO=pipewire` / alsa / sdl; `none` keeps audio.* working but
+# silent.
+QEMU_AUDIO   ?= pa
 # Number of cores QEMU exposes (drives the SMP bring-up). Keep the value on its
 # own line: a trailing inline comment would leave whitespace in the value, which
 # breaks the quoted `-smp "$QEMU_SMP"` in tests/boot-smoke.sh.
@@ -330,6 +335,7 @@ run: boot.img $(DISK_IMG)
 		-smp $(QEMU_SMP) -accel kvm -accel tcg \
 		$(DISK_QEMU) \
 		-nic user,model=e1000 \
+		-audiodev $(QEMU_AUDIO),id=snd -device AC97,audiodev=snd \
 		-display $(QEMU_DISPLAY) -serial stdio -no-reboot
 
 # Boot the Limine image headless and drive the shell over both input paths:
