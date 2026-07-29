@@ -107,13 +107,12 @@ BEARSSL_INC  := -I$(BEARSSL_DIR)/inc -I$(BEARSSL_DIR)/src -I$(SRC_DIR)/lua/klibc
 
 COBJS      := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(CSOURCES))
 ASMOBJS    := $(patsubst $(SRC_DIR)/%.S,$(OBJ_DIR)/%.o,$(ASMSOURCES))
-# Vendored uACPI (src/uacpi/, pinned 6.0.0): ACPI table access + (later) AML.
-# Built barebones for now — the tables subsystem only, no interpreter — with its
-# own builtin string helpers, verbatim (-w). uACPI includes as <uacpi/...>, which
-# CFLAGS' -Iinclude already resolves.
+# Vendored uACPI (src/uacpi/, pinned 6.0.0): the full ACPI stack — table access
+# + AML interpreter + namespace. Built with its own builtin string helpers,
+# verbatim (-w). uACPI includes as <uacpi/...>, which CFLAGS' -Iinclude resolves.
 UACPI_SRCS := $(wildcard $(SRC_DIR)/uacpi/*.c)
 UACPI_OBJS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(UACPI_SRCS))
-UACPI_DEF  := -DUACPI_BAREBONES_MODE -DUACPI_USE_BUILTIN_STRING
+UACPI_DEF  := -DUACPI_USE_BUILTIN_STRING
 
 VENDOR_OBJS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(VENDOR_CSOURCES))
 OBJS       := $(COBJS) $(ASMOBJS) $(VENDOR_OBJS) $(LUA_OBJS) $(LUA_ASM_OBJ) $(HL_OBJS) $(HTTP_OBJS) $(MICROUI_OBJS) $(BEARSSL_OBJS) $(UACPI_OBJS)

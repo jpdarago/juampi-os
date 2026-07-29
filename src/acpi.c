@@ -1,4 +1,5 @@
 #include <acpi.h>
+#include <uacpi_glue.h>
 #include <uacpi/tables.h>
 #include <uacpi/acpi.h>
 #include <paging.h>
@@ -219,6 +220,9 @@ void acpi_init(void)
 
 void acpi_shutdown(void)
 {
+    // Prefer AML-evaluated S5 (uACPI full init). Returns only if unavailable,
+    // then we fall back to the byte-scanned _S5 / PM1 path below.
+    uacpi_try_shutdown();
     if (have_pm && have_s5) {
         outw(pm1a_cnt, (uint16_t)(((uint16_t)slp_typa << 10) | SLP_EN));
         if (pm1b_cnt != 0) {

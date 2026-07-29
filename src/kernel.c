@@ -346,6 +346,13 @@ void kmain(void)
         console_print("juampiOS: interrupts OK (LAPIC timer + IOAPIC)\n");
     }
 
+    // Full ACPI via uACPI: enter ACPI mode and load the AML namespace, now that
+    // the heap, timers and interrupts are up. Enables real _S5 shutdown; falls
+    // back to the table-only path (already parsed) if it can't.
+    console_printf("juampiOS: uacpi full init %s\n",
+                   uacpi_full_init() ? "OK (AML namespace loaded)"
+                                     : "failed (tables-only)");
+
     // --- Timekeeping report (calibrated above). ------------------------------
     uint64_t hz = tsc_hz();
     console_printf(

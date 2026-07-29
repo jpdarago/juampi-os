@@ -19,4 +19,14 @@ bool uacpi_early_tables_init(uint64_t rsdp_addr);
 // Boot report: which standard tables uACPI can see (FADT/MADT), for the log.
 void uacpi_report(void);
 
+// Full bring-up: enter ACPI mode + load/initialize the namespace (the AML
+// interpreter). Run after the heap, timers and interrupts are up. Returns
+// whether it succeeded.
+bool uacpi_full_init(void);
+bool uacpi_full_init_done(void);
+
+// Power off via AML-evaluated _S5 (no return on success). Returns if full init
+// never ran or the sleep prep failed, so the caller can fall back.
+void uacpi_try_shutdown(void);
+
 #endif
