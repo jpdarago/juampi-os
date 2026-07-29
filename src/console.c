@@ -6,6 +6,7 @@
 #include <net.h>
 #include <xhci.h>
 #include <gfx.h>
+#include <audio.h>
 
 #include <printf/printf.h>
 
@@ -205,8 +206,9 @@ int console_getch(void)
         if (c >= 0) {
             return c;
         }
-        net_poll();  // keep the network stack live while waiting for a key
-        xhci_poll(); // pump USB HID input into the keyboard ring
+        net_poll();   // keep the network stack live while waiting for a key
+        xhci_poll();  // pump USB HID input into the keyboard ring
+        audio_pump(); // keep the audio mixer fed between keystrokes
         __asm__ __volatile__("hlt");
     }
 }

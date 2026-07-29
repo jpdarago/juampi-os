@@ -22,6 +22,7 @@
 #include <ata.h>
 #include <nvme.h>
 #include <xhci.h>
+#include <audio.h>
 #include <ext2.h>
 #include <smp.h>
 #include <parallel.h>
@@ -406,6 +407,18 @@ void kmain(void)
             console_printf("juampiOS: usb enumeration issue (%s)\n",
                            xhci_fail_reason());
         }
+    }
+
+    // --- Audio: bring up the mixer over an AC'97 output, if present.
+    // ----------
+    audio_init();
+    if (audio_present()) {
+        console_printf("juampiOS: audio up (%s)\n", audio_backend_name());
+    } else if (audio_fail_reason() != NULL) {
+        console_printf("juampiOS: audio init FAILED (%s)\n",
+                       audio_fail_reason());
+    } else {
+        console_print("juampiOS: audio absent\n");
     }
 
     // Mount ext2, preferring NVMe, then a USB mass-storage stick, then the ATA

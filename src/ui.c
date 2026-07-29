@@ -25,6 +25,7 @@
 #include <theme.h>
 #include <qoi.h>
 #include <kmodule.h>
+#include <audio.h>
 
 #include <printf/printf.h> // snprintf for the editor window title
 #include <stdint.h>
@@ -865,7 +866,8 @@ void ui_desktop_run(void)
         draw_cursor(cur_x, cur_y);
         gfx_flip();
 
-        net_poll(); // keep the network stack live between keystrokes
+        net_poll();   // keep the network stack live between keystrokes
+        audio_pump(); // keep the audio mixer fed
         __asm__ __volatile__("hlt");
     }
 }
