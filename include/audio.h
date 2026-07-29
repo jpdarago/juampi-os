@@ -6,10 +6,12 @@
 
 // Kernel audio: a device-independent software mixer over a pluggable output
 // backend. The mixer runs at a fixed internal format (48 kHz, stereo, signed
-// 16-bit interleaved) and renders active "voices" (tones now; decoded PCM /
-// QOA later) into the backend's DMA period buffers. AC'97 is the backend today;
-// Intel HD Audio can implement the same vtable later without touching the mixer
-// or the Lua bindings — both are buffer-descriptor-list (period ring) devices.
+// 16-bit interleaved) and renders active "voices" (tones, decoded PCM / QOA)
+// into the backend's DMA period buffers. Two backends implement the vtable and
+// are probed in order: Intel HD Audio (src/hda.c — the modern controller, and
+// the real-hardware target) then AC'97 (src/ac97.c). Both are
+// buffer-descriptor-list (period ring) devices, so neither the mixer nor the
+// Lua bindings care which one is running.
 
 #define AUDIO_RATE 48000 // mixer + backend sample rate, in Hz
 #define AUDIO_CH 2       // channels (stereo)
@@ -35,11 +37,11 @@ typedef struct {
     uint64_t (*irq_count)(void); // completion interrupts taken
 } audio_output;
 
-// Bring up audio: select a backend (AC'97), start its DMA. Safe to call with no
-// device present (audio_present() stays false).
+// Bring up audio: probe backends in order (HDA, then AC'97), start the DMA of
+// the first present. Safe to call with no device (audio_present() stays false).
 void audio_init(void);
 bool audio_present(void);
-const char* audio_backend_name(void); // "ac97" / "none"
+const char* audio_backend_name(void); // "hda" / "ac97" / "none"
 const char* audio_fail_reason(void);  // backend init failure, or NULL
 bool audio_irq_driven(void);          // ISR-fed (false: polled from idle loops)
 uint64_t audio_irq_count(void);       // completion interrupts taken

@@ -8,7 +8,13 @@
 #include <memory.h> // heap for owned PCM voice buffers
 #include <utils.h>
 
+extern const audio_output hda_backend;
 extern const audio_output ac97_backend;
+
+// Output backends tried in order at init; the first whose probe succeeds wins.
+// HDA is the modern controller (and the real-hardware target); AC'97 is the
+// QEMU-friendly fallback.
+static const audio_output* const backends[] = {&hda_backend, &ac97_backend};
 
 static const audio_output* backend;
 
@@ -80,7 +86,19 @@ const char* audio_backend_name(void)
 }
 const char* audio_fail_reason(void)
 {
-    return ac97_backend.fail_reason();
+    if (backend != NULL) {
+        return backend->fail_reason != NULL ? backend->fail_reason() : NULL;
+    }
+    // No backend came up: report the first probe that got far enough to leave a
+    // reason (e.g. an HDA controller present but with no usable codec).
+    for (unsigned i = 0; i < sizeof(backends) / sizeof(backends[0]); i++) {
+        const char* why =
+                backends[i]->fail_reason ? backends[i]->fail_reason() : NULL;
+        if (why != NULL) {
+            return why;
+        }
+    }
+    return NULL;
 }
 bool audio_irq_driven(void)
 {
@@ -114,14 +132,18 @@ static void build_sine(void)
 void audio_init(void)
 {
     build_sine();
-    if (ac97_backend.init()) {
-        backend = &ac97_backend;
+    for (unsigned i = 0; i < sizeof(backends) / sizeof(backends[0]); i++) {
+        if (!backends[i]->init()) {
+            continue;
+        }
+        backend = backends[i];
         // Feed playback from the completion ISR (idle-loop pump is the
         // backstop).
         if (backend->enable_irq != NULL) {
             backend->enable_irq(audio_pump);
         }
         backend->start();
+        return;
     }
 }
 

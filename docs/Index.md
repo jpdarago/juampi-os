@@ -30,7 +30,10 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
   *Status: in progress (M11).*
 - [[acpi-uacpi]] — follow-up proposal: swap the hand-rolled table-only ACPI
   layer for uACPI (AML interpreter) when the real XPS becomes a firm target.
-  *Status: in progress (full AML init + power button).*
+  *Status: in progress (full AML init + power button + _PRT).*
+- [[hda-audio]] — Intel HD Audio backend: MMIO, CORB/RIRB verbs, codec
+  enumeration, stream DMA — the modern/real-XPS audio path behind the mixer
+  vtable. *Status: complete in QEMU; real-HW headphone path deferred.*
 
 ## By status
 
@@ -43,6 +46,7 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
 | [[reentrancy-audit]] | in progress       | M11       |
 | [[constants-audit]]  | in progress       | M11       |
 | [[acpi-uacpi]]       | in progress       | —         |
+| [[hda-audio]]        | complete (QEMU)   | —         |
 
 ## Conventions
 
