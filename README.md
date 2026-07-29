@@ -40,6 +40,10 @@ Features
   SSE/x87 floating-point state saved across switches.
 * **User mode:** ring 3 with an `int 0x80` syscall ABI and validated user
   pointers, and an ELF64 loader that runs real user programs.
+* **Hosted C programs:** ordinary ANSI-C programs (**newlib** — stdio,
+  `malloc`, math, ext2 file I/O) run in ring 0 with few/no changes, reaching the
+  kernel through an `int 0x80` syscall layer (console, `sbrk` heap, RTC clock,
+  files). `run("prog.elf")` launches them.
 * **Storage:** **NVMe** (zero-copy PRP transfers, MSI-X completions), **USB
   mass storage** (SCSI over Bulk-Only Transport), and ATA PIO — all behind one
   block-device interface, with a read/write **ext2** filesystem that mounts
@@ -129,6 +133,7 @@ The `docs/` folder is an [Obsidian](https://obsidian.md) vault of design notes:
 * `docs/acpi-uacpi.md` — the uACPI integration: full AML, `_S5` shutdown, the
   power button, and `_PRT` PCI interrupt routing.
 * `docs/hda-audio.md` — the Intel HD Audio backend behind the mixer vtable.
+* `docs/hosted-libc.md` — running newlib-linked C programs in ring 0.
 * `informe/` — the original project report (in Spanish); `make` inside that
   folder generates the PDF.
 
@@ -142,7 +147,9 @@ TODOs
 * Processes and `fork`/copy-on-write on the 64-bit base.
 * USB polish: host-side key repeat, transaction translators (low/full-speed
   devices behind high-speed hubs).
-* Port a libc (musl) for a richer ring-3 userland.
+* Fold the hosted-newlib build into `make` (vendor a curated subset compiled by
+  the host GCC) and, longer term, run hosted programs in ring 3 with process
+  isolation (needs preemptive scheduling + a fuller syscall surface).
 
 License
 -------
