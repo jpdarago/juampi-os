@@ -7,7 +7,7 @@
 // memory that starts at start. The size is the number of things to manage; the
 // bits past `size` in the final word are marked used so a search never returns
 // them. Returns the address just past the bitmap.
-uint32_t* bitset_init(bitset* b, void* start, uint32_t size)
+uint32_t* bitset_init(struct bitset* b, void* start, uint32_t size)
 {
     b->start = start;
     b->size = CEIL(size, DWORD_SZ);
@@ -18,7 +18,7 @@ uint32_t* bitset_init(bitset* b, void* start, uint32_t size)
     return res;
 }
 
-void bitset_set(bitset* b, uint32_t index)
+void bitset_set(struct bitset* b, uint32_t index)
 {
     if (index >= DWORD_SZ * b->size) {
         return;
@@ -26,7 +26,7 @@ void bitset_set(bitset* b, uint32_t index)
     b->start[index / DWORD_SZ] |= 1 << (index % DWORD_SZ);
 }
 
-void bitset_clear(bitset* b, uint32_t index)
+void bitset_clear(struct bitset* b, uint32_t index)
 {
     if (index >= DWORD_SZ * b->size) {
         return;
@@ -36,7 +36,7 @@ void bitset_clear(bitset* b, uint32_t index)
 
 // Returns the index of the first clear bit, or (uint32_t)-1 if the set is full.
 // (Ported from the old 32-bit bitset_search.asm to portable C.)
-uint32_t bitset_search(bitset* b)
+uint32_t bitset_search(struct bitset* b)
 {
     for (uint32_t i = 0; i < b->size; i++) {
         uint32_t word = b->start[i];

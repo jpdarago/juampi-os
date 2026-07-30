@@ -22,13 +22,13 @@
 #define HTTPS_PORT 443 // default port for https:// URLs
 
 // Case-insensitive: does header `h`'s name equal `name`?
-static bool hdr_name_is(const struct phr_header* h, str name)
+static bool hdr_name_is(const struct phr_header* h, struct str name)
 {
     return str_eq_ci(str_span(h->name, h->name_len), name);
 }
 
 // Case-insensitive substring search of `needle` in header `h`'s value.
-static bool hdr_value_has(const struct phr_header* h, str needle)
+static bool hdr_value_has(const struct phr_header* h, struct str needle)
 {
     if (needle.len == 0 || h->value_len < needle.len) {
         return needle.len == 0;
@@ -46,7 +46,8 @@ static bool hdr_value_has(const struct phr_header* h, str needle)
     return false;
 }
 
-int http_get(allocator* a, const char* url, char** out_body, int* out_len)
+int http_get(struct allocator* a, const char* url, char** out_body,
+             int* out_len)
 {
     if (out_body) {
         *out_body = NULL;
@@ -56,7 +57,7 @@ int http_get(allocator* a, const char* url, char** out_body, int* out_len)
     }
 
     // Parse [http|https]://<authority>/<path> into host, port, and path.
-    str u = str_from(url);
+    struct str u = str_from(url);
     bool https;
     if (str_has_prefix(u, S("https://"))) {
         https = true;
@@ -70,7 +71,7 @@ int http_get(allocator* a, const char* url, char** out_body, int* out_len)
 
     // Authority is everything up to the first '/'; the rest (kept off the '/')
     // becomes the request path with the slash restored.
-    str authority, rest;
+    struct str authority, rest;
     str_cut_ch(u, '/', &authority,
                &rest); // on no '/', authority = u, rest = ""
     char path[512];
@@ -78,7 +79,7 @@ int http_get(allocator* a, const char* url, char** out_body, int* out_len)
     str_copy(path + 1, sizeof path - 1, rest);
 
     // Authority is host[:port].
-    str host_v, port_v;
+    struct str host_v, port_v;
     uint16_t port = https ? HTTPS_PORT : HTTP_PORT;
     if (str_cut_ch(authority, ':', &host_v, &port_v)) {
         uint32_t pv;
@@ -100,7 +101,7 @@ int http_get(allocator* a, const char* url, char** out_body, int* out_len)
     }
     // Transport: TLS for https:// (validated against the curated CA set), plain
     // TCP otherwise. Both are driven through the same send/recv below.
-    tls_conn* tls = NULL;
+    struct tls_conn* tls = NULL;
     int conn = -1;
     if (https) {
         tls = tls_connect(a, host_ip, port, host);

@@ -16,25 +16,25 @@
 // The surface fb.* draws to: a canvas bound by ui.canvas:draw(), else the
 // screen. The gfx primitives take it explicitly; this is the thin implicit
 // "current" the Lua binding keeps (see luafb.h).
-static gfx_surface* fbcur;
-static gfx_surface* fb_cur(void)
+static struct gfx_surface* fbcur;
+static struct gfx_surface* fb_cur(void)
 {
     return fbcur != NULL ? fbcur : gfx_screen();
 }
-void lua_fb_target(gfx_surface* s)
+void lua_fb_target(struct gfx_surface* s)
 {
     fbcur = s;
 }
 
 static int l_width(lua_State* L)
 {
-    gfx_surface* s = fb_cur();
+    struct gfx_surface* s = fb_cur();
     lua_pushinteger(L, s != NULL ? (lua_Integer)s->w : 0);
     return 1;
 }
 static int l_height(lua_State* L)
 {
-    gfx_surface* s = fb_cur();
+    struct gfx_surface* s = fb_cur();
     lua_pushinteger(L, s != NULL ? (lua_Integer)s->h : 0);
     return 1;
 }
@@ -112,7 +112,7 @@ static int l_image(lua_State* L)
     if (data == NULL) {
         return luaL_error(L, "no such image: %s", name);
     }
-    qoi_image img;
+    struct qoi_image img;
     uint32_t* pixels = qoi_decode(&heap_default()->base, data, size, &img);
     if (pixels == NULL) {
         return luaL_error(L, "not a valid QOI image: %s", name);
@@ -143,7 +143,7 @@ static int l_image(lua_State* L)
         }
     }
 
-    gfx_surface* s = fb_cur();
+    struct gfx_surface* s = fb_cur();
     int64_t sw = s != NULL ? (int64_t)s->w : 0;
     int64_t sh = s != NULL ? (int64_t)s->h : 0;
     int64_t x = luaL_optinteger(L, 2, (sw - (int64_t)img.width) / 2);
@@ -166,7 +166,7 @@ static int l_setmode(lua_State* L)
 // fb.pitch() -> bytes per scanline of the current surface.
 static int l_pitch(lua_State* L)
 {
-    gfx_surface* s = fb_cur();
+    struct gfx_surface* s = fb_cur();
     lua_pushinteger(L, s != NULL ? (lua_Integer)s->pitch : 0);
     return 1;
 }
@@ -199,7 +199,7 @@ static int l_canvas(lua_State* L)
 
 #define COLOR(d) {"color", "number", d}
 
-static const lua_fndoc fblib[] = {
+static const struct lua_fndoc fblib[] = {
         {"width", l_width, "Width of the current draw surface, in pixels.",
          .rets = {{"w", "number", "width in pixels"}}},
         {"height", l_height, "Height of the current draw surface, in pixels.",

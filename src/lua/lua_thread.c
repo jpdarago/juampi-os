@@ -30,14 +30,14 @@
 
 // --- per-core state ---------------------------------------------------------
 
-typedef struct {
+struct worker_t {
     lua_State* L;        // this core's worker interpreter
-    heap_allocator heap; // its private heap (a value type)
-} worker_t;
+    struct heap_allocator heap; // its private heap (a value type)
+};
 
 // A cross-language value marshaled between states (copied, never shared refs).
 enum { M_NIL = 0, M_BOOL, M_INT, M_NUM, M_STR, M_SHARED };
-typedef struct {
+struct mval {
     int type;
     union {
         int b;
@@ -52,26 +52,26 @@ typedef struct {
             size_t size;
         } sh;
     } u;
-} mval;
+};
 
 // One unit of dispatched work (one slot per core).
-typedef struct {
+struct job_t {
     lua_State* L; // the target core's state
     void* code;   // owned bytecode copy (heap_default), or a borrowed pointer
     size_t code_len;
     bool own_code; // free code on finish?
     int nargs;
-    mval args[MAX_ARGS];
+    struct mval args[MAX_ARGS];
     void* strbufs[MAX_ARGS]; // owned copies of string args, freed on finish
     int nstrbufs;
     volatile int status; // LUA_OK or an error code
-    mval result;         // worker's return value (strings point into L)
+    struct mval result;  // worker's return value (strings point into L)
     char err[ERR_MAX];
     bool busy; // has an in-flight spawn (for thread.spawn/join)
-} job_t;
+};
 
-static worker_t* workers;
-static job_t* jobs;
+static struct worker_t* workers;
+static struct job_t* jobs;
 static uint64_t nworkers;
 
 static void* kmalloc(size_t n)
@@ -87,7 +87,7 @@ static void kfree(void* p)
 // owning core calls it.
 static void* worker_alloc(void* ud, void* ptr, size_t osize, size_t nsize)
 {
-    heap_allocator* h = ud;
+    struct heap_allocator* h = ud;
     if (nsize == 0) {
         heap_free(h, ptr);
         return NULL;
@@ -102,7 +102,7 @@ static void* worker_alloc(void* ud, void* ptr, size_t osize, size_t nsize)
 
 // --- marshaling -------------------------------------------------------------
 
-static int marshal_from(lua_State* L, int idx, mval* m)
+static int marshal_from(lua_State* L, int idx, struct mval* m)
 {
     switch (lua_type(L, idx)) {
     case LUA_TNIL:
@@ -148,7 +148,7 @@ static int marshal_from(lua_State* L, int idx, mval* m)
 
 static void push_shared_view(lua_State* L, void* ptr, size_t size);
 
-static void marshal_push(lua_State* L, const mval* m)
+static void marshal_push(lua_State* L, const struct mval* m)
 {
     switch (m->type) {
     case M_BOOL:
@@ -176,7 +176,7 @@ static void marshal_push(lua_State* L, const mval* m)
 
 // Run a job's bytecode + args in its state, capturing the result or error. Runs
 // either on an application processor (via smp_run_on) or inline on the BSP.
-static void run_job(job_t* j)
+static void run_job(struct job_t* j)
 {
     lua_State* L = j->L;
     lua_settop(L, 0);
@@ -208,16 +208,16 @@ static void run_job(job_t* j)
 
 static void worker_entry(void* ctx)
 {
-    run_job((job_t*)ctx);
+    run_job((struct job_t*)ctx);
 }
 
 // Post a job to an application processor: copy the bytecode and any string args
 // into owned buffers (so they don't depend on the caller's Lua GC), then
 // dispatch. Numbers/bools/shared handles are value-copied already.
 static void start_worker(uint32_t core, const void* code, size_t len,
-                         const mval* args, int nargs)
+                         const struct mval* args, int nargs)
 {
-    job_t* j = &jobs[core];
+    struct job_t* j = &jobs[core];
     j->L = workers[core].L;
     j->code = kmalloc(len);
     memcpy(j->code, code, len);
@@ -240,10 +240,10 @@ static void start_worker(uint32_t core, const void* code, size_t len,
 
 // Wait for a dispatched job and reclaim its owned buffers. The result's strings
 // still point into the worker state (valid until its next dispatch).
-static int finish_worker(uint32_t core, mval* out)
+static int finish_worker(uint32_t core, struct mval* out)
 {
     smp_join(core);
-    job_t* j = &jobs[core];
+    struct job_t* j = &jobs[core];
     if (j->own_code) {
         kfree(j->code);
         j->code = NULL;
@@ -332,7 +332,7 @@ static int l_spawn(lua_State* L)
     size_t len;
     const char* code = dump_fn(L, 2, &len); // pushes bytecode (now at last+1)
 
-    mval a[MAX_ARGS];
+    struct mval a[MAX_ARGS];
     a[0].type = M_INT;
     a[0].u.i = core;
     int n = 1;
@@ -358,7 +358,7 @@ static int l_join(lua_State* L)
     if (core < 0 || (uint64_t)core >= nworkers || !jobs[core].busy) {
         return luaL_error(L, "thread.join: core %d has no job", (int)core);
     }
-    mval res;
+    struct mval res;
     int st = finish_worker((uint32_t)core, &res);
     jobs[core].busy = false;
     if (st != LUA_OK) {
@@ -382,7 +382,7 @@ static int l_parallel(lua_State* L)
     size_t len;
     const char* code = dump_fn(L, 1, &len);
 
-    mval uargs[MAX_ARGS];
+    struct mval uargs[MAX_ARGS];
     int nu = 0;
     for (int i = 2; i <= last && nu < MAX_ARGS - 1; i++) {
         if (!marshal_from(L, i, &uargs[nu])) {
@@ -400,7 +400,7 @@ static int l_parallel(lua_State* L)
         if (c == bsp) {
             continue;
         }
-        mval a[MAX_ARGS];
+        struct mval a[MAX_ARGS];
         a[0].type = M_INT;
         a[0].u.i = c;
         for (int k = 0; k < nu; k++) {
@@ -412,7 +412,7 @@ static int l_parallel(lua_State* L)
     // Run the BSP's own share inline (its args/bytecode are live on this stack,
     // so no owned copies are needed).
     {
-        job_t* jb = &jobs[bsp];
+        struct job_t* jb = &jobs[bsp];
         jb->L = workers[bsp].L;
         jb->code = (void*)(uintptr_t)code;
         jb->code_len = len;
@@ -432,7 +432,7 @@ static int l_parallel(lua_State* L)
     lua_newtable(L);
     int err_core = -1;
     for (uint32_t c = 0; c < nworkers; c++) {
-        mval res;
+        struct mval res;
         int st;
         if (c == bsp) {
             st = jobs[bsp].status;
@@ -478,7 +478,7 @@ static int l_tns(lua_State* L)
     return 1;
 }
 
-static const lua_fndoc threadlib[] = {
+static const struct lua_fndoc threadlib[] = {
         {"cores", l_cores, "Number of CPU cores available for work.",
          .rets = {{"n", "number", "core count"}}},
         {"cpu", l_cpu, "Index of the core running this call.",
@@ -512,15 +512,15 @@ int luaopen_thread(lua_State* L)
 
 // --- mem library (shared buffers) -------------------------------------------
 
-typedef struct {
+struct shared_buf {
     unsigned char* ptr;
     size_t size;
     int borrowed; // a view of a buffer owned elsewhere: do not free
-} shared_buf;
+};
 
 static void push_shared_view(lua_State* L, void* ptr, size_t size)
 {
-    shared_buf* sb = lua_newuserdatauv(L, sizeof(shared_buf), 0);
+    struct shared_buf* sb = lua_newuserdatauv(L, sizeof(struct shared_buf), 0);
     sb->ptr = ptr;
     sb->size = size;
     sb->borrowed = 1;
@@ -542,7 +542,7 @@ static int l_shared(lua_State* L)
         return luaL_error(L, "mem.shared: size must be positive");
     }
     unsigned char* p = kmalloc((size_t)n); // zeroed by the heap
-    shared_buf* sb = lua_newuserdatauv(L, sizeof(shared_buf), 0);
+    struct shared_buf* sb = lua_newuserdatauv(L, sizeof(struct shared_buf), 0);
     sb->ptr = p;
     sb->size = (size_t)n;
     sb->borrowed = 0;
@@ -552,7 +552,7 @@ static int l_shared(lua_State* L)
 
 static int l_shared_gc(lua_State* L)
 {
-    shared_buf* sb = luaL_checkudata(L, 1, SHARED_MT);
+    struct shared_buf* sb = luaL_checkudata(L, 1, SHARED_MT);
     if (!sb->borrowed && sb->ptr != NULL) {
         kfree(sb->ptr);
         sb->ptr = NULL;
@@ -562,13 +562,13 @@ static int l_shared_gc(lua_State* L)
 
 static int l_size(lua_State* L)
 {
-    shared_buf* sb = luaL_checkudata(L, 1, SHARED_MT);
+    struct shared_buf* sb = luaL_checkudata(L, 1, SHARED_MT);
     lua_pushinteger(L, sb->size);
     return 1;
 }
 
 // Bounds-check a [off, off+width) access into a shared buffer.
-static unsigned char* at(lua_State* L, shared_buf* sb, lua_Integer off,
+static unsigned char* at(lua_State* L, struct shared_buf* sb, lua_Integer off,
                          size_t width)
 {
     if (off < 0 || (size_t)off + width > sb->size) {
@@ -581,7 +581,7 @@ static unsigned char* at(lua_State* L, shared_buf* sb, lua_Integer off,
 #define ACCESSOR_INT(NAME, CTYPE, WIDTH)                                       \
     static int NAME(lua_State* L)                                              \
     {                                                                          \
-        shared_buf* sb = luaL_checkudata(L, 1, SHARED_MT);                     \
+        struct shared_buf* sb = luaL_checkudata(L, 1, SHARED_MT);              \
         lua_Integer off = luaL_checkinteger(L, 2);                             \
         unsigned char* a = at(L, sb, off, WIDTH);                             \
         if (lua_isnoneornil(L, 3)) {                                          \
@@ -602,7 +602,7 @@ ACCESSOR_INT(l_u64, uint64_t, 8)
 
 static int l_f64(lua_State* L)
 {
-    shared_buf* sb = luaL_checkudata(L, 1, SHARED_MT);
+    struct shared_buf* sb = luaL_checkudata(L, 1, SHARED_MT);
     lua_Integer off = luaL_checkinteger(L, 2);
     unsigned char* a = at(L, sb, off, 8);
     if (lua_isnoneornil(L, 3)) {
@@ -621,7 +621,7 @@ static const luaL_Reg shared_methods[] = {
         {"u64", l_u64},   {"f64", l_f64}, {NULL, NULL},
 };
 
-static const lua_fndoc memlib[] = {
+static const struct lua_fndoc memlib[] = {
         {"shared", l_shared,
          "Allocate a zeroed shared buffer every core can read/write.",
          .args = {{"n", "number", "size in bytes"}},
@@ -660,11 +660,11 @@ static void open_worker_libs(lua_State* L)
     }
 }
 
-void parallel_init(allocator* global)
+void parallel_init(struct allocator* global)
 {
     nworkers = smp_cpu_count();
-    workers = new (global, worker_t, (ptrdiff_t)nworkers);
-    jobs = new (global, job_t, (ptrdiff_t)nworkers);
+    workers = new (global, struct worker_t, (ptrdiff_t)nworkers);
+    jobs = new (global, struct job_t, (ptrdiff_t)nworkers);
     for (uint64_t i = 0; i < nworkers; i++) {
         void* region = alloc(global, WORKER_HEAP_SZ, 16, 1);
         workers[i].heap = heap_init(region, WORKER_HEAP_SZ);
@@ -702,7 +702,7 @@ bool parallel_selftest(void)
         if (c == bsp || !smp_online(c)) { // skip cores that never came up
             continue;
         }
-        mval a = {.type = M_INT, .u.i = c};
+        struct mval a = {.type = M_INT, .u.i = c};
         start_worker(c, code, len, &a, 1);
     }
     bool ok = true;
@@ -710,7 +710,7 @@ bool parallel_selftest(void)
         if (c == bsp || !smp_online(c)) { // don't join a core that never started
             continue;
         }
-        mval r;
+        struct mval r;
         int st = finish_worker(c, &r);
         if (st != LUA_OK || r.type != M_INT || r.u.i != (lua_Integer)c) {
             ok = false;

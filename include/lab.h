@@ -19,7 +19,7 @@
 // This header is shared verbatim by the kernel and by the benchmark sources in
 // build/lab/ (compiled freestanding), so it must stay self-contained.
 
-typedef struct lab_api {
+struct lab_api {
     void* (*alloc)(unsigned long size); // zeroed kernel-heap allocation
     void (*free)(void* p);
     void (*print)(const char* s);  // write a string to the console
@@ -39,9 +39,9 @@ typedef struct lab_api {
     unsigned long (*fb_height)(void);
     unsigned long (*fb_pitch)(void); // bytes per scanline
     void (*fb_shifts)(unsigned char* r, unsigned char* g, unsigned char* b);
-} lab_api;
+};
 
-typedef long (*lab_entry)(const lab_api* api, long arg);
+typedef long (*lab_entry)(const struct lab_api* api, long arg);
 
 // --- Kernel side (ignored by benchmark builds) -----------------------------
 

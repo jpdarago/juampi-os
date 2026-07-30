@@ -36,7 +36,7 @@ void pci_write32(uint8_t bus, uint8_t dev, uint8_t func, uint8_t offset,
     outl(PCI_CONFIG_DATA, value);
 }
 
-pci_addr pci_find(uint16_t vendor, uint16_t device)
+struct pci_addr pci_find(uint16_t vendor, uint16_t device)
 {
     for (int bus = 0; bus < 256; bus++) {
         for (int dev = 0; dev < 32; dev++) {
@@ -50,16 +50,17 @@ pci_addr pci_find(uint16_t vendor, uint16_t device)
                     continue;
                 }
                 if ((id & 0xFFFF) == vendor && (id >> 16) == device) {
-                    return (pci_addr){(uint8_t)bus, (uint8_t)dev, (uint8_t)func,
-                                      true};
+                    return (struct pci_addr){(uint8_t)bus, (uint8_t)dev,
+                                             (uint8_t)func, true};
                 }
             }
         }
     }
-    return (pci_addr){0, 0, 0, false};
+    return (struct pci_addr){0, 0, 0, false};
 }
 
-pci_addr pci_find_class(uint8_t class_code, uint8_t subclass, uint8_t prog_if)
+struct pci_addr pci_find_class(uint8_t class_code, uint8_t subclass,
+                               uint8_t prog_if)
 {
     for (int bus = 0; bus < 256; bus++) {
         for (int dev = 0; dev < 32; dev++) {
@@ -78,23 +79,23 @@ pci_addr pci_find_class(uint8_t class_code, uint8_t subclass, uint8_t prog_if)
                 if (((cls >> 24) & 0xFF) == class_code &&
                     ((cls >> 16) & 0xFF) == subclass &&
                     ((cls >> 8) & 0xFF) == prog_if) {
-                    return (pci_addr){(uint8_t)bus, (uint8_t)dev, (uint8_t)func,
-                                      true};
+                    return (struct pci_addr){(uint8_t)bus, (uint8_t)dev,
+                                             (uint8_t)func, true};
                 }
             }
         }
     }
-    return (pci_addr){0, 0, 0, false};
+    return (struct pci_addr){0, 0, 0, false};
 }
 
-uint32_t pci_bar(pci_addr a, int n)
+uint32_t pci_bar(struct pci_addr a, int n)
 {
     uint32_t bar = pci_read32(a.bus, a.dev, a.func, (uint8_t)(0x10 + 4 * n));
     // Bit 0 selects the space: 1 = I/O (clear low 2), 0 = memory (clear low 4).
     return (bar & 1) ? (bar & ~0x3u) : (bar & ~0xFu);
 }
 
-uint64_t pci_bar64(pci_addr a, int n)
+uint64_t pci_bar64(struct pci_addr a, int n)
 {
     uint32_t lo = pci_read32(a.bus, a.dev, a.func, (uint8_t)(0x10 + 4 * n));
     uint32_t hi =
@@ -102,14 +103,14 @@ uint64_t pci_bar64(pci_addr a, int n)
     return (((uint64_t)hi << 32) | (lo & ~0xFu));
 }
 
-void pci_enable_bus_master(pci_addr a)
+void pci_enable_bus_master(struct pci_addr a)
 {
     uint32_t cmd = pci_read32(a.bus, a.dev, a.func, 0x04);
     cmd |= (1u << 2) | (1u << 1); // bus master + memory-space decode
     pci_write32(a.bus, a.dev, a.func, 0x04, cmd);
 }
 
-uint8_t pci_find_capability(pci_addr a, uint8_t cap_id)
+uint8_t pci_find_capability(struct pci_addr a, uint8_t cap_id)
 {
     // Status register bit 4 says a capability list is present.
     uint32_t status = pci_read32(a.bus, a.dev, a.func, 0x04) >> 16;
@@ -128,7 +129,7 @@ uint8_t pci_find_capability(pci_addr a, uint8_t cap_id)
     return 0;
 }
 
-bool pci_msix_setup(pci_addr a, uint8_t vector)
+bool pci_msix_setup(struct pci_addr a, uint8_t vector)
 {
     uint8_t cap = pci_find_capability(a, PCI_CAP_MSIX);
     if (cap == 0) {

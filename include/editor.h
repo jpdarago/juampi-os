@@ -16,7 +16,7 @@
 //   * editor_vim_key(e, byte) / editor_vim_draw(e, ctx) — the windowed
 //     vim-style editor, pumped and rendered per frame by ui_edit() (src/ui.c).
 
-typedef struct editor editor;
+struct editor;
 struct mu_Context;
 
 // EDITOR_CONTINUE means the editor is still running (returned by
@@ -26,14 +26,14 @@ enum { EDITOR_QUIT = 0, EDITOR_RUN = 1, EDITOR_CONTINUE = 2 };
 
 // Load `path` (missing file = empty buffer) into a fresh instance whose memory
 // all comes from `mem`. Never fails (out-of-memory panics, per alloc.h).
-editor* editor_open(allocator* mem, const char* path);
+struct editor* editor_open(struct allocator* mem, const char* path);
 
 // Classic full-screen ANSI editor loop (headless / serial fallback).
-int editor_run(editor* e);
+int editor_run(struct editor* e);
 
 // Windowed vim editor: feed one input byte (or -1 to flush a dangling Esc at
 // end of frame) and render into the current microui window.
-int editor_vim_key(editor* e, int byte);
-void editor_vim_draw(editor* e, struct mu_Context* ctx);
+int editor_vim_key(struct editor* e, int byte);
+void editor_vim_draw(struct editor* e, struct mu_Context* ctx);
 
 #endif

@@ -25,6 +25,6 @@ bool ata_write(uint64_t lba, uint32_t count, const void* buf);
 // The ATA disk as a generic block device (for ext2_mount and friends). The
 // driver's read/write/sectors already speak 512-byte sectors, so this is a thin
 // wrapper. Valid after ata_init(); sectors() is 0 when no disk is attached.
-const blockdev* ata_blockdev(void);
+const struct blockdev* ata_blockdev(void);
 
 #endif

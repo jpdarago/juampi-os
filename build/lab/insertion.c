@@ -24,7 +24,7 @@ static unsigned long checksum(const int* a, long n)
     return s;
 }
 
-long bench(const lab_api* api, long arg)
+long bench(const struct lab_api* api, long arg)
 {
     long n = arg > 0 ? arg : 1000;
     int* a = api->alloc((unsigned long)n * sizeof(int));

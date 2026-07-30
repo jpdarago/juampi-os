@@ -17,28 +17,29 @@
 
 #define HEAP_NCLASSES 18
 
-typedef struct slab slab; // per-slab descriptor, defined in memory.c
+struct slab; // per-slab descriptor, defined in memory.c
 
-typedef struct {
-    allocator base;  // must be first: a heap_allocator* is an allocator*
-    char* base_addr; // first slab (64 KiB-aligned)
-    char* bump;      // next un-carved slab
-    char* end;       // end of the slab region
-    slab* descs;     // per-slab descriptor array
-    slab* partial[HEAP_NCLASSES]; // slabs with a free block, per size class
-    slab* free_runs;              // free list of large (multi-slab) runs
-} heap_allocator;
+struct heap_allocator {
+    struct allocator base; // must be first: a heap_allocator* is an allocator*
+    char* base_addr;       // first slab (64 KiB-aligned)
+    char* bump;            // next un-carved slab
+    char* end;             // end of the slab region
+    struct slab* descs;    // per-slab descriptor array
+    // slabs with a free block, per size class
+    struct slab* partial[HEAP_NCLASSES];
+    struct slab* free_runs; // free list of large (multi-slab) runs
+};
 
 // Build a heap over [beg, beg + size); beg should be 64 KiB-aligned.
-heap_allocator heap_init(void* beg, ptrdiff_t size);
+struct heap_allocator heap_init(void* beg, ptrdiff_t size);
 // Return a block previously handed out by this heap's alloc().
-void heap_free(heap_allocator* h, void* p);
+void heap_free(struct heap_allocator* h, void* p);
 // Usable size of a block (its size class, or the run length for large blocks).
-size_t heap_usable_size(heap_allocator* h, void* p);
+size_t heap_usable_size(struct heap_allocator* h, void* p);
 
 // The default kernel heap, used by the libc shim's malloc/free/realloc. Set
 // once at boot from kmain.
-void heap_set_default(heap_allocator* h);
-heap_allocator* heap_default(void);
+void heap_set_default(struct heap_allocator* h);
+struct heap_allocator* heap_default(void);
 
 #endif

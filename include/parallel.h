@@ -11,7 +11,7 @@
 
 // Create the per-core worker states. Call once at boot, after smp_init (cores
 // up) and with the kernel heap ready; `global` backs the per-core heaps.
-void parallel_init(allocator* global);
+void parallel_init(struct allocator* global);
 
 // Boot self-test: run a trivial Lua chunk on every application processor and
 // check each returns its own core id. True if all cores ran correctly.

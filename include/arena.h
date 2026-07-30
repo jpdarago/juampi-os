@@ -8,13 +8,13 @@
 // managed by copying the arena struct (scoped scratch) or resetting it
 // wholesale. Useful for transient work with a clear lifetime; long-lived
 // allocations with individual frees belong to the kernel heap (memory.h).
-typedef struct {
-    allocator base; // must be first: an arena* is an allocator*
+struct arena {
+    struct allocator base; // must be first: an arena* is an allocator*
     char* beg;
     char* end;
-} arena;
+};
 
 // Create an arena over [beg, beg + size).
-arena arena_init(void* beg, ptrdiff_t size);
+struct arena arena_init(void* beg, ptrdiff_t size);
 
 #endif

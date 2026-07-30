@@ -191,9 +191,9 @@ bool ata_write(uint64_t lba, uint32_t count, const void* buf)
 
 // The block-device view: the driver already speaks 512-byte sectors, so the
 // vtable points straight at its read/write/sectors.
-static const blockdev ata_dev = {ata_read, ata_write, ata_sectors};
+static const struct blockdev ata_dev = {ata_read, ata_write, ata_sectors};
 
-const blockdev* ata_blockdev(void)
+const struct blockdev* ata_blockdev(void)
 {
     return &ata_dev;
 }

@@ -4,10 +4,10 @@
 
 #include <stdint.h>
 
-static void* arena_alloc(allocator* a, ptrdiff_t size, ptrdiff_t align,
+static void* arena_alloc(struct allocator* a, ptrdiff_t size, ptrdiff_t align,
                          ptrdiff_t count)
 {
-    arena* ar = (arena*)a;
+    struct arena* ar = (struct arena*)a;
     ptrdiff_t padding = -(uintptr_t)ar->beg & (align - 1);
     ptrdiff_t available = ar->end - ar->beg - padding;
     if (available < 0 || count > available / size) {
@@ -18,9 +18,9 @@ static void* arena_alloc(allocator* a, ptrdiff_t size, ptrdiff_t align,
     return memset(p, 0, count * size);
 }
 
-arena arena_init(void* beg, ptrdiff_t size)
+struct arena arena_init(void* beg, ptrdiff_t size)
 {
-    arena a;
+    struct arena a;
     a.base.alloc = arena_alloc;
     a.beg = beg;
     a.end = (char*)beg + size;

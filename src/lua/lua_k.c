@@ -353,7 +353,7 @@ static int l_backtrace(lua_State* L)
 #define ADDR {"addr", "number", "address (may fault if invalid)"}
 #define VAL(t) {"value", "number", t}
 
-static const lua_fndoc klib[] = {
+static const struct lua_fndoc klib[] = {
         {"rdtsc", l_rdtsc, "Read the CPU cycle counter (TSC).",
          .rets = {{"cycles", "number", "current TSC value"}}},
         {"ns", l_ns, "Monotonic time since boot, in nanoseconds.",

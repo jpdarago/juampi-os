@@ -26,7 +26,7 @@ bool xhci_device_info(uint32_t i, uint16_t* vid, uint16_t* pid,
 bool xhci_msc_ready(void);
 uint64_t xhci_msc_blocks(void);
 uint32_t xhci_msc_block_size(void);
-const blockdev* xhci_msc_blockdev(void);
+const struct blockdev* xhci_msc_blockdev(void);
 
 // Which init/enumeration step failed, or NULL (no controller, or all fine).
 // Surfaced in the boot report so a real-hardware failure isn't silent.

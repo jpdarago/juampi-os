@@ -268,7 +268,7 @@ static long sys_sbrk(long incr)
     return (long)(uintptr_t)prev;
 }
 
-static void syscall_handler(interrupt_frame* f)
+static void syscall_handler(struct interrupt_frame* f)
 {
     long n = (long)f->rax;
     long a = (long)f->rdi;

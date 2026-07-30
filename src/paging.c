@@ -25,29 +25,30 @@
 #define KHEAP_START 0xffffc00000000000ull
 
 uintptr_t hhdm_offset;
-page_directory *current_directory, *kernel_dir;
-static page_directory kernel_directory;
+struct page_directory *current_directory, *kernel_dir;
+static struct page_directory kernel_directory;
 
 // Return the table one level down from t->entries[idx], allocating and linking
 // a fresh zeroed table (present, writable, user) if the entry is empty.
-static page_table* level_next(page_table* t, uint32_t idx)
+static struct page_table* level_next(struct page_table* t, uint32_t idx)
 {
     pte_t e = t->entries[idx];
     if (!(e & PTE_P)) {
         uintptr_t frame = frame_alloc();
         memset(phys_to_virt(frame), 0, PAGE_SZ);
         t->entries[idx] = (frame & PTE_ADDR) | PTE_P | PTE_RW | PTE_US;
-        return (page_table*)phys_to_virt(frame);
+        return (struct page_table*)phys_to_virt(frame);
     }
-    return (page_table*)phys_to_virt(e & PTE_ADDR);
+    return (struct page_table*)phys_to_virt(e & PTE_ADDR);
 }
 
-void map_page(page_directory* pd, uintptr_t va, uintptr_t pa, uint32_t flags)
+void map_page(struct page_directory* pd, uintptr_t va, uintptr_t pa,
+              uint32_t flags)
 {
-    page_table* pml4 = (page_table*)phys_to_virt(pd->pml4_phys);
-    page_table* pdpt = level_next(pml4, PML4_INDEX(va));
-    page_table* pd_t = level_next(pdpt, PDPT_INDEX(va));
-    page_table* pt = level_next(pd_t, PD_INDEX(va));
+    struct page_table* pml4 = (struct page_table*)phys_to_virt(pd->pml4_phys);
+    struct page_table* pdpt = level_next(pml4, PML4_INDEX(va));
+    struct page_table* pd_t = level_next(pdpt, PDPT_INDEX(va));
+    struct page_table* pt = level_next(pd_t, PD_INDEX(va));
 
     pte_t e = pa & PTE_ADDR;
     if (flags & PAGEF_P)
@@ -86,25 +87,25 @@ void* iomap(uintptr_t pa, size_t len, uint32_t flags)
     return (void*)(va + off);
 }
 
-uintptr_t physical_address(page_directory* pd, uintptr_t va)
+uintptr_t physical_address(struct page_directory* pd, uintptr_t va)
 {
-    page_table* t = (page_table*)phys_to_virt(pd->pml4_phys);
+    struct page_table* t = (struct page_table*)phys_to_virt(pd->pml4_phys);
     pte_t e = t->entries[PML4_INDEX(va)];
     if (!(e & PTE_P))
         return (uintptr_t)-1;
-    t = (page_table*)phys_to_virt(e & PTE_ADDR);
+    t = (struct page_table*)phys_to_virt(e & PTE_ADDR);
     e = t->entries[PDPT_INDEX(va)];
     if (!(e & PTE_P))
         return (uintptr_t)-1;
     if (e & PTE_PS)
         return (e & PTE_ADDR) + (va & 0x3FFFFFFF); // 1 GiB page
-    t = (page_table*)phys_to_virt(e & PTE_ADDR);
+    t = (struct page_table*)phys_to_virt(e & PTE_ADDR);
     e = t->entries[PD_INDEX(va)];
     if (!(e & PTE_P))
         return (uintptr_t)-1;
     if (e & PTE_PS)
         return (e & PTE_ADDR) + (va & 0x1FFFFF); // 2 MiB page
-    t = (page_table*)phys_to_virt(e & PTE_ADDR);
+    t = (struct page_table*)phys_to_virt(e & PTE_ADDR);
     e = t->entries[PT_INDEX(va)];
     if (!(e & PTE_P))
         return (uintptr_t)-1;
@@ -118,7 +119,8 @@ static bool page_user_ok(uintptr_t va, bool write)
 {
     uint32_t idx[4] = {PML4_INDEX(va), PDPT_INDEX(va), PD_INDEX(va),
                        PT_INDEX(va)};
-    page_table* t = (page_table*)phys_to_virt(current_directory->pml4_phys);
+    struct page_table* t =
+            (struct page_table*)phys_to_virt(current_directory->pml4_phys);
     for (int lvl = 0; lvl < 4; lvl++) {
         pte_t e = t->entries[idx[lvl]];
         if (!(e & PTE_P) || !(e & PTE_US))
@@ -126,7 +128,7 @@ static bool page_user_ok(uintptr_t va, bool write)
         bool leaf = (lvl == 3) || (e & PTE_PS);
         if (leaf)
             return !write || (e & PTE_RW);
-        t = (page_table*)phys_to_virt(e & PTE_ADDR);
+        t = (struct page_table*)phys_to_virt(e & PTE_ADDR);
     }
     return false;
 }

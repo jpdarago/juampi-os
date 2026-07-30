@@ -6,7 +6,7 @@
 #include <stdbool.h>
 
 // Minimal ELF64 section-header and symbol structures (enough to reach .symtab).
-typedef struct {
+struct __attribute__((packed)) Elf64_Ehdr {
     uint8_t e_ident[16];
     uint16_t e_type, e_machine;
     uint32_t e_version;
@@ -14,26 +14,26 @@ typedef struct {
     uint32_t e_flags;
     uint16_t e_ehsize, e_phentsize, e_phnum;
     uint16_t e_shentsize, e_shnum, e_shstrndx;
-} __attribute__((packed)) Elf64_Ehdr;
+};
 
-typedef struct {
+struct __attribute__((packed)) Elf64_Shdr {
     uint32_t sh_name, sh_type;
     uint64_t sh_flags, sh_addr, sh_offset, sh_size;
     uint32_t sh_link, sh_info;
     uint64_t sh_addralign, sh_entsize;
-} __attribute__((packed)) Elf64_Shdr;
+};
 
-typedef struct {
+struct __attribute__((packed)) Elf64_Sym {
     uint32_t st_name;
     uint8_t st_info, st_other;
     uint16_t st_shndx;
     uint64_t st_value, st_size;
-} __attribute__((packed)) Elf64_Sym;
+};
 
 #define SHT_SYMTAB 2
 #define STT_FUNC 2
 
-static const Elf64_Sym* g_syms;
+static const struct Elf64_Sym* g_syms;
 static uint64_t g_nsyms;
 static const char* g_strs;
 
@@ -43,15 +43,16 @@ void ksym_init(void* elf)
         return;
     }
     const uint8_t* base = elf;
-    const Elf64_Ehdr* eh = elf;
+    const struct Elf64_Ehdr* eh = elf;
     if (base[0] != 0x7F || base[1] != 'E' || base[2] != 'L' || base[3] != 'F') {
         return;
     }
-    const Elf64_Shdr* sh = (const Elf64_Shdr*)(base + eh->e_shoff);
+    const struct Elf64_Shdr* sh =
+            (const struct Elf64_Shdr*)(base + eh->e_shoff);
     for (uint16_t i = 0; i < eh->e_shnum; i++) {
         if (sh[i].sh_type == SHT_SYMTAB) {
-            g_syms = (const Elf64_Sym*)(base + sh[i].sh_offset);
-            g_nsyms = sh[i].sh_size / sizeof(Elf64_Sym);
+            g_syms = (const struct Elf64_Sym*)(base + sh[i].sh_offset);
+            g_nsyms = sh[i].sh_size / sizeof(struct Elf64_Sym);
             g_strs = (const char*)(base + sh[sh[i].sh_link].sh_offset);
             return;
         }
@@ -62,9 +63,9 @@ const char* ksym_lookup(uint64_t addr, uint64_t* offset)
 {
     // The function symbol with the greatest value <= addr (that contains addr,
     // when a size is present).
-    const Elf64_Sym* best = NULL;
+    const struct Elf64_Sym* best = NULL;
     for (uint64_t i = 0; i < g_nsyms; i++) {
-        const Elf64_Sym* s = &g_syms[i];
+        const struct Elf64_Sym* s = &g_syms[i];
         if ((s->st_info & 0xF) != STT_FUNC || s->st_value == 0) {
             continue;
         }

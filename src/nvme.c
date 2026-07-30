@@ -126,7 +126,7 @@ struct nvme_id_ns {
 // flight at a time), addressed through its two doorbell registers. The ring
 // physical addresses live here too, so creating the queue needs no side
 // channel to hand them to the controller.
-typedef struct {
+struct nvme_queue {
     struct nvme_command* sq;             // submission ring (in a DMA frame)
     volatile struct nvme_completion* cq; // completion ring (in a DMA frame)
     uintptr_t sq_pa, cq_pa;              // ring physical addresses
@@ -137,7 +137,7 @@ typedef struct {
     uint16_t cq_head;
     uint16_t cid;
     uint8_t phase; // completion phase we currently expect (starts at 1)
-} nvme_queue;
+};
 
 static volatile uint8_t* regs; // iomap'd BAR0
 static uint32_t db_stride;     // doorbell stride in bytes (from CAP.DSTRD)
@@ -155,11 +155,12 @@ static struct {
     char model[41];
 } ns;
 
-static nvme_queue admin_q;
-static nvme_queue io_q;
+static struct nvme_queue admin_q;
+static struct nvme_queue io_q;
 
-static dma_buf bounce;   // one-page staging buffer (fallback path)
-static dma_buf prp_list; // one page of PRP entries for multi-page transfers
+static struct dma_buf bounce; // one-page staging buffer (fallback path)
+static struct dma_buf
+        prp_list; // one page of PRP entries for multi-page transfers
 
 // MSI-X interrupt state. When the controller advertises MSI-X, I/O completions
 // arrive as interrupts instead of being polled: the ISR drains the I/O CQ and
@@ -198,7 +199,7 @@ static volatile uint32_t* doorbell(uint32_t qid, int is_cq)
 
 // Submit `cmd` on `q` and busy-wait (bounded) for its completion. Returns the
 // status code (0 = success) or -1 on timeout.
-static int submit(nvme_queue* q, struct nvme_command* cmd)
+static int submit(struct nvme_queue* q, struct nvme_command* cmd)
 {
     cmd->cid = q->cid++;
     q->sq[q->sq_tail] = *cmd;
@@ -227,7 +228,7 @@ static int submit(nvme_queue* q, struct nvme_command* cmd)
 // MSI-X completion handler: drain every pending I/O completion, ring the CQ
 // head doorbell, and signal the waiting reader. Runs with interrupts off;
 // interrupt_dispatch EOIs the LAPIC after it returns (NVME_VECTOR is 32-47).
-static void nvme_irq(interrupt_frame* f)
+static void nvme_irq(struct interrupt_frame* f)
 {
     (void)f;
     volatile struct nvme_completion* c = &io_q.cq[io_q.cq_head];
@@ -281,7 +282,7 @@ static int submit_io(struct nvme_command* cmd)
 
 // Enable MSI-X delivery of I/O completions to NVME_VECTOR on this core.
 // Returns false (polled fallback) if the controller advertises no MSI-X.
-static bool msix_setup(pci_addr a)
+static bool msix_setup(struct pci_addr a)
 {
     if (!pci_msix_setup(a, NVME_VECTOR)) {
         return false;
@@ -304,10 +305,10 @@ static bool wait_ready(uint32_t want)
 }
 
 // Point `q` at freshly allocated SQ/CQ frames and its doorbells.
-static void queue_init(nvme_queue* q, uint32_t qid)
+static void queue_init(struct nvme_queue* q, uint32_t qid)
 {
-    dma_buf sq = dma_page_alloc();
-    dma_buf cq = dma_page_alloc();
+    struct dma_buf sq = dma_page_alloc();
+    struct dma_buf cq = dma_page_alloc();
     q->sq = sq.va;
     q->sq_pa = sq.pa;
     q->cq = cq.va;
@@ -323,9 +324,9 @@ static void queue_init(nvme_queue* q, uint32_t qid)
 
 // Run IDENTIFY (`cns`, `nsid`) into a DMA page; returns the page ({NULL, 0} on
 // failure). The caller frees it with dma_page_free() when done.
-static dma_buf identify(uint32_t cns, uint32_t nsid)
+static struct dma_buf identify(uint32_t cns, uint32_t nsid)
 {
-    dma_buf buf = dma_page_alloc();
+    struct dma_buf buf = dma_page_alloc();
     struct nvme_command cmd = {0};
     cmd.opcode = ADMIN_IDENTIFY;
     cmd.nsid = nsid;
@@ -333,7 +334,7 @@ static dma_buf identify(uint32_t cns, uint32_t nsid)
     cmd.cdw10 = cns;
     if (submit(&admin_q, &cmd) != 0) {
         dma_page_free(buf);
-        return (dma_buf){0};
+        return (struct dma_buf){0};
     }
     return buf;
 }
@@ -363,8 +364,8 @@ static bool create_io_queues(void)
 
 void nvme_init(void)
 {
-    pci_addr a = pci_find_class(PCI_CLASS_STORAGE, PCI_SUBCLASS_NVM,
-                                PCI_PROGIF_NVME);
+    struct pci_addr a = pci_find_class(PCI_CLASS_STORAGE, PCI_SUBCLASS_NVM,
+                                       PCI_PROGIF_NVME);
     if (!a.found) {
         return;
     }
@@ -400,7 +401,7 @@ void nvme_init(void)
     // IDENTIFY the controller for the model string and its transfer limit.
     uint8_t mdts;
     {
-        dma_buf id = identify(CNS_CONTROLLER, 0);
+        struct dma_buf id = identify(CNS_CONTROLLER, 0);
         if (id.va == NULL) {
             fail_reason = "IDENTIFY controller failed";
             goto fail;
@@ -417,7 +418,7 @@ void nvme_init(void)
 
     // IDENTIFY namespace 1 for its size and block size.
     {
-        dma_buf id = identify(CNS_NAMESPACE, 1);
+        struct dma_buf id = identify(CNS_NAMESPACE, 1);
         if (id.va == NULL) {
             fail_reason = "IDENTIFY namespace failed";
             goto fail;
@@ -600,9 +601,10 @@ static uint64_t nvme_bd_sectors(void)
 {
     return (ns.present && ns.block_size == 512) ? ns.blocks : 0;
 }
-static const blockdev nvme_dev = {nvme_read, nvme_write, nvme_bd_sectors};
+static const struct blockdev nvme_dev = {nvme_read, nvme_write,
+                                         nvme_bd_sectors};
 
-const blockdev* nvme_blockdev(void)
+const struct blockdev* nvme_blockdev(void)
 {
     return &nvme_dev;
 }

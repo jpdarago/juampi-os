@@ -61,8 +61,8 @@ struct bd {
 static struct {
     bool present;
     uint16_t nam, nabm; // I/O bases
-    dma_buf bdl;        // 32 buffer descriptors
-    dma_buf buf[BDL_ENTRIES];
+    struct dma_buf bdl; // 32 buffer descriptors
+    struct dma_buf buf[BDL_ENTRIES];
     uint8_t lvi; // mirror of PO_LVI (last committed period)
     bool running;
     const char* fail;
@@ -130,7 +130,7 @@ static void ac97_start(void)
 // Completion ISR: clear the status bits (INTx is level-triggered, so it stays
 // asserted until we do), then refill the ring. lapic_eoi is done by
 // interrupt_dispatch after this returns.
-static void ac97_irq(interrupt_frame* f)
+static void ac97_irq(struct interrupt_frame* f)
 {
     (void)f;
     uint16_t sr = inw((uint16_t)(ac.nabm + NABM_PO_SR));
@@ -206,7 +206,8 @@ static const char* ac97_fail_reason(void)
 
 static bool ac97_init(void)
 {
-    pci_addr a = pci_find_class(PCI_CLASS_MULTIMEDIA, PCI_SUBCLASS_AUDIO, 0x00);
+    struct pci_addr a =
+            pci_find_class(PCI_CLASS_MULTIMEDIA, PCI_SUBCLASS_AUDIO, 0x00);
     if (!a.found) {
         a = pci_find(0x8086, 0x2415); // QEMU AC97
     }
@@ -271,7 +272,7 @@ static bool ac97_init(void)
     return true;
 }
 
-const audio_output ac97_backend = {
+const struct audio_output ac97_backend = {
         .name = "ac97",
         .init = ac97_init,
         .period_frames = ac97_period_frames,

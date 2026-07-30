@@ -21,6 +21,7 @@
 //   -1 malformed/non-http URL   -2 DNS failure   -3 connect failure
 //   -4 no/unparseable response
 // Plaintext only; https:// (BearSSL) is a later round.
-int http_get(allocator* a, const char* url, char** out_body, int* out_len);
+int http_get(struct allocator* a, const char* url, char** out_body,
+             int* out_len);
 
 #endif

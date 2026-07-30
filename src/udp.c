@@ -10,12 +10,12 @@
 #include <ktime.h>
 #include <utils.h>
 
-typedef struct __attribute__((packed)) {
+struct udp_hdr {
     uint16_t sport;
     uint16_t dport;
     uint16_t len; // header + payload
     uint16_t csum;
-} udp_hdr;
+} __attribute__((packed));
 
 // --- UDP + sockets ----------------------------------------------------------
 
@@ -23,21 +23,21 @@ typedef struct __attribute__((packed)) {
 #define UDP_QUEUE 4
 #define UDP_MSG_MAX 1472 // max UDP payload for a non-fragmented IPv4/1500 frame
 
-typedef struct {
+struct udp_dgram {
     uint32_t src_ip;
     uint16_t src_port;
     uint16_t len;
     uint8_t data[UDP_MSG_MAX];
-} udp_dgram;
+};
 
-typedef struct {
+struct udp_socket {
     bool in_use;
     uint16_t local_port; // 0 = unbound
-    udp_dgram q[UDP_QUEUE];
+    struct udp_dgram q[UDP_QUEUE];
     uint8_t head, count; // ring of received datagrams
-} udp_socket;
+};
 
-static udp_socket udp_socks[UDP_SOCKETS];
+static struct udp_socket udp_socks[UDP_SOCKETS];
 
 // UDP checksum over the IPv4 pseudo-header + segment. A computed 0 is sent as
 // 0xFFFF, since 0 on the wire means "no checksum".
@@ -63,44 +63,44 @@ static uint16_t udp_checksum(uint32_t src_ip, uint32_t dst_ip, const void* seg,
 static bool udp_output(uint16_t sport, uint32_t dst_ip, uint16_t dport,
                        const void* data, uint16_t len)
 {
-    uint8_t seg[sizeof(udp_hdr) + UDP_MSG_MAX]; // stack-local: reentrant
+    uint8_t seg[sizeof(struct udp_hdr) + UDP_MSG_MAX]; // stack-local: reentrant
     if (len > UDP_MSG_MAX) {
         len = UDP_MSG_MAX;
     }
-    uint16_t seglen = (uint16_t)(sizeof(udp_hdr) + len);
-    udp_hdr* u = (udp_hdr*)seg;
+    uint16_t seglen = (uint16_t)(sizeof(struct udp_hdr) + len);
+    struct udp_hdr* u = (struct udp_hdr*)seg;
     u->sport = htons(sport);
     u->dport = htons(dport);
     u->len = htons(seglen);
     u->csum = 0;
-    memcpy(seg + sizeof(udp_hdr), data, len);
+    memcpy(seg + sizeof(struct udp_hdr), data, len);
     u->csum = udp_checksum(net_ip(), dst_ip, seg, seglen);
     return ip_send(dst_ip, IP_PROTO_UDP, seg, seglen);
 }
 
 void udp_input(uint32_t src_ip, const uint8_t* data, uint16_t len)
 {
-    if (len < sizeof(udp_hdr)) {
+    if (len < sizeof(struct udp_hdr)) {
         return;
     }
-    const udp_hdr* u = (const udp_hdr*)data;
+    const struct udp_hdr* u = (const struct udp_hdr*)data;
     uint16_t ulen = ntohs(u->len);
-    if (ulen < sizeof(udp_hdr) || ulen > len) {
+    if (ulen < sizeof(struct udp_hdr) || ulen > len) {
         return;
     }
     uint16_t dport = ntohs(u->dport);
-    uint16_t plen = (uint16_t)(ulen - sizeof(udp_hdr));
-    const uint8_t* payload = data + sizeof(udp_hdr);
+    uint16_t plen = (uint16_t)(ulen - sizeof(struct udp_hdr));
+    const uint8_t* payload = data + sizeof(struct udp_hdr);
 
     for (int i = 0; i < UDP_SOCKETS; i++) {
-        udp_socket* s = &udp_socks[i];
+        struct udp_socket* s = &udp_socks[i];
         if (!s->in_use || s->local_port != dport) {
             continue;
         }
         if (s->count >= UDP_QUEUE) {
             return; // queue full — drop (UDP is lossy by design)
         }
-        udp_dgram* d = &s->q[(s->head + s->count) % UDP_QUEUE];
+        struct udp_dgram* d = &s->q[(s->head + s->count) % UDP_QUEUE];
         d->src_ip = src_ip;
         d->src_port = ntohs(u->sport);
         d->len = plen > UDP_MSG_MAX ? UDP_MSG_MAX : plen;
@@ -183,8 +183,8 @@ int net_udp_recvfrom(int s, uint32_t timeout_ms, void* buf, uint16_t cap,
             return -1;
         }
     }
-    udp_socket* sk = &udp_socks[s];
-    udp_dgram* d = &sk->q[sk->head];
+    struct udp_socket* sk = &udp_socks[s];
+    struct udp_dgram* d = &sk->q[sk->head];
     uint16_t copy = d->len > cap ? cap : d->len;
     memcpy(buf, d->data, copy);
     if (src_ip) {

@@ -11,7 +11,7 @@
 #include <ktime.h>
 #include <utils.h>
 
-typedef struct __attribute__((packed)) {
+struct tcp_hdr {
     uint16_t sport;
     uint16_t dport;
     uint32_t seq;
@@ -21,7 +21,7 @@ typedef struct __attribute__((packed)) {
     uint16_t window;
     uint16_t csum;
     uint16_t urg;
-} tcp_hdr;
+} __attribute__((packed));
 
 #define TCP_FIN 0x01
 #define TCP_SYN 0x02
@@ -47,7 +47,7 @@ enum tcp_state {
     TCP_DONE      // connection finished or reset; recv drains, then closed
 };
 
-typedef struct {
+struct tcp_conn {
     bool in_use;
     enum tcp_state state;
     uint32_t peer_ip;
@@ -60,14 +60,14 @@ typedef struct {
     uint32_t rx_head, rx_len;
 
     // Single outstanding (retransmittable) segment — stop-and-wait.
-    uint8_t retx[sizeof(tcp_hdr) + TCP_MSS];
+    uint8_t retx[sizeof(struct tcp_hdr) + TCP_MSS];
     uint16_t retx_len;   // total segment length, 0 if nothing outstanding
     uint32_t retx_seq;   // seq the segment ends at (what an ACK must reach)
     uint64_t retx_at_ms; // last (re)send time
     int retx_tries;
-} tcp_conn;
+};
 
-static tcp_conn tcp_conns[TCP_CONNS];
+static struct tcp_conn tcp_conns[TCP_CONNS];
 
 static bool seq_lt(uint32_t a, uint32_t b)
 {
@@ -94,24 +94,25 @@ static uint16_t tcp_checksum(uint32_t src_ip, uint32_t dst_ip, const void* seg,
 
 // Build and send one segment. If it carries a SYN/FIN or data it is recorded as
 // the outstanding segment for retransmission (seq-consuming flags advance nxt).
-static bool tcp_emit(tcp_conn* c, uint8_t flags, const void* data, uint16_t len)
+static bool tcp_emit(struct tcp_conn* c, uint8_t flags, const void* data,
+                     uint16_t len)
 {
     if (len > TCP_MSS) {
         len = TCP_MSS;
     }
-    uint16_t seglen = (uint16_t)(sizeof(tcp_hdr) + len);
-    uint8_t seg[sizeof(tcp_hdr) + TCP_MSS];
-    tcp_hdr* t = (tcp_hdr*)seg;
-    memset(t, 0, sizeof(tcp_hdr));
+    uint16_t seglen = (uint16_t)(sizeof(struct tcp_hdr) + len);
+    uint8_t seg[sizeof(struct tcp_hdr) + TCP_MSS];
+    struct tcp_hdr* t = (struct tcp_hdr*)seg;
+    memset(t, 0, sizeof(struct tcp_hdr));
     t->sport = htons(c->local_port);
     t->dport = htons(c->peer_port);
     t->seq = htonl(c->snd_nxt);
     t->ack = htonl(c->rcv_nxt);
-    t->off = (uint8_t)((sizeof(tcp_hdr) / 4) << 4);
+    t->off = (uint8_t)((sizeof(struct tcp_hdr) / 4) << 4);
     t->flags = flags;
     t->window = htons((uint16_t)(TCP_RXBUF - c->rx_len));
     if (len) {
-        memcpy(seg + sizeof(tcp_hdr), data, len);
+        memcpy(seg + sizeof(struct tcp_hdr), data, len);
     }
     t->csum = tcp_checksum(net_ip(), c->peer_ip, seg, seglen);
 
@@ -131,26 +132,27 @@ static bool tcp_emit(tcp_conn* c, uint8_t flags, const void* data, uint16_t len)
 }
 
 // Bare ACK (carries no sequence space, never retransmitted).
-static void tcp_ack(tcp_conn* c)
+static void tcp_ack(struct tcp_conn* c)
 {
-    uint8_t seg[sizeof(tcp_hdr)];
-    tcp_hdr* t = (tcp_hdr*)seg;
-    memset(t, 0, sizeof(tcp_hdr));
+    uint8_t seg[sizeof(struct tcp_hdr)];
+    struct tcp_hdr* t = (struct tcp_hdr*)seg;
+    memset(t, 0, sizeof(struct tcp_hdr));
     t->sport = htons(c->local_port);
     t->dport = htons(c->peer_port);
     t->seq = htonl(c->snd_nxt);
     t->ack = htonl(c->rcv_nxt);
-    t->off = (uint8_t)((sizeof(tcp_hdr) / 4) << 4);
+    t->off = (uint8_t)((sizeof(struct tcp_hdr) / 4) << 4);
     t->flags = TCP_ACK;
     t->window = htons((uint16_t)(TCP_RXBUF - c->rx_len));
     t->csum = tcp_checksum(net_ip(), c->peer_ip, seg, sizeof(seg));
     ip_send(c->peer_ip, IP_PROTO_TCP, seg, sizeof(seg));
 }
 
-static tcp_conn* tcp_find(uint32_t src_ip, uint16_t sport, uint16_t dport)
+static struct tcp_conn* tcp_find(uint32_t src_ip, uint16_t sport,
+                                 uint16_t dport)
 {
     for (int i = 0; i < TCP_CONNS; i++) {
-        tcp_conn* c = &tcp_conns[i];
+        struct tcp_conn* c = &tcp_conns[i];
         if (c->in_use && c->peer_ip == src_ip && c->peer_port == sport &&
             c->local_port == dport) {
             return c;
@@ -161,12 +163,12 @@ static tcp_conn* tcp_find(uint32_t src_ip, uint16_t sport, uint16_t dport)
 
 void tcp_input(uint32_t src_ip, const uint8_t* data, uint16_t len)
 {
-    if (len < sizeof(tcp_hdr)) {
+    if (len < sizeof(struct tcp_hdr)) {
         return;
     }
-    const tcp_hdr* t = (const tcp_hdr*)data;
+    const struct tcp_hdr* t = (const struct tcp_hdr*)data;
     uint32_t hlen = (uint32_t)(t->off >> 4) * 4;
-    if (hlen < sizeof(tcp_hdr) || hlen > len) {
+    if (hlen < sizeof(struct tcp_hdr) || hlen > len) {
         return;
     }
     uint16_t sport = ntohs(t->sport), dport = ntohs(t->dport);
@@ -176,12 +178,12 @@ void tcp_input(uint32_t src_ip, const uint8_t* data, uint16_t len)
     const uint8_t* payload = data + hlen;
     uint16_t plen = (uint16_t)(len - hlen);
 
-    tcp_conn* c = tcp_find(src_ip, sport, dport);
+    struct tcp_conn* c = tcp_find(src_ip, sport, dport);
     if (!c) {
         // A SYN to a listening socket opens the connection (passive open).
         if (flags & TCP_SYN) {
             for (int i = 0; i < TCP_CONNS; i++) {
-                tcp_conn* l = &tcp_conns[i];
+                struct tcp_conn* l = &tcp_conns[i];
                 if (l->in_use && l->state == TCP_LISTEN &&
                     l->local_port == dport) {
                     l->peer_ip = src_ip;
@@ -256,7 +258,7 @@ void tcp_tick(void)
 {
     uint64_t now = ktime_ms();
     for (int i = 0; i < TCP_CONNS; i++) {
-        tcp_conn* c = &tcp_conns[i];
+        struct tcp_conn* c = &tcp_conns[i];
         if (!c->in_use || c->retx_len == 0) {
             continue;
         }
@@ -281,7 +283,7 @@ int net_tcp_connect(uint32_t dst_ip, uint16_t port, uint32_t timeout_ms)
     if (!net_ready()) {
         return -1;
     }
-    tcp_conn* c = NULL;
+    struct tcp_conn* c = NULL;
     int id = -1;
     for (int i = 0; i < TCP_CONNS; i++) {
         if (!tcp_conns[i].in_use) {
@@ -320,7 +322,7 @@ int net_tcp_listen(uint16_t port)
     }
     for (int i = 0; i < TCP_CONNS; i++) {
         if (!tcp_conns[i].in_use) {
-            tcp_conn* c = &tcp_conns[i];
+            struct tcp_conn* c = &tcp_conns[i];
             memset(c, 0, sizeof(*c));
             c->in_use = true;
             c->state = TCP_LISTEN;
@@ -336,7 +338,7 @@ int net_tcp_accept(int id, uint32_t timeout_ms)
     if (id < 0 || id >= TCP_CONNS || !tcp_conns[id].in_use) {
         return -1;
     }
-    tcp_conn* c = &tcp_conns[id];
+    struct tcp_conn* c = &tcp_conns[id];
     uint64_t deadline = ktime_ms() + timeout_ms;
     while (c->state != TCP_ESTABLISHED) {
         net_poll();
@@ -352,7 +354,7 @@ int net_tcp_send(int id, const void* data, uint32_t len)
     if (id < 0 || id >= TCP_CONNS || !tcp_conns[id].in_use) {
         return -1;
     }
-    tcp_conn* c = &tcp_conns[id];
+    struct tcp_conn* c = &tcp_conns[id];
     const uint8_t* p = data;
     uint32_t sent = 0;
     while (sent < len) {
@@ -381,7 +383,7 @@ int net_tcp_recv(int id, void* buf, uint32_t cap, uint32_t timeout_ms)
     if (id < 0 || id >= TCP_CONNS || !tcp_conns[id].in_use) {
         return -1;
     }
-    tcp_conn* c = &tcp_conns[id];
+    struct tcp_conn* c = &tcp_conns[id];
     uint64_t deadline = ktime_ms() + timeout_ms;
     while (c->rx_len == 0) {
         if (c->peer_fin || c->state == TCP_DONE) {
@@ -407,7 +409,7 @@ void net_tcp_close(int id)
     if (id < 0 || id >= TCP_CONNS || !tcp_conns[id].in_use) {
         return;
     }
-    tcp_conn* c = &tcp_conns[id];
+    struct tcp_conn* c = &tcp_conns[id];
     if (c->state == TCP_ESTABLISHED) {
         tcp_emit(c, TCP_FIN | TCP_ACK, NULL, 0);
         c->state = TCP_FIN_WAIT;

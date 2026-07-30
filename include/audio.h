@@ -19,7 +19,7 @@
 // A PCM output backend: a cyclic list of fixed-size period buffers the hardware
 // DMAs in a loop. The mixer fills free periods and commits them; the backend
 // keeps the play cursor moving. All PCM is signed-16 interleaved at AUDIO_RATE.
-typedef struct {
+struct audio_output {
     const char* name;
     bool (*init)(void);               // probe + bring up; false if absent
     uint32_t (*period_frames)(void);  // stereo frames per period buffer
@@ -35,7 +35,7 @@ typedef struct {
     void (*enable_irq)(void (*refill)(void));
     bool (*irq_driven)(void);    // true once interrupts are delivering
     uint64_t (*irq_count)(void); // completion interrupts taken
-} audio_output;
+};
 
 // Bring up audio: probe backends in order (HDA, then AC'97), start the DMA of
 // the first present. Safe to call with no device (audio_present() stays false).

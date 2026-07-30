@@ -12,19 +12,19 @@
 // browse files from Lua: superblock parse, inode lookup, path resolution,
 // whole-file reads, directory listing, and read-modify-write updates.
 
-typedef struct {
+struct ext2_stat {
     uint64_t size;
     uint32_t inode;
     uint16_t mode; // raw ext2 i_mode (type + permission bits)
     bool is_dir;
-} ext2_stat;
+};
 
 // Mount the filesystem on block device `dev`: read and validate the superblock.
 // `heap` is the fs's scratch/result allocator (injected here so the module
 // never calls heap_default()). Returns true on a valid ext2 fs. Safe to call
 // with a NULL or empty device (returns false); every other call then reports
 // "not mounted".
-bool ext2_mount(const blockdev* dev, heap_allocator* heap);
+bool ext2_mount(const struct blockdev* dev, struct heap_allocator* heap);
 bool ext2_mounted(void);
 
 // Read a whole regular file by path (leading '/' optional; resolved from the
@@ -36,7 +36,7 @@ void* ext2_read_path(const char* path, size_t* size);
 void ext2_free(void* p);
 
 // Fill *out for `path`. Returns false if the path does not resolve.
-bool ext2_stat_path(const char* path, ext2_stat* out);
+bool ext2_stat_path(const char* path, struct ext2_stat* out);
 
 // Enumerate the directory at `path`, calling emit() once per entry. `type` is
 // the ext2 dirent file-type code (1=regular, 2=directory, ...) or 0 when the

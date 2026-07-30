@@ -43,14 +43,14 @@ static const double SAMP[][2] = {{0.25, 0.25}, {0.75, 0.75}};
 #define LY 0.8017837257372732
 #define LZ 0.2672612419124244
 
-typedef struct {
+struct col {
     double r, g, b;
-} col;
+};
 
 // Trace one ray from (ex,ey,ez) along (dx,dy,dz); recurse for mirror
 // reflections and glass refraction.
-static col trace(double ex, double ey, double ez, double dx, double dy,
-                 double dz, int depth)
+static struct col trace(double ex, double ey, double ez, double dx, double dy,
+                        double dz, int depth)
 {
     double best = 1e30;
     double nx = 0, ny = 0, nz = 0, px = 0, py = 0, pz = 0;
@@ -96,7 +96,7 @@ static col trace(double ex, double ey, double ez, double dx, double dy,
 
     if (best > 1e29) { // sky gradient
         double t = 0.5 * (dy + 1);
-        col sky = {0.15 + 0.35 * t, 0.25 + 0.4 * t, 0.5 + 0.5 * t};
+        struct col sky = {0.15 + 0.35 * t, 0.25 + 0.4 * t, 0.5 + 0.5 * t};
         return sky;
     }
 
@@ -127,12 +127,13 @@ static col trace(double ex, double ey, double ez, double dx, double dy,
         r0 = r0 * r0;
         double om = 1 - cosi;
         double f = r0 + (1 - r0) * (om * om * om * om * om); // Schlick
-        col rc = trace(px + nx * 0.001, py + ny * 0.001, pz + nz * 0.001, rx,
-                       ry, rz, depth - 1);
-        col tc = trace(px - nx * 0.001, py - ny * 0.001, pz - nz * 0.001, tx,
-                       ty, tz, depth - 1);
-        col g = {rc.r * f + tc.r * (1 - f) * hr, rc.g * f + tc.g * (1 - f) * hg,
-                 rc.b * f + tc.b * (1 - f) * hb};
+        struct col rc = trace(px + nx * 0.001, py + ny * 0.001, pz + nz * 0.001,
+                              rx, ry, rz, depth - 1);
+        struct col tc = trace(px - nx * 0.001, py - ny * 0.001, pz - nz * 0.001,
+                              tx, ty, tz, depth - 1);
+        struct col g = {rc.r * f + tc.r * (1 - f) * hr,
+                        rc.g * f + tc.g * (1 - f) * hg,
+                        rc.b * f + tc.b * (1 - f) * hb};
         return g;
     }
 
@@ -156,7 +157,7 @@ static col trace(double ex, double ey, double ez, double dx, double dy,
         }
     }
     double sh = 0.15 + diff * 0.85 * shadow;
-    col out = {hr * sh, hg * sh, hb * sh};
+    struct col out = {hr * sh, hg * sh, hb * sh};
 
     // Phong specular highlight.
     if (spec > 0 && shadow > 0.5 && diff > 0) {
@@ -179,8 +180,8 @@ static col trace(double ex, double ey, double ez, double dx, double dy,
     if (refl > 0 && depth > 0) {
         double rk = 2 * (dx * nx + dy * ny + dz * nz);
         double rx = dx - rk * nx, ry = dy - rk * ny, rz = dz - rk * nz;
-        col rc = trace(px + nx * 0.001, py + ny * 0.001, pz + nz * 0.001, rx,
-                       ry, rz, depth - 1);
+        struct col rc = trace(px + nx * 0.001, py + ny * 0.001, pz + nz * 0.001,
+                              rx, ry, rz, depth - 1);
         out.r = out.r * (1 - refl) + rc.r * refl;
         out.g = out.g * (1 - refl) + rc.g * refl;
         out.b = out.b * (1 - refl) + rc.b * refl;
@@ -188,17 +189,17 @@ static col trace(double ex, double ey, double ez, double dx, double dy,
     return out;
 }
 
-typedef struct {
+struct band {
     unsigned* fb; // framebuffer base (32bpp)
     unsigned W, H, pxpitch;
     unsigned rs, gs, bs;
     unsigned cpu, nc;
-} band;
+};
 
 // Render this core's horizontal band straight into the framebuffer.
 static void render_band(void* p)
 {
-    band* bd = (band*)p;
+    struct band* bd = (struct band*)p;
     unsigned W = bd->W, H = bd->H, pxpitch = bd->pxpitch;
     unsigned rs = bd->rs, gs = bd->gs, bs = bd->bs;
     unsigned* fb = bd->fb;
@@ -217,7 +218,7 @@ static void render_band(void* p)
                 double dx = sx, dy = sy, dz = -1.0;
                 double dl = dsqrt(dx * dx + dy * dy + dz * dz);
                 dx /= dl, dy /= dl, dz /= dl;
-                col c = trace(ox, oy, oz, dx, dy, dz, MAXDEPTH);
+                struct col c = trace(ox, oy, oz, dx, dy, dz, MAXDEPTH);
                 cr += c.r, cg += c.g, cb += c.b;
             }
             cr *= inv, cg *= inv, cb *= inv;
@@ -237,7 +238,7 @@ static void render_band(void* p)
     }
 }
 
-static void print_uint(const lab_api* api, unsigned long v)
+static void print_uint(const struct lab_api* api, unsigned long v)
 {
     if (v == 0) {
         api->print("0");
@@ -257,7 +258,7 @@ static void print_uint(const lab_api* api, unsigned long v)
     api->print(out);
 }
 
-long bench(const lab_api* api, long arg)
+long bench(const struct lab_api* api, long arg)
 {
     (void)arg;
     void* base = api->fb ? api->fb() : (void*)0;
@@ -274,7 +275,7 @@ long bench(const lab_api* api, long arg)
     if (nc > 64)
         nc = 64;
 
-    band bands[64];
+    struct band bands[64];
     for (unsigned i = 0; i < nc; i++) {
         bands[i].fb = (unsigned*)base;
         bands[i].W = W, bands[i].H = H, bands[i].pxpitch = pxpitch;

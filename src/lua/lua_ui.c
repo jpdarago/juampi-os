@@ -387,10 +387,10 @@ static int l_fullscreen(lua_State* L)
 // cv:mem() (raw, for thread.parallel), then cv:show() inside a window build fn.
 
 #define CANVAS_MT "juampi.canvas"
-typedef struct {
+struct LuaCanvas {
     uint32_t* buf;
     int w, h;
-} LuaCanvas;
+};
 
 static int l_canvas(lua_State* L)
 {
@@ -399,7 +399,7 @@ static int l_canvas(lua_State* L)
     if (w < 1 || h < 1 || w > 4096 || h > 4096) {
         return luaL_error(L, "ui.canvas: bad size");
     }
-    LuaCanvas* cv = (LuaCanvas*)lua_newuserdatauv(L, sizeof(LuaCanvas), 0);
+    struct LuaCanvas* cv = (struct LuaCanvas*)lua_newuserdatauv(L, sizeof(struct LuaCanvas), 0);
     cv->w = w;
     cv->h = h;
     cv->buf = new (&ui_root_heap()->base, uint32_t, (ptrdiff_t)w * h);
@@ -407,14 +407,14 @@ static int l_canvas(lua_State* L)
     return 1;
 }
 
-static LuaCanvas* check_canvas(lua_State* L)
+static struct LuaCanvas* check_canvas(lua_State* L)
 {
-    return (LuaCanvas*)luaL_checkudata(L, 1, CANVAS_MT);
+    return (struct LuaCanvas*)luaL_checkudata(L, 1, CANVAS_MT);
 }
 
 static int l_canvas_gc(lua_State* L)
 {
-    LuaCanvas* cv = (LuaCanvas*)luaL_checkudata(L, 1, CANVAS_MT);
+    struct LuaCanvas* cv = (struct LuaCanvas*)luaL_checkudata(L, 1, CANVAS_MT);
     if (cv->buf != NULL) {
         heap_free(ui_root_heap(), cv->buf);
         cv->buf = NULL;
@@ -425,7 +425,7 @@ static int l_canvas_gc(lua_State* L)
 // cv:mem() -> memview, pitch, rshift, gshift, bshift (for raw/parallel drawing).
 static int l_canvas_mem(lua_State* L)
 {
-    LuaCanvas* cv = check_canvas(L);
+    struct LuaCanvas* cv = check_canvas(L);
     mem_push_view(L, cv->buf, (size_t)cv->w * (size_t)cv->h * 4);
     lua_pushinteger(L, cv->w * 4);
     uint8_t rs, gs, bs;
@@ -440,9 +440,9 @@ static int l_canvas_mem(lua_State* L)
 // surface (restored to the screen afterwards, even on error).
 static int l_canvas_draw(lua_State* L)
 {
-    LuaCanvas* cv = check_canvas(L);
+    struct LuaCanvas* cv = check_canvas(L);
     luaL_checktype(L, 2, LUA_TFUNCTION);
-    gfx_surface cs = gfx_surface_make(cv->buf, (uint64_t)cv->w, (uint64_t)cv->h);
+    struct gfx_surface cs = gfx_surface_make(cv->buf, (uint64_t)cv->w, (uint64_t)cv->h);
     lua_fb_target(&cs);
     lua_pushvalue(L, 2);
     int st = lua_pcall(L, 0, 0, 0);
@@ -456,7 +456,7 @@ static int l_canvas_draw(lua_State* L)
 // cv:show() — blit the canvas into the current window body (build fn only).
 static int l_canvas_show(lua_State* L)
 {
-    LuaCanvas* cv = check_canvas(L);
+    struct LuaCanvas* cv = check_canvas(L);
     mu_Context* ctx = ui_current();
     if (ctx == NULL) {
         return luaL_error(L, "cv:show() called outside a window");
@@ -478,12 +478,12 @@ static const luaL_Reg canvas_methods[] = {
 // reports edits; tb:text()/tb:set() read and write the string.
 
 #define TEXTBOX_MT "juampi.textbox"
-typedef struct {
+struct LuaTextbox {
     char* buf;
     int cap;
-} LuaTextbox;
+};
 
-static void tb_copy(LuaTextbox* tb, const char* s)
+static void tb_copy(struct LuaTextbox* tb, const char* s)
 {
     int i = 0;
     for (; s[i] != '\0' && i < tb->cap - 1; i++) {
@@ -502,7 +502,7 @@ static int l_textbox(lua_State* L)
         cap = 4096;
     }
     const char* init = luaL_optstring(L, 2, "");
-    LuaTextbox* tb = (LuaTextbox*)lua_newuserdatauv(L, sizeof(LuaTextbox), 0);
+    struct LuaTextbox* tb = (struct LuaTextbox*)lua_newuserdatauv(L, sizeof(struct LuaTextbox), 0);
     tb->cap = cap;
     tb->buf = new (&ui_root_heap()->base, char, cap);
     tb_copy(tb, init);
@@ -510,14 +510,14 @@ static int l_textbox(lua_State* L)
     return 1;
 }
 
-static LuaTextbox* check_textbox(lua_State* L)
+static struct LuaTextbox* check_textbox(lua_State* L)
 {
-    return (LuaTextbox*)luaL_checkudata(L, 1, TEXTBOX_MT);
+    return (struct LuaTextbox*)luaL_checkudata(L, 1, TEXTBOX_MT);
 }
 
 static int l_textbox_gc(lua_State* L)
 {
-    LuaTextbox* tb = (LuaTextbox*)luaL_checkudata(L, 1, TEXTBOX_MT);
+    struct LuaTextbox* tb = (struct LuaTextbox*)luaL_checkudata(L, 1, TEXTBOX_MT);
     if (tb->buf != NULL) {
         heap_free(ui_root_heap(), tb->buf);
         tb->buf = NULL;
@@ -529,7 +529,7 @@ static int l_textbox_gc(lua_State* L)
 // frame; call it inside a window build function.
 static int l_textbox_show(lua_State* L)
 {
-    LuaTextbox* tb = check_textbox(L);
+    struct LuaTextbox* tb = check_textbox(L);
     int res = mu_textbox(need_ctx(L), tb->buf, tb->cap);
     if (res & MU_RES_SUBMIT) {
         lua_pushstring(L, "submit");
@@ -549,7 +549,7 @@ static int l_textbox_text(lua_State* L)
 
 static int l_textbox_set(lua_State* L)
 {
-    LuaTextbox* tb = check_textbox(L);
+    struct LuaTextbox* tb = check_textbox(L);
     tb_copy(tb, luaL_checkstring(L, 2));
     return 0;
 }
@@ -563,7 +563,7 @@ static const luaL_Reg textbox_methods[] = {
 
 #define BUILDFN {"fn", "function", "build callback, called each frame"}
 
-static const lua_fndoc uilib[] = {
+static const struct lua_fndoc uilib[] = {
         {"window", l_window,
          "Open a modal window; runs fn each frame until closed.",
          .args = {{"title", "string", "window title"}, BUILDFN},

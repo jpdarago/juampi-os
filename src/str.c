@@ -2,13 +2,13 @@
 
 #include <str.h>
 
-str str_from(const char* s)
+struct str str_from(const char* s)
 {
     size_t n = 0;
     while (s[n]) {
         n++;
     }
-    return (str){s, n};
+    return (struct str){s, n};
 }
 
 char to_lower(char c)
@@ -21,7 +21,7 @@ char to_upper(char c)
     return (c >= 'a' && c <= 'z') ? (char)(c - 32) : c;
 }
 
-bool str_eq(str a, str b)
+bool str_eq(struct str a, struct str b)
 {
     if (a.len != b.len) {
         return false;
@@ -34,7 +34,7 @@ bool str_eq(str a, str b)
     return true;
 }
 
-bool str_eq_ci(str a, str b)
+bool str_eq_ci(struct str a, struct str b)
 {
     if (a.len != b.len) {
         return false;
@@ -47,7 +47,7 @@ bool str_eq_ci(str a, str b)
     return true;
 }
 
-bool str_has_prefix(str s, str prefix)
+bool str_has_prefix(struct str s, struct str prefix)
 {
     if (s.len < prefix.len) {
         return false;
@@ -60,7 +60,7 @@ bool str_has_prefix(str s, str prefix)
     return true;
 }
 
-bool str_has_suffix(str s, str suffix)
+bool str_has_suffix(struct str s, struct str suffix)
 {
     if (s.len < suffix.len) {
         return false;
@@ -74,7 +74,7 @@ bool str_has_suffix(str s, str suffix)
     return true;
 }
 
-str str_trim_prefix(str s, str prefix)
+struct str str_trim_prefix(struct str s, struct str prefix)
 {
     if (str_has_prefix(s, prefix)) {
         s.data += prefix.len;
@@ -83,7 +83,7 @@ str str_trim_prefix(str s, str prefix)
     return s;
 }
 
-str str_trim_suffix(str s, str suffix)
+struct str str_trim_suffix(struct str s, struct str suffix)
 {
     if (str_has_suffix(s, suffix)) {
         s.len -= suffix.len;
@@ -91,7 +91,8 @@ str str_trim_suffix(str s, str suffix)
     return s;
 }
 
-bool str_cut(str s, str sep, str* before, str* after)
+bool str_cut(struct str s, struct str sep, struct str* before,
+             struct str* after)
 {
     // Empty separator: match at the front (before = "", after = s), like Go.
     if (sep.len != 0 && s.len >= sep.len) {
@@ -132,7 +133,7 @@ bool str_cut(str s, str sep, str* before, str* after)
     return false;
 }
 
-bool str_cut_ch(str s, char sep, str* before, str* after)
+bool str_cut_ch(struct str s, char sep, struct str* before, struct str* after)
 {
     for (size_t i = 0; i < s.len; i++) {
         if (s.data[i] == sep) {
@@ -154,7 +155,7 @@ bool str_cut_ch(str s, char sep, str* before, str* after)
     return false;
 }
 
-bool str_to_u32(str s, uint32_t* out)
+bool str_to_u32(struct str s, uint32_t* out)
 {
     if (s.len == 0) {
         return false;
@@ -171,7 +172,7 @@ bool str_to_u32(str s, uint32_t* out)
     return true;
 }
 
-size_t str_copy(char* dst, size_t cap, str s)
+size_t str_copy(char* dst, size_t cap, struct str s)
 {
     if (cap == 0) {
         return 0;

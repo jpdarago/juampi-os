@@ -188,7 +188,7 @@ static int l_usb_write(lua_State* L)
                      "disk.usb_write");
 }
 
-static const lua_fndoc disklib[] = {
+static const struct lua_fndoc disklib[] = {
         {"present", l_present, "Whether an ATA data disk is attached.",
          .rets = {{"ok", "boolean", "true if a disk is present"}}},
         {"sectors", l_sectors, "Number of 512-byte sectors on the disk.",

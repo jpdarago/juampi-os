@@ -37,12 +37,12 @@ static const int qoa_dequant_tab[16][8] = {
         {1536, -1536, 5120, -5120, 9216, -9216, 14336, -14336},
 };
 
-typedef struct {
+struct qoa_lms {
     int history[QOA_LMS_LEN];
     int weights[QOA_LMS_LEN];
-} qoa_lms;
+};
 
-static int lms_predict(const qoa_lms* l)
+static int lms_predict(const struct qoa_lms* l)
 {
     long p = 0;
     for (int i = 0; i < QOA_LMS_LEN; i++) {
@@ -51,7 +51,7 @@ static int lms_predict(const qoa_lms* l)
     return (int)(p >> 13);
 }
 
-static void lms_update(qoa_lms* l, int sample, int residual)
+static void lms_update(struct qoa_lms* l, int sample, int residual)
 {
     int delta = residual >> 4;
     for (int i = 0; i < QOA_LMS_LEN; i++) {
@@ -81,8 +81,8 @@ static int16_t be16(const uint8_t* p)
     return (int16_t)(((uint16_t)p[0] << 8) | p[1]);
 }
 
-int16_t* qoa_decode(allocator* mem, const void* data, size_t size,
-                    qoa_desc* desc)
+int16_t* qoa_decode(struct allocator* mem, const void* data, size_t size,
+                    struct qoa_desc* desc)
 {
     const uint8_t* p = data;
     if (size < 16 || p[0] != 'q' || p[1] != 'o' || p[2] != 'a' || p[3] != 'f') {
@@ -110,7 +110,7 @@ int16_t* qoa_decode(allocator* mem, const void* data, size_t size,
     }
     int16_t* out = alloc(mem, 2, 2, (ptrdiff_t)nsamp);
 
-    qoa_lms lms[QOA_MAX_CHANNELS];
+    struct qoa_lms lms[QOA_MAX_CHANNELS];
     uint32_t done = 0; // samples per channel decoded so far
     while (done < total && pos + 8 <= size) {
         fh = be64(p + pos);

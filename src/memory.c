@@ -14,7 +14,7 @@
 // length. `next` links a slab into either its class partial list or the
 // free-run list.
 struct slab {
-    slab* next;
+    struct slab* next;
     void* free_list;     // intra-slab free blocks (small slabs)
     uint32_t class_idx;  // size-class index, or LARGE_CLASS
     uint32_t free_count; // free blocks in this slab (small)
@@ -38,32 +38,32 @@ static uint32_t size_to_class(ptrdiff_t n)
     return LARGE_CLASS;
 }
 
-static slab* slab_of(heap_allocator* h, void* p)
+static struct slab* slab_of(struct heap_allocator* h, void* p)
 {
     uintptr_t off = (uintptr_t)p - (uintptr_t)h->base_addr;
     return &h->descs[off >> SLAB_SHIFT];
 }
 
-static void* slab_base(heap_allocator* h, slab* s)
+static void* slab_base(struct heap_allocator* h, struct slab* s)
 {
     return h->base_addr + (size_t)(s - h->descs) * SLAB_SIZE;
 }
 
 // Reserve `n` contiguous fresh slabs from the bump region.
-static slab* carve(heap_allocator* h, uint32_t n)
+static struct slab* carve(struct heap_allocator* h, uint32_t n)
 {
     if (h->bump + (size_t)n * SLAB_SIZE > h->end) {
         kernel_panic("Kernel heap out of memory");
     }
-    slab* s = slab_of(h, h->bump);
+    struct slab* s = slab_of(h, h->bump);
     h->bump += (size_t)n * SLAB_SIZE;
     return s;
 }
 
-static void* alloc_small(heap_allocator* h, ptrdiff_t n)
+static void* alloc_small(struct heap_allocator* h, ptrdiff_t n)
 {
     uint32_t c = size_to_class(n);
-    slab* s = h->partial[c];
+    struct slab* s = h->partial[c];
     if (s == NULL) {
         // No slab of this class has a free block: carve a fresh one and thread
         // all its blocks onto its free list.
@@ -95,7 +95,7 @@ static void* alloc_small(heap_allocator* h, ptrdiff_t n)
     return memset(blk, 0, n);
 }
 
-static void free_small(heap_allocator* h, slab* s, void* p)
+static void free_small(struct heap_allocator* h, struct slab* s, void* p)
 {
     bool was_full = (s->free_count == 0);
     *(void**)p = s->free_list;
@@ -107,19 +107,19 @@ static void free_small(heap_allocator* h, slab* s, void* p)
     }
 }
 
-static void* alloc_large(heap_allocator* h, ptrdiff_t total)
+static void* alloc_large(struct heap_allocator* h, ptrdiff_t total)
 {
     uint32_t n = (uint32_t)(((size_t)total + SLAB_SIZE - 1) / SLAB_SIZE);
 
     // First fit over the free-run list, splitting a larger run if found.
-    for (slab** pp = &h->free_runs; *pp != NULL; pp = &(*pp)->next) {
-        slab* r = *pp;
+    for (struct slab** pp = &h->free_runs; *pp != NULL; pp = &(*pp)->next) {
+        struct slab* r = *pp;
         if (r->nslabs < n) {
             continue;
         }
         *pp = r->next;
         if (r->nslabs > n) {
-            slab* rem = r + n;
+            struct slab* rem = r + n;
             rem->nslabs = r->nslabs - n;
             rem->class_idx = LARGE_CLASS;
             rem->next = h->free_runs;
@@ -130,16 +130,16 @@ static void* alloc_large(heap_allocator* h, ptrdiff_t total)
         return memset(slab_base(h, r), 0, total);
     }
 
-    slab* s = carve(h, n);
+    struct slab* s = carve(h, n);
     s->class_idx = LARGE_CLASS;
     s->nslabs = n;
     return memset(slab_base(h, s), 0, total);
 }
 
-static void* heap_alloc(allocator* a, ptrdiff_t size, ptrdiff_t align,
+static void* heap_alloc(struct allocator* a, ptrdiff_t size, ptrdiff_t align,
                         ptrdiff_t count)
 {
-    heap_allocator* h = (heap_allocator*)a;
+    struct heap_allocator* h = (struct heap_allocator*)a;
     if (align > 16) {
         // Everything the heap returns is 16-aligned; larger alignment (whole
         // pages) belongs to the frame allocator.
@@ -155,17 +155,17 @@ static void* heap_alloc(allocator* a, ptrdiff_t size, ptrdiff_t align,
     return total <= MAX_SMALL ? alloc_small(h, total) : alloc_large(h, total);
 }
 
-heap_allocator heap_init(void* beg, ptrdiff_t size)
+struct heap_allocator heap_init(void* beg, ptrdiff_t size)
 {
-    heap_allocator h;
+    struct heap_allocator h;
     h.base.alloc = heap_alloc;
 
     // Lay the descriptor array (one entry per potential slab) at the front of
     // the region, then start the slabs at the next 64 KiB boundary.
     uintptr_t start = (uintptr_t)beg;
     uint32_t max_slabs = (uint32_t)((size_t)size / SLAB_SIZE);
-    h.descs = (slab*)beg;
-    uintptr_t after = start + (uintptr_t)max_slabs * sizeof(slab);
+    h.descs = (struct slab*)beg;
+    uintptr_t after = start + (uintptr_t)max_slabs * sizeof(struct slab);
     uintptr_t base = (after + SLAB_SIZE - 1) & ~(uintptr_t)(SLAB_SIZE - 1);
 
     h.base_addr = (char*)base;
@@ -178,12 +178,12 @@ heap_allocator heap_init(void* beg, ptrdiff_t size)
     return h;
 }
 
-void heap_free(heap_allocator* h, void* p)
+void heap_free(struct heap_allocator* h, void* p)
 {
     if (p == NULL) {
         return;
     }
-    slab* s = slab_of(h, p);
+    struct slab* s = slab_of(h, p);
     if (s->class_idx == LARGE_CLASS) {
         s->next = h->free_runs; // add the run back to the free-run list
         h->free_runs = s;
@@ -192,21 +192,21 @@ void heap_free(heap_allocator* h, void* p)
     }
 }
 
-size_t heap_usable_size(heap_allocator* h, void* p)
+size_t heap_usable_size(struct heap_allocator* h, void* p)
 {
-    slab* s = slab_of(h, p);
+    struct slab* s = slab_of(h, p);
     if (s->class_idx == LARGE_CLASS) {
         return (size_t)s->nslabs * SLAB_SIZE;
     }
     return class_size[s->class_idx];
 }
 
-static heap_allocator* g_default_heap;
-void heap_set_default(heap_allocator* h)
+static struct heap_allocator* g_default_heap;
+void heap_set_default(struct heap_allocator* h)
 {
     g_default_heap = h;
 }
-heap_allocator* heap_default(void)
+struct heap_allocator* heap_default(void)
 {
     return g_default_heap;
 }

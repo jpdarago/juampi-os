@@ -33,7 +33,7 @@
 #define DHCP_FIXED 236 // op..file, before the magic cookie
 
 // Fixed head of a BOOTP/DHCP message (options follow the magic cookie at 236).
-typedef struct __attribute__((packed)) {
+struct dhcp_hdr {
     uint8_t op, htype, hlen, hops;
     uint32_t xid;
     uint16_t secs, flags;
@@ -41,11 +41,11 @@ typedef struct __attribute__((packed)) {
     uint8_t chaddr[16];
     uint8_t sname[64];
     uint8_t file[128];
-} dhcp_hdr;
+} __attribute__((packed));
 
-typedef struct __attribute__((packed)) {
+struct udp_hdr_t {
     uint16_t sport, dport, len, csum;
-} udp_hdr_t;
+} __attribute__((packed));
 
 static uint32_t g_dns; // DNS server learned from the lease (host order)
 
@@ -74,10 +74,10 @@ static uint32_t get32(const uint8_t* p) // network -> host
 static int build(uint8_t* buf, uint32_t xid, uint8_t type, uint32_t req_ip,
                  uint32_t server_id, const uint8_t mac[6])
 {
-    udp_hdr_t* u = (udp_hdr_t*)buf;
-    uint8_t* msg = buf + sizeof(udp_hdr_t);
+    struct udp_hdr_t* u = (struct udp_hdr_t*)buf;
+    uint8_t* msg = buf + sizeof(struct udp_hdr_t);
     memset(msg, 0, DHCP_FIXED);
-    dhcp_hdr* d = (dhcp_hdr*)msg;
+    struct dhcp_hdr* d = (struct dhcp_hdr*)msg;
     d->op = BOOTREQUEST;
     d->htype = 1;
     d->hlen = 6;
@@ -109,7 +109,7 @@ static int build(uint8_t* buf, uint32_t xid, uint8_t type, uint32_t req_ip,
     *o++ = OPT_END;
 
     uint16_t msglen = (uint16_t)(o - msg);
-    uint16_t udplen = (uint16_t)(sizeof(udp_hdr_t) + msglen);
+    uint16_t udplen = (uint16_t)(sizeof(struct udp_hdr_t) + msglen);
     u->sport = htons(DHCP_CLIENT_PORT);
     u->dport = htons(DHCP_SERVER_PORT);
     u->len = htons(udplen);
@@ -118,17 +118,17 @@ static int build(uint8_t* buf, uint32_t xid, uint8_t type, uint32_t req_ip,
 }
 
 // The address configuration a reply carries (0 for options the server omits).
-typedef struct {
+struct dhcp_lease {
     uint32_t ip;         // yiaddr — offered/leased address
     uint32_t mask;       // option 1  — subnet mask
     uint32_t gateway_ip; // option 3  — router
     uint32_t dns_ip;     // option 6  — first DNS server
     uint32_t server_ip;  // option 54 — DHCP server identifier
-} dhcp_lease;
+};
 
 // One DISCOVER/REQUEST round: the socket/identity context plus what to send and
 // which reply type to accept.
-typedef struct {
+struct dhcp_req {
     int sock;
     const uint8_t* mac;
     uint32_t xid;
@@ -137,17 +137,17 @@ typedef struct {
     uint8_t want;       // reply type to accept (OFFER / ACK)
     uint32_t req_ip;    // option 50 (REQUEST only)
     uint32_t server_ip; // option 54 (REQUEST only)
-} dhcp_req;
+};
 
 // Parse a reply; require op==BOOTREPLY, matching xid, and option 53 == `want`.
 // Fills `out` with the offered address and any options present.
 static bool parse(const uint8_t* d, int len, uint32_t xid, uint8_t want,
-                  dhcp_lease* out)
+                  struct dhcp_lease* out)
 {
     if (len < DHCP_FIXED + 4) {
         return false;
     }
-    const dhcp_hdr* m = (const dhcp_hdr*)d;
+    const struct dhcp_hdr* m = (const struct dhcp_hdr*)d;
     if (m->op != BOOTREPLY || ntohl(m->xid) != xid) {
         return false;
     }
@@ -190,7 +190,7 @@ static bool parse(const uint8_t* d, int len, uint32_t xid, uint8_t want,
 
 // Send `req->type` (broadcast, src 0.0.0.0) and wait up to `req->slot_ms` for a
 // matching reply. Returns true and fills `*out` on success.
-static bool exchange(const dhcp_req* req, dhcp_lease* out)
+static bool exchange(const struct dhcp_req* req, struct dhcp_lease* out)
 {
     for (int attempt = 0; attempt < 3; attempt++) {
         uint8_t buf[600];
@@ -227,7 +227,7 @@ bool net_dhcp(uint32_t timeout_ms)
         return false;
     }
 
-    dhcp_req req = {
+    struct dhcp_req req = {
             .sock = sock,
             .mac = mac,
             .xid = xid,
@@ -235,7 +235,7 @@ bool net_dhcp(uint32_t timeout_ms)
             .type = DHCP_DISCOVER,
             .want = DHCP_OFFER,
     };
-    dhcp_lease lease = {0};
+    struct dhcp_lease lease = {0};
     bool ok = exchange(&req, &lease);
     if (ok) {
         // Confirm the offer with a REQUEST; the ACK's options win where
@@ -244,7 +244,7 @@ bool net_dhcp(uint32_t timeout_ms)
         req.want = DHCP_ACK;
         req.req_ip = lease.ip;
         req.server_ip = lease.server_ip;
-        dhcp_lease ack = {0};
+        struct dhcp_lease ack = {0};
         ok = exchange(&req, &ack);
         if (ok) {
             lease.ip = ack.ip;

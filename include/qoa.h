@@ -12,17 +12,17 @@
 // which suits a kernel: we can play sound assets without a heavyweight codec.
 // (Table + LMS verified byte-for-byte against ffmpeg's independent decoder.)
 
-typedef struct {
+struct qoa_desc {
     uint32_t channels;
     uint32_t samplerate;
     uint32_t samples; // per channel
-} qoa_desc;
+};
 
 // Decode `size` bytes of QOA into a freshly allocated array of
 // samples*channels interleaved signed-16 PCM values, from `mem` (the caller
 // frees with heap_free). Fills `*desc` and returns the samples, or NULL if the
 // data is not a valid QOA stream.
-int16_t* qoa_decode(allocator* mem, const void* data, size_t size,
-                    qoa_desc* desc);
+int16_t* qoa_decode(struct allocator* mem, const void* data, size_t size,
+                    struct qoa_desc* desc);
 
 #endif

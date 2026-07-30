@@ -20,7 +20,7 @@ static int l_get(lua_State* L)
     // ever runs off the BSP. Freed once the body is copied into a Lua string.
     ptrdiff_t sz = HTTP_RECV_MAX + 128 * 1024;
     void* mem = alloc(&heap_default()->base, sz, 16, 1);
-    arena scratch = arena_init(mem, sz);
+    struct arena scratch = arena_init(mem, sz);
 
     char* body = NULL;
     int blen = 0;
@@ -52,7 +52,7 @@ static int l_get(lua_State* L)
     return 2;
 }
 
-static const lua_fndoc httplib[] = {
+static const struct lua_fndoc httplib[] = {
         {"get", l_get, "Fetch a URL over HTTP/1.1.",
          .args = {{"url", "string", "http:// URL"}},
          .rets = {{"status", "number?", "HTTP status code, or nil on error"},

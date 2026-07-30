@@ -20,24 +20,24 @@
 // One work item handed to a core: run fn(arg) and report completion.
 enum { CPU_MBOX_IDLE = 0, CPU_MBOX_PENDING, CPU_MBOX_DONE };
 
-typedef struct cpu {
+struct cpu {
     struct cpu* self; // first field: read back via %gs:0 (smp_this_cpu)
     uint32_t index;   // 0..count-1 (0 is the BSP)
     uint32_t lapic_id;
     uint64_t gdt[7];     // this core's GDT (the BSP keeps its boot GDT instead)
-    tss64 tss;           // this core's TSS
+    struct tss64 tss;    // this core's TSS
     uint64_t kstack_top; // interrupt stack (tss.rsp0) for this core
     // Work mailbox, polled by the AP's dispatch loop.
     void (*fn)(void* arg);
     void* arg;
     volatile int mbox;  // CPU_MBOX_*
     volatile int ready; // set by an AP once it has finished coming up
-} cpu;
+};
 
 // Start the APs and wait for them to come online. `mem` backs the per-CPU
 // array (allocated while the heap is still single-threaded). Safe on a
 // uniprocessor / when Limine reports no MP response (records one core).
-void smp_init(allocator* mem);
+void smp_init(struct allocator* mem);
 
 uint64_t smp_cpu_count(void);   // number of cores enumerated (>= 1)
 uint32_t smp_bsp_index(void);   // index of the bootstrap processor

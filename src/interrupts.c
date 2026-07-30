@@ -44,7 +44,7 @@ void register_interrupt_handler(uint32_t vector, interrupt_handler h)
 
 // Run every handler registered for this vector; returns true if at least one
 // ran. On a shared line the handlers whose device didn't fire are no-ops.
-static bool run_handlers(interrupt_frame* f)
+static bool run_handlers(struct interrupt_frame* f)
 {
     bool ran = false;
     for (int i = 0; i < VEC_HANDLERS; i++) {
@@ -61,13 +61,13 @@ uint64_t timer_ticks(void)
     return ticks;
 }
 
-static void timer_handler(interrupt_frame* f)
+static void timer_handler(struct interrupt_frame* f)
 {
     (void)f;
     ticks++;
 }
 
-static void spurious_handler(interrupt_frame* f)
+static void spurious_handler(struct interrupt_frame* f)
 {
     (void)f; // a LAPIC spurious interrupt: nothing to do, and no EOI
 }
@@ -103,7 +103,7 @@ static void pic_disable(void)
 // Unhandled CPU exception. If the shell has armed fault recovery (it is
 // evaluating a script), unwind back to the prompt; otherwise this is a kernel
 // bug — dump the frame with a backtrace and halt.
-static void exception_panic(interrupt_frame* f)
+static void exception_panic(struct interrupt_frame* f)
 {
     if (fault_recover(f)) {
         return; // (unreachable — fault_recover longjmps when armed)
@@ -128,7 +128,7 @@ static void exception_panic(interrupt_frame* f)
 }
 
 // Called from the assembly stubs with the saved register frame.
-void interrupt_dispatch(interrupt_frame* f)
+void interrupt_dispatch(struct interrupt_frame* f)
 {
     if (f->vector >= 32 && f->vector < 48) {
         run_handlers(f);

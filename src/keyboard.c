@@ -82,7 +82,7 @@ void keyboard_inject_seq(char final)
     kpush_seq(final);
 }
 
-static void kbd_irq(interrupt_frame* f)
+static void kbd_irq(struct interrupt_frame* f)
 {
     (void)f;
     uint8_t sc = inb(PS2_DATA);

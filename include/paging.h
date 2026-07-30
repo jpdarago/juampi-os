@@ -19,17 +19,17 @@
 // of 8-byte entries. One entry type covers every level.
 typedef uint64_t pte_t;
 
-typedef struct {
+struct page_table {
     pte_t entries[512];
-} page_table;
+};
 
 // A virtual address space, identified by the physical address of its PML4
 // (what goes in CR3). Under the Limine higher-half direct map (HHDM) every
 // physical page — including the page tables — is reachable at hhdm_offset + pa,
 // so no software shadow of the tables is needed.
-typedef struct page_directory {
+struct page_directory {
     uintptr_t pml4_phys;
-} page_directory;
+};
 
 // Index of a virtual address into each paging level.
 #define PML4_INDEX(x) (((x) >> 39) & 0x1FF)
@@ -38,7 +38,7 @@ typedef struct page_directory {
 #define PT_INDEX(x) (((x) >> 12) & 0x1FF)
 #define PAGE_OFFSET(x) ((x) & 0xFFF)
 
-extern page_directory *current_directory, *kernel_dir;
+extern struct page_directory *current_directory, *kernel_dir;
 
 // The Limine higher-half direct map offset: virtual = hhdm_offset + physical
 // for all of RAM. Set once at boot.
@@ -64,7 +64,8 @@ void* paging_init(uintptr_t hhdm, uintptr_t usable_phys_base,
 
 // Map va -> pa in the given address space with the given PAGEF_* flags,
 // allocating intermediate tables from the frame allocator as needed.
-void map_page(page_directory* pd, uintptr_t va, uintptr_t pa, uint32_t flags);
+void map_page(struct page_directory* pd, uintptr_t va, uintptr_t pa,
+              uint32_t flags);
 
 // Reserve a fresh device-MMIO window: map `len` bytes of physical memory
 // starting at `pa` (page-aligned; the sub-page offset is preserved) into a
@@ -74,7 +75,7 @@ void map_page(page_directory* pd, uintptr_t va, uintptr_t pa, uint32_t flags);
 // LAPIC/IOAPIC, the framebuffer aperture cached, ...).
 void* iomap(uintptr_t pa, size_t len, uint32_t flags);
 // Physical address backing va, or (uintptr_t)-1 if unmapped.
-uintptr_t physical_address(page_directory* pd, uintptr_t va);
+uintptr_t physical_address(struct page_directory* pd, uintptr_t va);
 
 // Validate that a user-supplied pointer/range or string lies in the current
 // process's user-accessible address space (used to guard the syscall boundary).

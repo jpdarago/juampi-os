@@ -27,15 +27,15 @@ bool e1000_tx(const void* frame, uint16_t len);
 
 // One received Ethernet frame. `data` points into the driver's RX buffer and
 // stays valid only until the next e1000_rx_poll() call.
-typedef struct {
+struct e1000_frame {
     const uint8_t* data;
     uint16_t len;
-} e1000_frame;
+};
 
 // Fetch the next received frame. Returns true and fills *out when a frame was
 // waiting (more may remain — call again in a loop); false once the RX ring is
 // drained.
-bool e1000_rx_poll(e1000_frame* out);
+bool e1000_rx_poll(struct e1000_frame* out);
 
 // Enable the receive interrupt: route the card's PCI INTx line (preferring the
 // ACPI _PRT, else the firmware Interrupt Line register) and unmask RX causes.

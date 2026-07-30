@@ -24,6 +24,6 @@ extern volatile uint64_t fault_rip;    // instruction pointer at the fault
 
 // If recovery is armed, record the fault and longjmp to fault_env (never
 // returns); otherwise return false so the caller proceeds to panic.
-bool fault_recover(interrupt_frame* f);
+bool fault_recover(struct interrupt_frame* f);
 
 #endif

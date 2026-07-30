@@ -91,7 +91,7 @@ static int l_list(lua_State* L)
 static int l_stat(lua_State* L)
 {
     const char* path = luaL_checkstring(L, 1);
-    ext2_stat st;
+    struct ext2_stat st;
     if (!ext2_stat_path(path, &st)) {
         lua_pushnil(L);
         lua_pushfstring(L, "no such path: %s", path);
@@ -112,7 +112,7 @@ static int l_stat(lua_State* L)
 static int l_exists(lua_State* L)
 {
     const char* path = luaL_checkstring(L, 1);
-    ext2_stat st;
+    struct ext2_stat st;
     lua_pushboolean(L, ext2_stat_path(path, &st));
     return 1;
 }
@@ -158,7 +158,7 @@ static int l_remove(lua_State* L)
     return 1;
 }
 
-static const lua_fndoc fslib[] = {
+static const struct lua_fndoc fslib[] = {
         {"mounted", l_mounted, "Whether the ext2 data disk is mounted.",
          .rets = {{"ok", "boolean", "true if a filesystem is mounted"}}},
         {"read", l_read, "Read a whole file into a string.",

@@ -143,20 +143,20 @@ struct erst_entry {
 
 // A producer ring (command or transfer): a page of TRBs whose last slot is a
 // LINK back to the start, plus the producer index and cycle state.
-typedef struct {
+struct ring {
     struct trb* trb;
     uintptr_t pa;
     uint32_t enq;
     uint32_t cycle;
-} ring;
+};
 
 // A bulk endpoint: its transfer ring, its doorbell target (the device context
 // index), and its max packet size.
-typedef struct {
-    ring r;
+struct usb_endpoint {
+    struct ring r;
     uint32_t dci;
     uint16_t mps;
-} usb_endpoint;
+};
 
 static volatile uint8_t* cap; // capability registers (BAR base)
 static volatile uint8_t* op;  // operational registers
@@ -170,7 +170,7 @@ static const char* fail_reason;
 static uint32_t g_ports;
 static uint32_t ctx_sz; // bytes per context entry (32 or 64, from HCCPARAMS1)
 
-static ring cmd; // command ring
+static struct ring cmd; // command ring
 
 static uint64_t* dcbaa; // device context base array
 
@@ -194,7 +194,7 @@ static struct {
 // + the xHCI route string of hub hops below it), its speed and identity, and
 // its control-endpoint transfer ring.
 #define MAX_DEVICES 8
-typedef struct {
+struct usb_device {
     bool used;
     uint32_t slot;
     uint32_t speed;     // PORTSC-style speed code (FS=1 LS=2 HS=3 SS=4)
@@ -203,9 +203,9 @@ typedef struct {
     uint32_t depth;     // number of hubs above (0 = on a root port)
     uint16_t vid, pid;
     uint8_t usb_class; // bDeviceClass (9 = hub; 0 = classes per interface)
-    ring ep0;
-} usb_device;
-static usb_device devices[MAX_DEVICES];
+    struct ring ep0;
+};
+static struct usb_device devices[MAX_DEVICES];
 static uint32_t n_devices;
 
 // The configured Bulk-Only-Transport mass-storage function (the first found).
@@ -215,25 +215,25 @@ static struct {
     uint64_t blocks;     // capacity, in logical blocks
     uint32_t block_size; // bytes per logical block
     uint32_t tag;        // rolling CBW/CSW transaction tag
-    usb_endpoint in, out;
-    dma_buf cbw, csw; // Bulk-Only-Transport command/status wrappers
-    dma_buf bounce;   // one-page staging buffer for data
+    struct usb_endpoint in, out;
+    struct dma_buf cbw, csw; // Bulk-Only-Transport command/status wrappers
+    struct dma_buf bounce;   // one-page staging buffer for data
 } msc;
 
 // A HID boot-protocol input device: its interrupt IN endpoint and the single
 // in-flight report. Reports arrive asynchronously — hid_dispatch() consumes
 // their transfer events wherever the event ring is drained (sync waits skip
 // past them; xhci_poll() drains them from the idle loops).
-typedef struct {
+struct hid_dev {
     bool present;
     uint32_t slot;
-    usb_endpoint ep;           // interrupt IN
-    dma_buf report;            // report buffer (one page; reports are <= 8 B)
+    struct usb_endpoint ep;    // interrupt IN
+    struct dma_buf report;     // report buffer (one page; reports are <= 8 B)
     uint8_t last[8];           // previous keyboard report, for key-down diff
     volatile uint64_t reports; // reports received (test/diagnostic counter)
-} hid_dev;
-static hid_dev hid_kbd;
-static hid_dev hid_mouse;
+};
+static struct hid_dev hid_kbd;
+static struct hid_dev hid_mouse;
 
 static bool hid_dispatch(const struct trb* ev);
 
@@ -250,9 +250,9 @@ static void w64(volatile uint8_t* base, uint32_t o, uint64_t v)
     mmio_w64(base, o, v);
 }
 
-static void ring_init(ring* r)
+static void ring_init(struct ring* r)
 {
-    dma_buf b = dma_page_alloc();
+    struct dma_buf b = dma_page_alloc();
     r->trb = b.va;
     r->pa = b.pa;
     struct trb* link = &r->trb[RING_TRBS - 1];
@@ -264,7 +264,7 @@ static void ring_init(ring* r)
 
 // Enqueue a TRB (cycle bit filled from the producer state); on reaching the
 // trailing LINK slot, arm it with the current cycle and wrap.
-static void ring_push(ring* r, uint64_t param, uint32_t status,
+static void ring_push(struct ring* r, uint64_t param, uint32_t status,
                       uint32_t control)
 {
     struct trb* t = &r->trb[r->enq];
@@ -284,7 +284,7 @@ static void ring_push(ring* r, uint64_t param, uint32_t status,
 // MSI-X per spec, written defensively for quirky controllers) and count. The
 // waiter consumes the event ring itself — the interrupt's job is to end its
 // hlt nap.
-static void xhci_irq(interrupt_frame* f)
+static void xhci_irq(struct interrupt_frame* f)
 {
     (void)f;
     w32(rt, IR0 + IR_IMAN, IMAN_IP | IMAN_IE);
@@ -402,7 +402,7 @@ static uint16_t ep0_mps(uint32_t speed)
 // One EP0 IN control transfer on device `d`: SETUP / DATA / STATUS stages,
 // then ring its EP0 doorbell and wait for the transfer to complete. `data_pa`
 // receives `len` bytes. Returns false on timeout or a non-success completion.
-static bool control_in(usb_device* d, uint64_t setup, uintptr_t data_pa,
+static bool control_in(struct usb_device* d, uint64_t setup, uintptr_t data_pa,
                        uint16_t len)
 {
     ring_push(&d->ep0, setup, 8, TRB_TYPE(TRB_SETUP_STAGE) | TRB_IDT | TRT_IN);
@@ -419,7 +419,7 @@ static bool control_in(usb_device* d, uint64_t setup, uintptr_t data_pa,
 
 // A no-data control transfer (e.g. SET_CONFIGURATION): SETUP then a STATUS
 // stage in the IN direction. Returns false on timeout/non-success.
-static bool control_no_data(usb_device* d, uint64_t setup)
+static bool control_no_data(struct usb_device* d, uint64_t setup)
 {
     ring_push(&d->ep0, setup, 8, TRB_TYPE(TRB_SETUP_STAGE) | TRB_IDT);
     ring_push(&d->ep0, 0, 0, TRB_TYPE(TRB_STATUS_STAGE) | TRB_DIR_IN | TRB_IOC);
@@ -433,8 +433,8 @@ static bool control_no_data(usb_device* d, uint64_t setup)
 }
 
 // GET_DESCRIPTOR(type<<8 | index) of `len` bytes into `buf_pa`.
-static bool get_descriptor(usb_device* d, uint16_t value, uintptr_t buf_pa,
-                           uint16_t len)
+static bool get_descriptor(struct usb_device* d, uint16_t value,
+                           uintptr_t buf_pa, uint16_t len)
 {
     uint64_t setup = (uint64_t)0x80 | ((uint64_t)0x06 << 8) |
                      ((uint64_t)value << 16) | ((uint64_t)len << 48);
@@ -446,7 +446,8 @@ static bool get_descriptor(usb_device* d, uint16_t value, uintptr_t buf_pa,
 // packet. Returns the completion code (CC_TIMEOUT if no event arrived), so
 // callers can distinguish a STALL — which halts the endpoint and needs
 // recovery — from other failures.
-static uint8_t bulk_xfer(usb_endpoint* ep, uintptr_t data_pa, uint32_t len)
+static uint8_t bulk_xfer(struct usb_endpoint* ep, uintptr_t data_pa,
+                         uint32_t len)
 {
     ring_push(&ep->r, data_pa, len, TRB_TYPE(TRB_NORMAL) | TRB_IOC | TRB_ISP);
     mmio_doorbell32(&db[msc.slot], ep->dci);
@@ -464,7 +465,7 @@ static bool cc_ok(uint8_t cc)
 
 // Reset a bulk ring to its pristine state (used after the controller stops an
 // endpoint: its dequeue pointer is rewound to the ring base).
-static void ring_reset(ring* r)
+static void ring_reset(struct ring* r)
 {
     memset(r->trb, 0, PAGE_SZ);
     struct trb* link = &r->trb[RING_TRBS - 1];
@@ -475,7 +476,7 @@ static void ring_reset(ring* r)
 }
 
 // The addressed device owning `slot`, or NULL.
-static usb_device* device_by_slot(uint32_t slot)
+static struct usb_device* device_by_slot(uint32_t slot)
 {
     for (uint32_t i = 0; i < n_devices; i++) {
         if (devices[i].used && devices[i].slot == slot) {
@@ -489,7 +490,7 @@ static usb_device* device_by_slot(uint32_t slot)
 // moves it Halted -> Stopped, SET_TR_DEQUEUE rewinds its (reset) transfer
 // ring, and CLEAR_FEATURE(ENDPOINT_HALT) tells the device to clear its halt
 // and reset its data toggle. The endpoint is usable again afterwards.
-static void recover_endpoint(usb_endpoint* ep)
+static void recover_endpoint(struct usb_endpoint* ep)
 {
     struct trb ev;
     run_command(0,
@@ -503,7 +504,7 @@ static void recover_endpoint(usb_endpoint* ep)
                 &ev);
     // CLEAR_FEATURE(ENDPOINT_HALT): bmRequestType=0x02 (endpoint), bRequest=1,
     // wValue=0 (ENDPOINT_HALT), wIndex = the endpoint address.
-    usb_device* d = device_by_slot(msc.slot);
+    struct usb_device* d = device_by_slot(msc.slot);
     if (d != NULL) {
         uint64_t ep_addr = (ep->dci >> 1) | ((ep->dci & 1) << 7);
         control_no_data(d, (uint64_t)0x02 | ((uint64_t)0x01 << 8) |
@@ -538,7 +539,7 @@ static bool bot_command(const uint8_t* cdb, uint8_t cdb_len, bool dir_in,
         return false;
     }
     if (data_len > 0) {
-        usb_endpoint* ep = dir_in ? &msc.in : &msc.out;
+        struct usb_endpoint* ep = dir_in ? &msc.in : &msc.out;
         cc = bulk_xfer(ep, data_pa, data_len);
         if (!cc_ok(cc)) {
             if (cc != CC_STALL) {
@@ -641,9 +642,9 @@ static uint64_t msc_sectors(void)
 {
     return (msc.ready && msc.block_size == 512) ? msc.blocks : 0;
 }
-static const blockdev msc_dev = {msc_read, msc_write, msc_sectors};
+static const struct blockdev msc_dev = {msc_read, msc_write, msc_sectors};
 
-const blockdev* xhci_msc_blockdev(void)
+const struct blockdev* xhci_msc_blockdev(void)
 {
     return &msc_dev;
 }
@@ -652,7 +653,7 @@ const blockdev* xhci_msc_blockdev(void)
 // wins): read the configuration descriptor, find the BOT interface and its two
 // bulk endpoints, add them with CONFIGURE_ENDPOINT and select the
 // configuration. Returns true when the device is ready for BOT.
-static bool msc_setup(usb_device* d)
+static bool msc_setup(struct usb_device* d)
 {
     if (msc.ready) {
         return false; // already bound to an earlier device
@@ -660,7 +661,7 @@ static bool msc_setup(usb_device* d)
     // Request a full page: the device returns min(wTotalLength, wLength), so
     // the walk below can never run past bytes that were actually transferred
     // (composite devices easily exceed the 255 bytes a short request returns).
-    dma_buf cfg_mem = dma_page_alloc();
+    struct dma_buf cfg_mem = dma_page_alloc();
     uint8_t* cfg = cfg_mem.va;
     if (!get_descriptor(d, (uint16_t)(DESC_CONFIG << 8), cfg_mem.pa, PAGE_SZ)) {
         fail_reason = "config descriptor read failed";
@@ -714,7 +715,7 @@ static bool msc_setup(usb_device* d)
 
     // Input context: add the slot + both bulk endpoints, describe each
     // endpoint.
-    dma_buf input_mem = dma_page_alloc();
+    struct dma_buf input_mem = dma_page_alloc();
     uint32_t* input = input_mem.va;
     uint32_t dwpc = ctx_sz / 4;
     uint32_t max_dci = msc.in.dci > msc.out.dci ? msc.in.dci : msc.out.dci;
@@ -789,7 +790,7 @@ static const char hid_keys_shift[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                                      "\n\x1b\b\t _+{}|~:\"~<>?";
 
 // Post the next interrupt-IN TRB so the device can deliver a report.
-static void hid_post(hid_dev* h)
+static void hid_post(struct hid_dev* h)
 {
     ring_push(&h->ep.r, h->report.pa, 8,
               TRB_TYPE(TRB_NORMAL) | TRB_IOC | TRB_ISP);
@@ -867,12 +868,12 @@ static bool hid_dispatch(const struct trb* ev)
 // device `d` into `h`: find its interrupt IN endpoint, bring it up, select the
 // configuration, switch the interface to the fixed boot report format, and arm
 // the first report.
-static bool hid_setup(usb_device* d, uint8_t proto, hid_dev* h)
+static bool hid_setup(struct usb_device* d, uint8_t proto, struct hid_dev* h)
 {
     if (h->present) {
         return false; // already bound to an earlier device
     }
-    dma_buf cfg_mem = dma_page_alloc();
+    struct dma_buf cfg_mem = dma_page_alloc();
     uint8_t* cfg = cfg_mem.va;
     if (!get_descriptor(d, (uint16_t)(DESC_CONFIG << 8), cfg_mem.pa, PAGE_SZ)) {
         dma_page_free(cfg_mem);
@@ -928,7 +929,7 @@ static bool hid_setup(usb_device* d, uint8_t proto, hid_dev* h)
         }
     }
 
-    dma_buf input_mem = dma_page_alloc();
+    struct dma_buf input_mem = dma_page_alloc();
     uint32_t* input = input_mem.va;
     uint32_t dwpc = ctx_sz / 4;
     input[1] = 1u | (1u << h->ep.dci); // A0 (slot) + the endpoint
@@ -982,7 +983,8 @@ static void delay_ms(uint64_t ms)
 
 // Read a hub port's 32-bit status word (low 16 status, high 16 change bits)
 // into `scratch`. Returns 0 on failure (reads as disconnected).
-static uint32_t hub_port_status(usb_device* d, uint32_t port, dma_buf scratch)
+static uint32_t hub_port_status(struct usb_device* d, uint32_t port,
+                                struct dma_buf scratch)
 {
     // GET_STATUS, class, port recipient: bmRequestType 0xA3.
     if (!control_in(d,
@@ -997,8 +999,8 @@ static uint32_t hub_port_status(usb_device* d, uint32_t port, dma_buf scratch)
 }
 
 // SET_FEATURE (set=true) or CLEAR_FEATURE on a hub port (class request).
-static bool hub_port_feature(usb_device* d, uint32_t port, uint32_t feature,
-                             bool set)
+static bool hub_port_feature(struct usb_device* d, uint32_t port,
+                             uint32_t feature, bool set)
 {
     return control_no_data(
             d, (uint64_t)0x23 | ((uint64_t)(set ? 0x03 : 0x01) << 8) |
@@ -1019,9 +1021,9 @@ static bool hub_port_feature(usb_device* d, uint32_t port, uint32_t feature,
 // configuration, power every port, then per connected port reset it (via hub
 // class requests — the hub performs the signalling) and enumerate the child
 // with the route string extended by this hop's port number.
-static void hub_setup(usb_device* d)
+static void hub_setup(struct usb_device* d)
 {
-    dma_buf scratch = dma_page_alloc();
+    struct dma_buf scratch = dma_page_alloc();
     uint8_t* buf = scratch.va;
     if (!get_descriptor(d, (uint16_t)(DESC_CONFIG << 8), scratch.pa, 9)) {
         dma_page_free(scratch);
@@ -1089,7 +1091,7 @@ static void enumerate_device(uint32_t root_port, uint32_t speed, uint32_t route,
         fail_reason = "ENABLE_SLOT failed";
         return;
     }
-    usb_device* d = &devices[n_devices];
+    struct usb_device* d = &devices[n_devices];
     memset(d, 0, sizeof *d);
     d->slot = (ev.control >> 24) & 0xFF;
     d->speed = speed;
@@ -1102,7 +1104,7 @@ static void enumerate_device(uint32_t root_port, uint32_t speed, uint32_t route,
 
     // Input context: enable the slot + EP0, describe the topology and the
     // control endpoint at the speed-default max packet size.
-    dma_buf input_mem = dma_page_alloc();
+    struct dma_buf input_mem = dma_page_alloc();
     uint32_t* input = input_mem.va;
     uint32_t dwpc = ctx_sz / 4;           // dwords per context entry
     input[1] = 0x3;                       // add flags: A0 (slot) + A1 (EP0)
@@ -1130,7 +1132,7 @@ static void enumerate_device(uint32_t root_port, uint32_t speed, uint32_t route,
 
     // First 8 bytes of the device descriptor carry bMaxPacketSize0 (byte 7).
     // Only full-speed varies (8/16/32/64); LS/HS/SS are fixed by spec.
-    dma_buf desc = dma_page_alloc();
+    struct dma_buf desc = dma_page_alloc();
     uint8_t* buf = desc.va;
     if (!get_descriptor(d, (uint16_t)(DESC_DEVICE << 8), desc.pa, 8)) {
         fail_reason = "GET_DESCRIPTOR failed";
@@ -1194,7 +1196,7 @@ static void enumerate_root_ports(void)
 
 void xhci_init(void)
 {
-    pci_addr a =
+    struct pci_addr a =
             pci_find_class(PCI_CLASS_SERIAL, PCI_SUBCLASS_USB, PCI_PROGIF_XHCI);
     if (!a.found) {
         return;
@@ -1240,7 +1242,7 @@ void xhci_init(void)
 
     // Advertise all device slots and hand the controller its context array.
     w32(op, OP_CONFIG, slots);
-    dma_buf dcbaa_mem = dma_page_alloc();
+    struct dma_buf dcbaa_mem = dma_page_alloc();
     dcbaa = dcbaa_mem.va;
     w64(op, OP_DCBAAP, dcbaa_mem.pa);
 
@@ -1250,9 +1252,9 @@ void xhci_init(void)
 
     // Event ring: one segment described by a one-entry ERST. Program size and
     // dequeue pointer before the base address (which arms the interrupter).
-    dma_buf erst_mem = dma_page_alloc();
+    struct dma_buf erst_mem = dma_page_alloc();
     struct erst_entry* erst = erst_mem.va;
-    dma_buf evt_mem = dma_page_alloc();
+    struct dma_buf evt_mem = dma_page_alloc();
     evt.trb = evt_mem.va;
     evt.pa = evt_mem.pa;
     evt.deq = 0;

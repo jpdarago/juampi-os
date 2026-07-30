@@ -21,7 +21,7 @@
 // erases anything we drew directly — so the logo has to be redrawn after output
 // that may have scrolled, not just once at startup.
 static uint32_t* logo_pixels;
-static qoi_image logo_img;
+static struct qoi_image logo_img;
 
 static void logo_load(void)
 {
@@ -280,7 +280,7 @@ static void shell_read_line(const char* prompt, char* buf, size_t max)
             }
             // A ";5" (Ctrl) or ";3" (Alt) parameter turns an arrow into word
             // motion, e.g. Ctrl-Right arrives as ESC [ 1 ; 5 C.
-            str p = str_from(params);
+            struct str p = str_from(params);
             bool word = str_eq(p, S("1;5")) || str_eq(p, S("1;3"));
             switch (fin) {
             case 'A': // up: older history
@@ -364,7 +364,7 @@ static void shell_read_line(const char* prompt, char* buf, size_t max)
     }
 }
 
-void shell_run(heap_allocator* heap)
+void shell_run(struct heap_allocator* heap)
 {
     static char line[LINE_MAX];
 

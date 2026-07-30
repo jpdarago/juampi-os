@@ -89,7 +89,7 @@ struct runlist {
 };
 
 // The last path segment (after the final '/'), or the whole view if none.
-static str path_base(str p)
+static struct str path_base(struct str p)
 {
     for (size_t i = p.len; i > 0; i--) {
         if (p.data[i - 1] == '/') {
@@ -100,7 +100,7 @@ static str path_base(str p)
 }
 
 // Record a runnable name: a .lua/.elf basename, minus boot infra and duplicates.
-static void runlist_add(struct runlist* rl, str name)
+static void runlist_add(struct runlist* rl, struct str name)
 {
     if (!str_has_suffix(name, S(".lua")) && !str_has_suffix(name, S(".elf"))) {
         return;

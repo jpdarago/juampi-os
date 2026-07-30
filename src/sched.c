@@ -8,13 +8,13 @@
 #define MAX_THREADS 8
 #define FXSAVE_SZ 512 // fxsave/fxrstor area, must be 16-byte aligned
 
-typedef struct {
+struct thread_t {
     uint64_t rsp; // saved stack pointer when the thread is not running
     void* fparea; // 512-byte fxsave area for this thread's FPU/SSE state
     bool used;
-} thread_t;
+};
 
-static thread_t threads[MAX_THREADS];
+static struct thread_t threads[MAX_THREADS];
 static int nthreads;
 static int current;
 
@@ -26,7 +26,7 @@ static uint8_t fp_template[FXSAVE_SZ] __attribute__((aligned(16)));
 extern void context_switch(uint64_t* old_rsp, uint64_t new_rsp, void* old_fp,
                            void* new_fp);
 
-void sched_init(allocator* mem)
+void sched_init(struct allocator* mem)
 {
     // Capture a clean FPU/SSE state (x87 reset, default MXCSR) as the seed for
     // new threads.
@@ -45,7 +45,7 @@ void sched_init(allocator* mem)
     current = 0;
 }
 
-int thread_create(allocator* mem, void (*entry)(void))
+int thread_create(struct allocator* mem, void (*entry)(void))
 {
     if (nthreads >= MAX_THREADS) {
         kernel_panic("Too many threads");

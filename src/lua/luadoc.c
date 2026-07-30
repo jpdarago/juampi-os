@@ -9,12 +9,12 @@
 // of `args`, stopping early at a zeroed entry. Bounding by `max` matters when an
 // arg/ret list fills its whole fixed-size array (no room for a NULL sentinel).
 // Leaves the array table on the stack.
-static void push_args(lua_State* L, const lua_arg* args, int max)
+static void push_args(lua_State* L, const struct lua_arg* args, int max)
 {
     lua_newtable(L);
     int n = 0;
     for (int i = 0; i < max && args[i].name != NULL; i++) {
-        const lua_arg* a = &args[i];
+        const struct lua_arg* a = &args[i];
         lua_createtable(L, 0, 3);
         lua_pushstring(L, a->name);
         lua_setfield(L, -2, "name");
@@ -26,11 +26,11 @@ static void push_args(lua_State* L, const lua_arg* args, int max)
     }
 }
 
-void luadoc_newlib(lua_State* L, const lua_fndoc* fns)
+void luadoc_newlib(lua_State* L, const struct lua_fndoc* fns)
 {
     lua_newtable(L); // the library table   (stack: lib)
     lua_newtable(L); // the __doc table     (stack: lib, __doc)
-    for (const lua_fndoc* f = fns; f->name != NULL; f++) {
+    for (const struct lua_fndoc* f = fns; f->name != NULL; f++) {
         // lib[name] = fn
         lua_pushcfunction(L, f->fn);
         lua_setfield(L, -3, f->name); // lib is at -3 (lib, __doc, fn)

@@ -82,18 +82,18 @@
 
 // Legacy receive descriptor. The card owns it until it sets status.DD, then the
 // driver reads the frame and hands the descriptor back (see e1000_rx_poll).
-typedef struct __attribute__((packed)) {
+struct rx_desc {
     uint64_t addr;     // physical address of the buffer the card DMAs into
     uint16_t length;   // number of bytes the card wrote into that buffer
     uint16_t checksum; // hardware packet checksum (unused here)
     uint8_t status;    // status bits: RXD_STAT_DD (done), RXD_STAT_EOP
     uint8_t errors;    // receive error flags (unused here)
     uint16_t special;  // VLAN tag / special field (unused here)
-} rx_desc;
+} __attribute__((packed));
 
 // Legacy transmit descriptor. The driver fills it and bumps TDT; the card
 // transmits and, because cmd.RS is set, writes back status.DD when done.
-typedef struct __attribute__((packed)) {
+struct tx_desc {
     uint64_t addr;    // physical address of the frame to transmit
     uint16_t length;  // frame length in bytes
     uint8_t cso;      // checksum offset (unused — no TX checksum offload)
@@ -101,7 +101,7 @@ typedef struct __attribute__((packed)) {
     uint8_t status;   // written back by the card: TXD_STAT_DD when sent
     uint8_t css;      // checksum start (unused)
     uint16_t special; // VLAN tag / special field (unused)
-} tx_desc;
+} __attribute__((packed));
 
 static volatile uint8_t* mmio; // mapped BAR0
 static bool present;           // card found + configured
@@ -112,12 +112,12 @@ static uint8_t pci_dev, irq_pin, irq_line;
 static bool irq_on, irq_via_prt;
 static volatile uint64_t rx_ints; // receive interrupts taken (diagnostic)
 
-static volatile rx_desc* rx_ring; // N_RX descriptors
-static volatile tx_desc* tx_ring; // N_TX descriptors
-static uint8_t* rx_buf[N_RX];     // HHDM VA of each RX buffer
-static uint32_t rx_cur;           // next descriptor we expect
-static int32_t rx_handed = -1;    // slot handed out, recycled on the next poll
-static uint32_t tx_cur;           // next descriptor to fill
+static volatile struct rx_desc* rx_ring; // N_RX descriptors
+static volatile struct tx_desc* tx_ring; // N_TX descriptors
+static uint8_t* rx_buf[N_RX];            // HHDM VA of each RX buffer
+static uint32_t rx_cur;                  // next descriptor we expect
+static int32_t rx_handed = -1; // slot handed out, recycled on the next poll
+static uint32_t tx_cur;        // next descriptor to fill
 
 static inline uint32_t reg_read(uint32_t off)
 {
@@ -180,7 +180,7 @@ static void rings_init(void)
     // Program the RX ring and enable the receiver.
     reg_write(REG_RDBAL, (uint32_t)rx_ring_phys);
     reg_write(REG_RDBAH, (uint32_t)(rx_ring_phys >> 32));
-    reg_write(REG_RDLEN, N_RX * (uint32_t)sizeof(rx_desc));
+    reg_write(REG_RDLEN, N_RX * (uint32_t)sizeof(struct rx_desc));
     reg_write(REG_RDH, 0);
     reg_write(REG_RDT, N_RX - 1); // all descriptors owned by the card
     reg_write(REG_RCTL, RCTL_EN | RCTL_BAM | RCTL_SECRC | RCTL_BSIZE_2048);
@@ -188,7 +188,7 @@ static void rings_init(void)
     // Program the TX ring and enable the transmitter.
     reg_write(REG_TDBAL, (uint32_t)tx_ring_phys);
     reg_write(REG_TDBAH, (uint32_t)(tx_ring_phys >> 32));
-    reg_write(REG_TDLEN, N_TX * (uint32_t)sizeof(tx_desc));
+    reg_write(REG_TDLEN, N_TX * (uint32_t)sizeof(struct tx_desc));
     reg_write(REG_TDH, 0);
     reg_write(REG_TDT, 0);
     reg_write(REG_TCTL, TCTL_EN | TCTL_PSP | TCTL_CT | TCTL_COLD);
@@ -197,7 +197,7 @@ static void rings_init(void)
 
 bool e1000_init(void)
 {
-    pci_addr a = pci_find(E1000_VENDOR_INTEL, E1000_DEVICE_82540EM);
+    struct pci_addr a = pci_find(E1000_VENDOR_INTEL, E1000_DEVICE_82540EM);
     if (!a.found) {
         return false;
     }
@@ -256,7 +256,7 @@ bool e1000_tx(const void* frame, uint16_t len)
         return false;
     }
     // Copy into a fresh buffer owned for this descriptor slot.
-    volatile tx_desc* d = &tx_ring[tx_cur];
+    volatile struct tx_desc* d = &tx_ring[tx_cur];
     // Reuse a per-slot bounce buffer sized to a frame.
     static uint8_t* txbuf[N_TX];
     if (txbuf[tx_cur] == NULL) {
@@ -306,14 +306,14 @@ static void rx_recycle_handed(void)
     }
 }
 
-bool e1000_rx_poll(e1000_frame* out)
+bool e1000_rx_poll(struct e1000_frame* out)
 {
     if (!present) {
         return false;
     }
     rx_recycle_handed();
     while (rx_ring[rx_cur].status & RXD_STAT_DD) {
-        volatile rx_desc* d = &rx_ring[rx_cur];
+        volatile struct rx_desc* d = &rx_ring[rx_cur];
         uint16_t len = d->length;
         bool eop = d->status & RXD_STAT_EOP;
         uint32_t idx = rx_cur;
@@ -337,7 +337,7 @@ bool e1000_rx_poll(e1000_frame* out)
 // also transmits (ARP/TCP acks) and touches BSP-only state that isn't reentrant
 // against a foreground send. Instead we just count, and the frames are drained
 // by net_poll() from the main thread (the interrupt wakes the idle `hlt`).
-static void e1000_irq(interrupt_frame* f)
+static void e1000_irq(struct interrupt_frame* f)
 {
     (void)f;
     uint32_t icr = reg_read(REG_ICR); // read-to-clear

@@ -10,7 +10,7 @@
 // Bitmap of frame usage (1 = used), stored in the HHDM view of the managed
 // region itself. (The 32-bit kernel also kept per-frame refcounts for
 // copy-on-write aliasing; that returns with fork/COW.)
-static bitset b;
+static struct bitset b;
 static uintptr_t mem_start;    // physical base of the managed region
 static uint32_t total_count;   // free frames
 static uint32_t managed_count; // total usable frames (never changes)

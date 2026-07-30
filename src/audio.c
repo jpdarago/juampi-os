@@ -8,15 +8,16 @@
 #include <memory.h> // heap for owned PCM voice buffers
 #include <utils.h>
 
-extern const audio_output hda_backend;
-extern const audio_output ac97_backend;
+extern const struct audio_output hda_backend;
+extern const struct audio_output ac97_backend;
 
 // Output backends tried in order at init; the first whose probe succeeds wins.
 // HDA is the modern controller (and the real-hardware target); AC'97 is the
 // QEMU-friendly fallback.
-static const audio_output* const backends[] = {&hda_backend, &ac97_backend};
+static const struct audio_output* const backends[] = {&hda_backend,
+                                                      &ac97_backend};
 
-static const audio_output* backend;
+static const struct audio_output* backend;
 
 // A 256-entry sine table, one period, amplitude +/-AMP. Built once at init with
 // a Bhaskara approximation so the per-sample mixer path stays integer-only (no
@@ -36,7 +37,7 @@ static int16_t sine_tab[SINE_LEN];
 //    duplicated to stereo. Freed when it finishes or is stopped.
 #define MAX_VOICES 8
 typedef enum { VOICE_TONE, VOICE_PCM } voice_kind;
-typedef struct {
+struct voice {
     bool active;
     voice_kind kind;
     int32_t gain; // Q8 (256 = unity)
@@ -49,13 +50,13 @@ typedef struct {
     uint8_t channels;
     uint64_t pos;  // 16.16 fixed-point source-frame cursor
     uint32_t step; // source frames per output frame, 16.16
-} voice;
-static voice voices[MAX_VOICES];
+};
+static struct voice voices[MAX_VOICES];
 
 // Release a voice's resources and mark it free. Deactivate FIRST so a
 // completion ISR (which skips inactive voices) can never touch the buffer being
 // freed. Only ever called from non-IRQ context (audio_play_pcm / audio_stop).
-static void voice_free(voice* v)
+static void voice_free(struct voice* v)
 {
     v->active = false;
     if (v->pcm != NULL) {
@@ -231,7 +232,7 @@ static inline int16_t clamp16(int32_t v)
 }
 
 // Linearly interpolate channel `c` of a PCM voice at its fractional cursor.
-static int32_t pcm_sample(const voice* v, uint32_t idx, uint8_t c,
+static int32_t pcm_sample(const struct voice* v, uint32_t idx, uint8_t c,
                           uint32_t frac)
 {
     const int16_t* p = v->pcm;
@@ -244,7 +245,7 @@ static int32_t pcm_sample(const voice* v, uint32_t idx, uint8_t c,
 
 // Accumulate one voice's contribution to a stereo output frame into l/r, and
 // advance its cursor. Deactivates (freeing PCM) when the voice ends.
-static void voice_mix(voice* v, int32_t* l, int32_t* r)
+static void voice_mix(struct voice* v, int32_t* l, int32_t* r)
 {
     if (v->kind == VOICE_TONE) {
         uint32_t idx = (v->phase >> 16) & (SINE_LEN - 1);

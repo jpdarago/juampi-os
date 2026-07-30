@@ -2,7 +2,7 @@
 // api->print path works end to end. Run it with run("hello.elf").
 #include <lab.h>
 
-long bench(const lab_api* api, long arg)
+long bench(const struct lab_api* api, long arg)
 {
     (void)arg;
     api->print("LAB_OK\n");

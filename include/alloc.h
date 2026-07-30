@@ -11,13 +11,12 @@
 // parameter rather than calling a global allocator; concrete implementations
 // (the kernel heap in memory.h, the arena in arena.h) embed this struct first
 // and fill in the callback.
-typedef struct allocator allocator;
 struct allocator {
-    void* (*alloc)(allocator* a, ptrdiff_t size, ptrdiff_t align,
+    void* (*alloc)(struct allocator* a, ptrdiff_t size, ptrdiff_t align,
                    ptrdiff_t count);
 };
 
-static inline void* alloc(allocator* a, ptrdiff_t size, ptrdiff_t align,
+static inline void* alloc(struct allocator* a, ptrdiff_t size, ptrdiff_t align,
                           ptrdiff_t count)
 {
     return a->alloc(a, size, align, count);

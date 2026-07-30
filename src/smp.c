@@ -22,7 +22,7 @@ extern void ap_entry(struct limine_smp_info* info);
 
 #define IA32_GS_BASE 0xC0000101u
 
-static cpu* cpus;
+static struct cpu* cpus;
 static uint64_t ncpus = 1;
 static uint32_t bsp_index;
 
@@ -47,7 +47,7 @@ uint32_t smp_bsp_index(void)
 
 struct cpu* smp_this_cpu(void)
 {
-    cpu* c;
+    struct cpu* c;
     __asm__ __volatile__("mov %%gs:0, %0" : "=r"(c));
     return c;
 }
@@ -57,7 +57,7 @@ struct cpu* smp_this_cpu(void)
 // then parks polling its work mailbox. Interrupts stay disabled (M8).
 void ap_main(struct limine_smp_info* info)
 {
-    cpu* c = (cpu*)info->extra_argument;
+    struct cpu* c = (struct cpu*)info->extra_argument;
     set_gs_base(c);
     gdt_ap_load(c->gdt, &c->tss, c->kstack_top);
     idt_load();
@@ -72,7 +72,7 @@ void ap_main(struct limine_smp_info* info)
     }
 }
 
-void smp_init(allocator* mem)
+void smp_init(struct allocator* mem)
 {
     struct limine_smp_response* r = mp_request.response;
     uint64_t count = (r != NULL) ? r->cpu_count : 1;
@@ -80,7 +80,7 @@ void smp_init(allocator* mem)
         count = 1;
     }
     ncpus = count;
-    cpus = new (mem, cpu, (ptrdiff_t)ncpus);
+    cpus = new (mem, struct cpu, (ptrdiff_t)ncpus);
 
     // Initialise every per-CPU struct and find the BSP.
     bsp_index = 0;
@@ -143,7 +143,7 @@ bool smp_online(uint32_t index)
 
 void smp_run_on(uint32_t index, void (*fn)(void* arg), void* arg)
 {
-    cpu* c = &cpus[index];
+    struct cpu* c = &cpus[index];
     c->arg = arg;
     c->fn = fn;
     __atomic_store_n(&c->mbox, CPU_MBOX_PENDING, __ATOMIC_RELEASE);
@@ -151,7 +151,7 @@ void smp_run_on(uint32_t index, void (*fn)(void* arg), void* arg)
 
 void smp_join(uint32_t index)
 {
-    cpu* c = &cpus[index];
+    struct cpu* c = &cpus[index];
     while (__atomic_load_n(&c->mbox, __ATOMIC_ACQUIRE) != CPU_MBOX_DONE) {
         __builtin_ia32_pause();
     }

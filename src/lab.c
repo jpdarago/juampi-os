@@ -74,7 +74,7 @@ static void lab_fb_shifts(unsigned char* r, unsigned char* g, unsigned char* b)
     gfx_shifts(r, g, b);
 }
 
-static const lab_api api = {
+static const struct lab_api api = {
         .alloc = lab_alloc,
         .free = lab_free,
         .print = lab_print,

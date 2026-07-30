@@ -98,23 +98,23 @@ void* gfx_framebuffer(uint64_t* size, uint64_t* out_pitch)
 // gfx_surface is defined in gfx.h (a value type: pixels, geometry, channel
 // shifts, and an exclusive clip box). The screen is one persistent surface.
 
-static gfx_surface screen_surf = {.cx1 = INT64_MAX, .cy1 = INT64_MAX};
+static struct gfx_surface screen_surf = {.cx1 = INT64_MAX, .cy1 = INT64_MAX};
 
-gfx_surface gfx_surface_make(uint32_t* pixels, uint64_t w, uint64_t h)
+struct gfx_surface gfx_surface_make(uint32_t* pixels, uint64_t w, uint64_t h)
 {
-    gfx_surface s = {.pixels = (uint8_t*)pixels,
-                     .w = w,
-                     .h = h,
-                     .pitch = w * 4,
-                     .r_shift = r_shift,
-                     .g_shift = g_shift,
-                     .b_shift = b_shift,
-                     .cx1 = INT64_MAX,
-                     .cy1 = INT64_MAX};
+    struct gfx_surface s = {.pixels = (uint8_t*)pixels,
+                            .w = w,
+                            .h = h,
+                            .pitch = w * 4,
+                            .r_shift = r_shift,
+                            .g_shift = g_shift,
+                            .b_shift = b_shift,
+                            .cx1 = INT64_MAX,
+                            .cy1 = INT64_MAX};
     return s;
 }
 
-gfx_surface* gfx_screen(void)
+struct gfx_surface* gfx_screen(void)
 {
     if (fb == NULL) {
         return NULL;
@@ -132,7 +132,7 @@ gfx_surface* gfx_screen(void)
     return &screen_surf;
 }
 
-static uint32_t surf_pack(const gfx_surface* s, uint32_t rgb)
+static uint32_t surf_pack(const struct gfx_surface* s, uint32_t rgb)
 {
     uint32_t r = (rgb >> 16) & 0xFF;
     uint32_t g = (rgb >> 8) & 0xFF;
@@ -140,12 +140,12 @@ static uint32_t surf_pack(const gfx_surface* s, uint32_t rgb)
     return (r << s->r_shift) | (g << s->g_shift) | (b << s->b_shift);
 }
 
-static inline uint32_t* surf_row(const gfx_surface* s, uint64_t y)
+static inline uint32_t* surf_row(const struct gfx_surface* s, uint64_t y)
 {
     return (uint32_t*)(s->pixels + y * s->pitch);
 }
 
-void gfx_pixel(gfx_surface* s, int64_t x, int64_t y, uint32_t rgb)
+void gfx_pixel(struct gfx_surface* s, int64_t x, int64_t y, uint32_t rgb)
 {
     if (s == NULL || x < 0 || y < 0 || (uint64_t)x >= s->w ||
         (uint64_t)y >= s->h) {
@@ -154,7 +154,7 @@ void gfx_pixel(gfx_surface* s, int64_t x, int64_t y, uint32_t rgb)
     surf_row(s, (uint64_t)y)[x] = surf_pack(s, rgb);
 }
 
-void gfx_rect(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
+void gfx_rect(struct gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
               uint32_t rgb)
 {
     if (s == NULL) {
@@ -176,7 +176,7 @@ void gfx_rect(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
     }
 }
 
-void gfx_clear(gfx_surface* s, uint32_t rgb)
+void gfx_clear(struct gfx_surface* s, uint32_t rgb)
 {
     if (s != NULL) {
         gfx_rect(s, 0, 0, (int64_t)s->w, (int64_t)s->h, rgb);
@@ -187,7 +187,7 @@ void gfx_clear(gfx_surface* s, uint32_t rgb)
 // Each draw clamps to the surface's clip box and to the surface bounds. A fresh
 // surface (INT64_MAX clip) covers everything until gfx_clip narrows it.
 
-void gfx_clip_reset(gfx_surface* s)
+void gfx_clip_reset(struct gfx_surface* s)
 {
     if (s == NULL) {
         return;
@@ -198,7 +198,7 @@ void gfx_clip_reset(gfx_surface* s)
     s->cy1 = INT64_MAX;
 }
 
-void gfx_clip(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h)
+void gfx_clip(struct gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h)
 {
     if (s == NULL) {
         return;
@@ -209,7 +209,7 @@ void gfx_clip(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h)
     s->cy1 = y + h;
 }
 
-void gfx_fill(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
+void gfx_fill(struct gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
               uint32_t rgb)
 {
     if (s == NULL) {
@@ -240,7 +240,7 @@ void gfx_fill(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
     }
 }
 
-void gfx_glyph(gfx_surface* s, int64_t x, int64_t y, unsigned char c,
+void gfx_glyph(struct gfx_surface* s, int64_t x, int64_t y, unsigned char c,
                uint32_t rgb)
 {
     if (s == NULL) {
@@ -268,16 +268,16 @@ void gfx_glyph(gfx_surface* s, int64_t x, int64_t y, unsigned char c,
     }
 }
 
-void gfx_text(gfx_surface* s, int64_t x, int64_t y, const char* str, size_t n,
-              uint32_t rgb)
+void gfx_text(struct gfx_surface* s, int64_t x, int64_t y, const char* str,
+              size_t n, uint32_t rgb)
 {
     for (size_t i = 0; i < n; i++) {
         gfx_glyph(s, x + (int64_t)i * FONT_W, y, (unsigned char)str[i], rgb);
     }
 }
 
-void gfx_blit(gfx_surface* s, int64_t x, int64_t y, uint64_t w, uint64_t h,
-              const uint32_t* pixels)
+void gfx_blit(struct gfx_surface* s, int64_t x, int64_t y, uint64_t w,
+              uint64_t h, const uint32_t* pixels)
 {
     if (s == NULL) {
         return;
@@ -303,8 +303,8 @@ void gfx_blit(gfx_surface* s, int64_t x, int64_t y, uint64_t w, uint64_t h,
     }
 }
 
-void gfx_line(gfx_surface* s, int64_t x0, int64_t y0, int64_t x1, int64_t y1,
-              uint32_t rgb)
+void gfx_line(struct gfx_surface* s, int64_t x0, int64_t y0, int64_t x1,
+              int64_t y1, uint32_t rgb)
 {
     // Bresenham's line algorithm.
     int64_t dx = x1 - x0, dy = y1 - y0;
@@ -495,8 +495,8 @@ void gfx_snapshot_free(void)
 // surface's clip rect and bounds. Unlike gfx_blit this is a straight pixel copy
 // — no re-pack, no alpha keying — for painting a canvas window whose pixels are
 // already in framebuffer layout.
-void gfx_image(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
-               const uint32_t* buf)
+void gfx_image(struct gfx_surface* s, int64_t x, int64_t y, int64_t w,
+               int64_t h, const uint32_t* buf)
 {
     if (s == NULL) {
         return;

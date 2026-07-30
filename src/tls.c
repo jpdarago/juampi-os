@@ -111,14 +111,14 @@ struct tls_conn {
     unsigned char iobuf[BR_SSL_BUFSIZE_MONO];
 };
 
-tls_conn* tls_connect(allocator* a, uint32_t ip, uint16_t port,
-                      const char* host)
+struct tls_conn* tls_connect(struct allocator* a, uint32_t ip, uint16_t port,
+                             const char* host)
 {
     int tcp = net_tcp_connect(ip, port, 8000);
     if (tcp < 0) {
         return NULL;
     }
-    tls_conn* c = new (a, tls_conn, 1);
+    struct tls_conn* c = new (a, struct tls_conn, 1);
     c->tcp = tcp;
 
     // Full client profile: all standard cipher suites + hashes, X.509 minimal
@@ -147,7 +147,7 @@ tls_conn* tls_connect(allocator* a, uint32_t ip, uint16_t port,
     return c;
 }
 
-int tls_send(tls_conn* c, const void* data, int len)
+int tls_send(struct tls_conn* c, const void* data, int len)
 {
     if (br_sslio_write_all(&c->ioc, data, (size_t)len) != 0) {
         return -1; // includes a failed handshake (e.g. cert not trusted)
@@ -155,7 +155,7 @@ int tls_send(tls_conn* c, const void* data, int len)
     return br_sslio_flush(&c->ioc) == 0 ? len : -1;
 }
 
-int tls_recv(tls_conn* c, void* buf, int cap)
+int tls_recv(struct tls_conn* c, void* buf, int cap)
 {
     int r = br_sslio_read(&c->ioc, buf, (size_t)cap);
     if (r < 0) {
@@ -165,12 +165,12 @@ int tls_recv(tls_conn* c, void* buf, int cap)
     return r;
 }
 
-int tls_error(tls_conn* c)
+int tls_error(struct tls_conn* c)
 {
     return br_ssl_engine_last_error(&c->sc.eng);
 }
 
-void tls_close(tls_conn* c)
+void tls_close(struct tls_conn* c)
 {
     br_sslio_close(&c->ioc); // best-effort close_notify
     net_tcp_close(c->tcp);

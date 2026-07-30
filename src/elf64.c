@@ -24,14 +24,14 @@ static void map_range(uint64_t start, uint64_t len, uint64_t flags)
 // if the image is not a valid ELF64.
 static uint64_t load_segments(void* image, uint64_t seg_flags)
 {
-    Elf64_Ehdr* eh = image;
+    struct Elf64_Ehdr* eh = image;
     const uint8_t* id = eh->e_ident;
     if (id[0] != ELF_MAG0 || id[1] != 'E' || id[2] != 'L' || id[3] != 'F' ||
         id[EI_CLASS] != ELFCLASS64) {
         return 0;
     }
 
-    Elf64_Phdr* ph = (Elf64_Phdr*)((uint8_t*)image + eh->e_phoff);
+    struct Elf64_Phdr* ph = (struct Elf64_Phdr*)((uint8_t*)image + eh->e_phoff);
     for (uint32_t i = 0; i < eh->e_phnum; i++) {
         if (ph[i].p_type != PT_LOAD) {
             continue;
@@ -73,17 +73,19 @@ static bool name_eq(const char* a, const char* b)
 
 uint64_t elf64_symbol(const void* image, const char* name)
 {
-    const Elf64_Ehdr* eh = image;
-    if (eh->e_shoff == 0 || eh->e_shentsize != sizeof(Elf64_Shdr)) {
+    const struct Elf64_Ehdr* eh = image;
+    if (eh->e_shoff == 0 || eh->e_shentsize != sizeof(struct Elf64_Shdr)) {
         return 0;
     }
     const uint8_t* base = image;
-    const Elf64_Shdr* sh = (const Elf64_Shdr*)(base + eh->e_shoff);
+    const struct Elf64_Shdr* sh =
+            (const struct Elf64_Shdr*)(base + eh->e_shoff);
     for (uint32_t i = 0; i < eh->e_shnum; i++) {
         if (sh[i].sh_type != SHT_SYMTAB || sh[i].sh_entsize == 0) {
             continue;
         }
-        const Elf64_Sym* sym = (const Elf64_Sym*)(base + sh[i].sh_offset);
+        const struct Elf64_Sym* sym =
+                (const struct Elf64_Sym*)(base + sh[i].sh_offset);
         uint32_t n = (uint32_t)(sh[i].sh_size / sh[i].sh_entsize);
         const char* str = (const char*)(base + sh[sh[i].sh_link].sh_offset);
         for (uint32_t j = 0; j < n; j++) {

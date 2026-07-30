@@ -6,7 +6,7 @@ volatile uint64_t fault_vector;
 volatile uint64_t fault_addr;
 volatile uint64_t fault_rip;
 
-bool fault_recover(interrupt_frame* f)
+bool fault_recover(struct interrupt_frame* f)
 {
     if (!fault_armed) {
         return false;

@@ -11,11 +11,11 @@
 
 // One documented parameter or return value. `type` is a LuaLS-style type string
 // ("number", "string", "boolean", "table", "any", "number?", "string|number").
-typedef struct {
+struct lua_arg {
     const char* name;
     const char* type;
     const char* doc;
-} lua_arg;
+};
 
 #define LUADOC_MAX_ARGS 8
 #define LUADOC_MAX_RETS 4
@@ -23,18 +23,18 @@ typedef struct {
 // A documented library function. `args`/`rets` are terminated by a zeroed entry
 // (name == NULL), so a partial list just leaves the trailing slots zero. A
 // lua_fndoc[] array is likewise terminated by a zeroed entry.
-typedef struct {
+struct lua_fndoc {
     const char* name;
     lua_CFunction fn;
     const char* doc;
-    lua_arg args[LUADOC_MAX_ARGS];
-    lua_arg rets[LUADOC_MAX_RETS];
-} lua_fndoc;
+    struct lua_arg args[LUADOC_MAX_ARGS];
+    struct lua_arg rets[LUADOC_MAX_RETS];
+};
 
 // Create a new library table (like luaL_newlib) from a zero-terminated
 // lua_fndoc[]: register each function under its name and attach `__doc[name] =
 // {doc=, params={{name,type,doc}...}, returns={...}}`. Leaves the library table
 // on the stack.
-void luadoc_newlib(lua_State* L, const lua_fndoc* fns);
+void luadoc_newlib(lua_State* L, const struct lua_fndoc* fns);
 
 #endif

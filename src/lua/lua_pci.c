@@ -77,7 +77,7 @@ static int l_list(lua_State* L)
     return 1;
 }
 
-static const lua_fndoc pcilib[] = {
+static const struct lua_fndoc pcilib[] = {
         {"read", l_read, "Read a 32-bit PCI config-space register.",
          .args = {{"bus", "number", "bus number"},
                   {"dev", "number", "device number"},

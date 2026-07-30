@@ -14,13 +14,13 @@
 #define ETH_ARP 0x0806
 #define ETH_IP 0x0800
 
-typedef struct __attribute__((packed)) {
+struct eth_hdr {
     uint8_t dst[6];
     uint8_t src[6];
     uint16_t type;
-} eth_hdr;
+} __attribute__((packed));
 
-typedef struct __attribute__((packed)) {
+struct arp_pkt {
     uint16_t htype;
     uint16_t ptype;
     uint8_t hlen;
@@ -30,9 +30,9 @@ typedef struct __attribute__((packed)) {
     uint8_t spa[4];
     uint8_t tha[6];
     uint8_t tpa[4];
-} arp_pkt;
+} __attribute__((packed));
 
-typedef struct __attribute__((packed)) {
+struct ip_hdr {
     uint8_t ver_ihl;
     uint8_t tos;
     uint16_t tot_len;
@@ -43,15 +43,15 @@ typedef struct __attribute__((packed)) {
     uint16_t csum;
     uint32_t src;
     uint32_t dst;
-} ip_hdr;
+} __attribute__((packed));
 
-typedef struct __attribute__((packed)) {
+struct icmp_hdr {
     uint8_t type;
     uint8_t code;
     uint16_t csum;
     uint16_t id;
     uint16_t seq;
-} icmp_hdr;
+} __attribute__((packed));
 
 #define ICMP_ECHO_REQUEST 8
 #define ICMP_ECHO_REPLY 0
@@ -170,17 +170,17 @@ static bool eth_send(const uint8_t dst[6], uint16_t ethertype, const void* l3,
                      uint16_t l3len)
 {
     uint8_t frame[1600]; // stack-local: reentrant, ~1.6 KB on the 64 KiB stack
-    eth_hdr* eth = (eth_hdr*)frame;
+    struct eth_hdr* eth = (struct eth_hdr*)frame;
     memcpy(eth->dst, dst, 6);
     memcpy(eth->src, my_mac, 6);
     eth->type = htons(ethertype);
-    memcpy(frame + sizeof(eth_hdr), l3, l3len);
-    return e1000_tx(frame, (uint16_t)(sizeof(eth_hdr) + l3len));
+    memcpy(frame + sizeof(struct eth_hdr), l3, l3len);
+    return e1000_tx(frame, (uint16_t)(sizeof(struct eth_hdr) + l3len));
 }
 
 static void arp_send_request(uint32_t target_ip)
 {
-    arp_pkt a;
+    struct arp_pkt a;
     a.htype = htons(1);
     a.ptype = htons(ETH_IP);
     a.hlen = 6;
@@ -195,10 +195,10 @@ static void arp_send_request(uint32_t target_ip)
 
 static void arp_input(const uint8_t* data, uint16_t len)
 {
-    if (len < sizeof(arp_pkt)) {
+    if (len < sizeof(struct arp_pkt)) {
         return;
     }
-    const arp_pkt* a = (const arp_pkt*)data;
+    const struct arp_pkt* a = (const struct arp_pkt*)data;
     if (ntohs(a->ptype) != ETH_IP || a->plen != 4) {
         return;
     }
@@ -207,7 +207,7 @@ static void arp_input(const uint8_t* data, uint16_t len)
     arp_insert(sender_ip, a->sha); // learn the sender either way
 
     if (ntohs(a->oper) == 1 && target_ip == my_ip) { // request for us -> reply
-        arp_pkt r;
+        struct arp_pkt r;
         r.htype = htons(1);
         r.ptype = htons(ETH_IP);
         r.hlen = 6;
@@ -252,10 +252,10 @@ static bool ip_emit(const uint8_t dmac[6], uint32_t src_ip, uint32_t dst_ip,
                     uint8_t proto, const void* l4, uint16_t l4len)
 {
     uint8_t pkt[1600]; // stack-local: reentrant (see eth_send)
-    ip_hdr* ip = (ip_hdr*)pkt;
+    struct ip_hdr* ip = (struct ip_hdr*)pkt;
     ip->ver_ihl = 0x45;
     ip->tos = 0;
-    ip->tot_len = htons((uint16_t)(sizeof(ip_hdr) + l4len));
+    ip->tot_len = htons((uint16_t)(sizeof(struct ip_hdr) + l4len));
     ip->id = htons(ip_id_ctr++);
     ip->frag = htons(0x4000); // don't fragment
     ip->ttl = 64;
@@ -263,9 +263,10 @@ static bool ip_emit(const uint8_t dmac[6], uint32_t src_ip, uint32_t dst_ip,
     ip->csum = 0;
     ip->src = htonl(src_ip);
     ip->dst = htonl(dst_ip);
-    ip->csum = inet_csum(ip, sizeof(ip_hdr));
-    memcpy(pkt + sizeof(ip_hdr), l4, l4len);
-    return eth_send(dmac, ETH_IP, pkt, (uint16_t)(sizeof(ip_hdr) + l4len));
+    ip->csum = inet_csum(ip, sizeof(struct ip_hdr));
+    memcpy(pkt + sizeof(struct ip_hdr), l4, l4len);
+    return eth_send(dmac, ETH_IP, pkt,
+                    (uint16_t)(sizeof(struct ip_hdr) + l4len));
 }
 
 bool ip_send(uint32_t dst_ip, uint8_t proto, const void* l4, uint16_t l4len)
@@ -298,10 +299,10 @@ static uint64_t ping_rtt_us;
 
 static void icmp_input(uint32_t src_ip, const uint8_t* data, uint16_t len)
 {
-    if (len < sizeof(icmp_hdr)) {
+    if (len < sizeof(struct icmp_hdr)) {
         return;
     }
-    const icmp_hdr* ic = (const icmp_hdr*)data;
+    const struct icmp_hdr* ic = (const struct icmp_hdr*)data;
 
     if (ic->type == ICMP_ECHO_REQUEST) {
         // Echo it back: same id/seq/payload, type -> reply, recompute csum.
@@ -310,7 +311,7 @@ static void icmp_input(uint32_t src_ip, const uint8_t* data, uint16_t len)
             return;
         }
         memcpy(rep, data, len);
-        icmp_hdr* r = (icmp_hdr*)rep;
+        struct icmp_hdr* r = (struct icmp_hdr*)rep;
         r->type = ICMP_ECHO_REPLY;
         r->csum = 0;
         r->csum = inet_csum(rep, len);
@@ -327,15 +328,15 @@ static void icmp_input(uint32_t src_ip, const uint8_t* data, uint16_t len)
 
 static void ip_input(const uint8_t* data, uint16_t len)
 {
-    if (len < sizeof(ip_hdr)) {
+    if (len < sizeof(struct ip_hdr)) {
         return;
     }
-    const ip_hdr* ip = (const ip_hdr*)data;
+    const struct ip_hdr* ip = (const struct ip_hdr*)data;
     if ((ip->ver_ihl >> 4) != 4) {
         return;
     }
     uint32_t ihl = (uint32_t)(ip->ver_ihl & 0x0F) * 4;
-    if (ihl < sizeof(ip_hdr) || ihl > len) {
+    if (ihl < sizeof(struct ip_hdr) || ihl > len) {
         return;
     }
     uint32_t dst_ip = ntohl(ip->dst);
@@ -360,18 +361,18 @@ static void ip_input(const uint8_t* data, uint16_t len)
 
 static void ether_input(const uint8_t* data, uint16_t len)
 {
-    if (len < sizeof(eth_hdr)) {
+    if (len < sizeof(struct eth_hdr)) {
         return;
     }
-    const eth_hdr* eth = (const eth_hdr*)data;
+    const struct eth_hdr* eth = (const struct eth_hdr*)data;
     // Accept broadcast and frames addressed to us; the card already filters,
     // but be defensive.
     if (!mac_eq(eth->dst, my_mac) && !mac_eq(eth->dst, bcast_mac)) {
         return;
     }
     uint16_t type = ntohs(eth->type);
-    const uint8_t* payload = data + sizeof(eth_hdr);
-    uint16_t plen = (uint16_t)(len - sizeof(eth_hdr));
+    const uint8_t* payload = data + sizeof(struct eth_hdr);
+    uint16_t plen = (uint16_t)(len - sizeof(struct eth_hdr));
     if (type == ETH_ARP) {
         arp_input(payload, plen);
     } else if (type == ETH_IP) {
@@ -384,7 +385,7 @@ void net_poll(void)
     if (!ready) {
         return;
     }
-    e1000_frame f;
+    struct e1000_frame f;
     while (e1000_rx_poll(&f)) {
         ether_input(f.data, f.len);
     }
@@ -402,15 +403,15 @@ bool net_ping(uint32_t dst_ip, uint32_t timeout_ms, uint64_t* rtt_us)
     ping_got = false;
     ping_send_us = ktime_us();
 
-    uint8_t l4[sizeof(icmp_hdr) + PING_PAYLOAD];
-    icmp_hdr* ic = (icmp_hdr*)l4;
+    uint8_t l4[sizeof(struct icmp_hdr) + PING_PAYLOAD];
+    struct icmp_hdr* ic = (struct icmp_hdr*)l4;
     ic->type = ICMP_ECHO_REQUEST;
     ic->code = 0;
     ic->csum = 0;
     ic->id = htons(PING_ID);
     ic->seq = htons(ping_seq);
     for (int i = 0; i < PING_PAYLOAD; i++) {
-        l4[sizeof(icmp_hdr) + i] = (uint8_t)i;
+        l4[sizeof(struct icmp_hdr) + i] = (uint8_t)i;
     }
     ic->csum = inet_csum(l4, sizeof(l4));
 
@@ -455,10 +456,10 @@ bool net_ready(void)
 
 bool net_aton(const char* s, uint32_t* out_ip)
 {
-    str rest = str_from(s);
+    struct str rest = str_from(s);
     uint32_t ip = 0;
     for (int i = 0; i < 4; i++) {
-        str octet;
+        struct str octet;
         if (i < 3) {
             if (!str_cut_ch(rest, '.', &octet, &rest)) {
                 return false; // fewer than 4 dotted parts

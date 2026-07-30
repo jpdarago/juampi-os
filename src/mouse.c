@@ -91,7 +91,7 @@ static uint8_t mouse_cmd(uint8_t v)
     return ctrl_read();
 }
 
-static void mouse_irq(interrupt_frame* f)
+static void mouse_irq(struct interrupt_frame* f)
 {
     (void)f;
     uint8_t st = inb(PS2_STATUS);

@@ -1,7 +1,7 @@
 #include <idt.h>
 
-static idt_entry idt[256];
-static idt_ptr idtr;
+static struct idt_entry idt[256];
+static struct idt_ptr idtr;
 
 static void idt_set(uint32_t vector, uintptr_t handler, uint16_t selector,
                     uint8_t type_attr)

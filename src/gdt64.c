@@ -6,7 +6,7 @@
 // only the access bits (privilege, code/data, present, and the L=long bit on
 // code) matter.
 static uint64_t gdt[7];
-static tss64 tss;
+static struct tss64 tss;
 
 void tss_set_rsp0(uint64_t rsp0)
 {
@@ -17,7 +17,7 @@ void tss_set_rsp0(uint64_t rsp0)
 // a 64-bit TSS system descriptor (two slots) pointing at `t`. Shared by the BSP
 // (gdt_init) and each AP (gdt_ap_load) so every core's GDT is identical bar its
 // own TSS.
-static void build_gdt(uint64_t* g, tss64* t)
+static void build_gdt(uint64_t* g, struct tss64* t)
 {
     g[0] = 0;
     g[1] = 0x00AF9A000000FFFFull; // kernel code: present, exec, ring 0, L=1
@@ -41,7 +41,7 @@ static void build_gdt(uint64_t* g, tss64* t)
 // Load a GDT `g` (with its TSS `t` set to interrupt-stack `rsp0`) and the TSS
 // on the current core, reloading the segment registers. Used to give each AP
 // its own GDT/TSS; the local descriptor register is only read by lgdt/ltr here.
-static void load_gdt(uint64_t* g, tss64* t, uint64_t rsp0)
+static void load_gdt(uint64_t* g, struct tss64* t, uint64_t rsp0)
 {
     t->rsp0 = rsp0;
     t->iomap_base = sizeof(*t);
@@ -54,7 +54,7 @@ static void load_gdt(uint64_t* g, tss64* t, uint64_t rsp0)
     tss_flush(GDT_TSS);
 }
 
-void gdt_init(allocator* mem)
+void gdt_init(struct allocator* mem)
 {
     build_gdt(gdt, &tss);
     // Kernel stack used on a ring-3 -> ring-0 privilege transition.
@@ -63,7 +63,7 @@ void gdt_init(allocator* mem)
     load_gdt(gdt, &tss, rsp0);
 }
 
-void gdt_ap_load(uint64_t g[7], tss64* t, uint64_t rsp0)
+void gdt_ap_load(uint64_t g[7], struct tss64* t, uint64_t rsp0)
 {
     build_gdt(g, t);
     load_gdt(g, t, rsp0);

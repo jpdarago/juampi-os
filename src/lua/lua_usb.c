@@ -57,7 +57,7 @@ static int l_mouse(lua_State* L)
     return 2;
 }
 
-static const lua_fndoc usblib[] = {
+static const struct lua_fndoc usblib[] = {
         {"info", l_info, "xHCI controller state.",
          .rets = {{"present", "boolean", "true if the controller is up"},
                   {"ports", "number", "root-hub port count"},

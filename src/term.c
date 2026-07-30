@@ -37,16 +37,16 @@ enum { C_DEF, C_GREEN, C_YELLOW, C_MAGENTA, C_GREY, C_N };
 static const uint32_t palette[C_N] = THEME_HL_PALETTE;
 _Static_assert(C_N == THEME_HL_COUNT, "palette size must match the theme");
 
-typedef struct {
+struct Cell {
     char ch;
     uint8_t color;
-} Cell;
+};
 
-typedef Cell
+typedef struct Cell
         term_row[TCOLS]; // one scrollback line (the grid is an array of these)
 
 struct term {
-    allocator* mem;
+    struct allocator* mem;
 
     term_row* grid; // TROWS rows, ring-indexed by absolute row
     int wrow;       // absolute index of the line being written (monotonic)
@@ -75,23 +75,23 @@ struct term {
     int kcsi_len;
 };
 
-static Cell* line_at(term* t, int abs_row)
+static struct Cell* line_at(struct term* t, int abs_row)
 {
     return t->grid[((abs_row % TROWS) + TROWS) % TROWS];
 }
 
-static void clear_line(term* t, int abs_row)
+static void clear_line(struct term* t, int abs_row)
 {
-    Cell* l = line_at(t, abs_row);
+    struct Cell* l = line_at(t, abs_row);
     for (int i = 0; i < TCOLS; i++) {
         l[i].ch = ' ';
         l[i].color = C_DEF;
     }
 }
 
-term* term_open(allocator* mem)
+struct term* term_open(struct allocator* mem)
 {
-    term* t = new (mem, term, 1);
+    struct term* t = new (mem, struct term, 1);
     t->mem = mem;
     t->grid = new (mem, term_row, TROWS);
     for (int r = 0; r < TROWS; r++) {
@@ -103,19 +103,19 @@ term* term_open(allocator* mem)
     return t; // remaining fields zeroed by the allocator contract
 }
 
-static void term_newline(term* t)
+static void term_newline(struct term* t)
 {
     t->wrow++;
     t->wcol = 0;
     clear_line(t, t->wrow);
 }
 
-static void put_cell(term* t, char c)
+static void put_cell(struct term* t, char c)
 {
     if (t->wcol >= TCOLS) {
         term_newline(t);
     }
-    Cell* l = line_at(t, t->wrow);
+    struct Cell* l = line_at(t, t->wrow);
     l[t->wcol].ch = c;
     l[t->wcol].color = t->wcolor;
     t->wcol++;
@@ -151,7 +151,7 @@ static int atoi_n(const char* s, int len)
     return v;
 }
 
-static void handle_csi(term* t, char final)
+static void handle_csi(struct term* t, char final)
 {
     t->ocsi[t->ocsi_len] = '\0';
     switch (final) {
@@ -181,7 +181,7 @@ static void handle_csi(term* t, char final)
 
 void term_write(void* ctx, char c)
 {
-    term* t = (term*)ctx;
+    struct term* t = (struct term*)ctx;
     if (t->oesc == 1) {
         t->oesc = (c == '[') ? 2 : 0;
         t->ocsi_len = 0;
@@ -243,7 +243,7 @@ static bool is_word(char c)
     return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
            (c >= '0' && c <= '9') || c == '_';
 }
-static int word_left(term* t, int cur)
+static int word_left(struct term* t, int cur)
 {
     while (cur > 0 && !is_word(t->in[cur - 1])) {
         cur--;
@@ -253,7 +253,7 @@ static int word_left(term* t, int cur)
     }
     return cur;
 }
-static int word_right(term* t, int cur)
+static int word_right(struct term* t, int cur)
 {
     while (cur < t->in_len && !is_word(t->in[cur])) {
         cur++;
@@ -264,7 +264,7 @@ static int word_right(term* t, int cur)
     return cur;
 }
 
-static void hist_add(term* t, const char* line)
+static void hist_add(struct term* t, const char* line)
 {
     if (line[0] == '\0') {
         return;
@@ -290,7 +290,7 @@ static void hist_add(term* t, const char* line)
     }
 }
 
-static void load_line(term* t, const char* s)
+static void load_line(struct term* t, const char* s)
 {
     int i = 0;
     for (; s[i] && i < LINE_MAX - 1; i++) {
@@ -301,7 +301,7 @@ static void load_line(term* t, const char* s)
     t->in[t->in_len] = '\0';
 }
 
-static void hist_prev(term* t)
+static void hist_prev(struct term* t)
 {
     if (t->hist_count == 0) {
         return;
@@ -321,7 +321,7 @@ static void hist_prev(term* t)
     load_line(t, t->history[idx]);
 }
 
-static void hist_next_(term* t)
+static void hist_next_(struct term* t)
 {
     if (t->hist_browse == -1) {
         return;
@@ -336,7 +336,7 @@ static void hist_next_(term* t)
     }
 }
 
-static void submit(term* t)
+static void submit(struct term* t)
 {
     t->in[t->in_len] = '\0';
     // Echo the prompt + highlighted line into the scrollback (through the
@@ -361,7 +361,7 @@ static void submit(term* t)
     t->scroll_off = 0;
 }
 
-static void insert_char(term* t, char c)
+static void insert_char(struct term* t, char c)
 {
     if (t->in_len >= LINE_MAX - 1) {
         return;
@@ -375,7 +375,7 @@ static void insert_char(term* t, char c)
     t->hist_browse = -1;
 }
 
-static void delete_before(term* t)
+static void delete_before(struct term* t)
 {
     if (t->in_cur == 0) {
         return;
@@ -388,7 +388,7 @@ static void delete_before(term* t)
     t->hist_browse = -1;
 }
 
-static void delete_range(term* t, int from, int to) // remove [from, to)
+static void delete_range(struct term* t, int from, int to) // remove [from, to)
 {
     if (from < 0 || to > t->in_len || from >= to) {
         return;
@@ -405,7 +405,7 @@ static void delete_range(term* t, int from, int to) // remove [from, to)
 }
 
 // Dispatch a completed CSI/escape sequence from the input stream.
-static void key_seq(term* t, char final)
+static void key_seq(struct term* t, char final)
 {
     t->kcsi[t->kcsi_len] = '\0';
     bool word = false; // Ctrl-arrow arrives as e.g. ESC[1;5C
@@ -450,7 +450,7 @@ static void key_seq(term* t, char final)
     }
 }
 
-void term_key(term* t, int c)
+void term_key(struct term* t, int c)
 {
     if (t->kesc == 1) {
         if (c == '[' || c == 'O') {
@@ -522,10 +522,10 @@ static mu_Color rgb(uint32_t c)
 
 // Draw one scrollback line as microui text commands, grouped into runs of the
 // same colour (blank cells still advance the column, preserving alignment).
-static void draw_grid_line(term* t, mu_Context* ctx, int abs_row, int x, int y,
-                           int cols)
+static void draw_grid_line(struct term* t, mu_Context* ctx, int abs_row, int x,
+                           int y, int cols)
 {
-    Cell* l = line_at(t, abs_row);
+    struct Cell* l = line_at(t, abs_row);
     int last = -1;
     for (int c = 0; c < cols && c < TCOLS; c++) {
         if (l[c].ch != ' ' && l[c].ch != 0) {
@@ -597,7 +597,7 @@ static void draw_ansi(mu_Context* ctx, const char* s, int x, int y)
     }
 }
 
-void term_build(term* t, mu_Context* ctx)
+void term_build(struct term* t, mu_Context* ctx)
 {
     int W = (int)gfx_width();
     int H = (int)gfx_height();

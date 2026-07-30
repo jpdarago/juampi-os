@@ -14,10 +14,10 @@ struct mu_Context;
 
 // Inject the root allocator once at boot (from shell_run). The UI never calls
 // heap_default(); widget memory is carved from this into per-widget arenas.
-void ui_init(heap_allocator* heap);
+void ui_init(struct heap_allocator* heap);
 // The injected root heap (for allocations the UI layer must free individually,
 // e.g. canvas pixel buffers). Never heap_default().
-heap_allocator* ui_root_heap(void);
+struct heap_allocator* ui_root_heap(void);
 
 // True when a framebuffer + microui context are available (the UI needs one).
 bool ui_available(void);

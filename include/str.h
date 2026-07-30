@@ -11,49 +11,50 @@
 // returns a NUL-terminated result; use str_copy() to get a C string. Modelled
 // on Go's `strings` package and the nullprogram string-slice style the
 // allocators already follow.
-typedef struct {
+struct str {
     const char* data;
     size_t len;
-} str;
+};
 
 // A view over a NUL-terminated C string.
-str str_from(const char* s);
+struct str str_from(const char* s);
 
 // A view over an explicit (pointer, length) span.
-static inline str str_span(const char* p, size_t n)
+static inline struct str str_span(const char* p, size_t n)
 {
-    return (str){p, n};
+    return (struct str){p, n};
 }
 
 // A view over a string literal (compile-time length; rejects non-literals).
-#define S(lit) ((str){"" lit, sizeof(lit) - 1})
+#define S(lit) ((struct str){"" lit, sizeof(lit) - 1})
 
 // ASCII case folding.
 char to_lower(char c);
 char to_upper(char c);
 
 // Comparisons.
-bool str_eq(str a, str b);
-bool str_eq_ci(str a, str b); // case-insensitive
-bool str_has_prefix(str s, str prefix);
-bool str_has_suffix(str s, str suffix);
+bool str_eq(struct str a, struct str b);
+bool str_eq_ci(struct str a, struct str b); // case-insensitive
+bool str_has_prefix(struct str s, struct str prefix);
+bool str_has_suffix(struct str s, struct str suffix);
 
 // Drop `prefix`/`suffix` from `s` if present, else return `s` unchanged.
-str str_trim_prefix(str s, str prefix);
-str str_trim_suffix(str s, str suffix);
+struct str str_trim_prefix(struct str s, struct str prefix);
+struct str str_trim_suffix(struct str s, struct str suffix);
 
 // Split `s` around the first occurrence of the separator, like Go's
 // strings.Cut: on a match, *before/*after get the two sides (excluding the
 // separator) and it returns true; otherwise *before = s, *after = "", and it
 // returns false. Either output pointer may be NULL.
-bool str_cut(str s, str sep, str* before, str* after);
-bool str_cut_ch(str s, char sep, str* before, str* after);
+bool str_cut(struct str s, struct str sep, struct str* before,
+             struct str* after);
+bool str_cut_ch(struct str s, char sep, struct str* before, struct str* after);
 
 // Parse a whole-string unsigned decimal. False on empty or any non-digit.
-bool str_to_u32(str s, uint32_t* out);
+bool str_to_u32(struct str s, uint32_t* out);
 
 // Copy `s` into `dst` (capacity `cap`), NUL-terminated and truncated to fit.
 // Returns the number of bytes written, excluding the terminator.
-size_t str_copy(char* dst, size_t cap, str s);
+size_t str_copy(char* dst, size_t cap, struct str s);
 
 #endif

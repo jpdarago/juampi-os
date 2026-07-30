@@ -364,7 +364,7 @@ static const luaL_Reg tcp_methods[] = {
         {"close", l_tcp_close},   {NULL, NULL},
 };
 
-static const lua_fndoc netlib[] = {
+static const struct lua_fndoc netlib[] = {
         {"ready", l_ready, "Whether the network stack has an IP address.",
          .rets = {{"ok", "boolean", "true if configured"}}},
         {"ip", l_ip, "The current IPv4 address.",

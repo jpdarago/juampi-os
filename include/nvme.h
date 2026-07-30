@@ -39,6 +39,6 @@ bool nvme_write(uint64_t lba, uint32_t count, const void* buf);
 // The namespace as a generic block device (blockdev.h), for ext2_mount. Only a
 // 512-byte-logical-block namespace maps onto the interface's 512-byte sectors;
 // otherwise its sectors() is 0 and the mount fails cleanly.
-const blockdev* nvme_blockdev(void);
+const struct blockdev* nvme_blockdev(void);
 
 #endif

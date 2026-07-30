@@ -53,7 +53,7 @@ static void quick(int* a, long lo, long hi)
     }
 }
 
-long bench(const lab_api* api, long arg)
+long bench(const struct lab_api* api, long arg)
 {
     long n = arg > 0 ? arg : 1000;
     int* a = api->alloc((unsigned long)n * sizeof(int));

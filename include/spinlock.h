@@ -6,11 +6,11 @@
 // cli-as-a-lock assumption no longer holds with more than one core). Header
 // only: built on GCC's __atomic builtins, no heap, usable anywhere.
 
-typedef struct {
+struct spinlock {
     volatile int locked;
-} spinlock;
+};
 
-static inline void spin_lock(spinlock* l)
+static inline void spin_lock(struct spinlock* l)
 {
     // Acquire: take the lock, then spin read-only (with PAUSE) while it's held,
     // so the cache line isn't bounced by repeated failed exchanges.
@@ -21,7 +21,7 @@ static inline void spin_lock(spinlock* l)
     }
 }
 
-static inline void spin_unlock(spinlock* l)
+static inline void spin_unlock(struct spinlock* l)
 {
     __atomic_store_n(&l->locked, 0, __ATOMIC_RELEASE);
 }

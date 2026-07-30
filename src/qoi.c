@@ -36,8 +36,8 @@ static uint32_t be32(const uint8_t* p)
            ((uint32_t)p[2] << 8) | (uint32_t)p[3];
 }
 
-uint32_t* qoi_decode(allocator* mem, const void* data, size_t size,
-                     qoi_image* img)
+uint32_t* qoi_decode(struct allocator* mem, const void* data, size_t size,
+                     struct qoi_image* img)
 {
     const uint8_t* p = data;
     // Header + 8-byte end marker is the smallest possible file.

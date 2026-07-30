@@ -16,10 +16,10 @@
 
 // Register the currently-running boot context as thread 0; `mem` backs the
 // per-thread FPU save areas.
-void sched_init(allocator* mem);
+void sched_init(struct allocator* mem);
 // Create a kernel thread that begins executing `entry`, with its stack taken
 // from `mem`. Returns its id.
-int thread_create(allocator* mem, void (*entry)(void));
+int thread_create(struct allocator* mem, void (*entry)(void));
 // Yield the CPU to the next thread in round-robin order.
 void yield(void);
 

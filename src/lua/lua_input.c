@@ -72,7 +72,7 @@ static int l_mouse(lua_State* L)
     return 4;
 }
 
-static const lua_fndoc inputlib[] = {
+static const struct lua_fndoc inputlib[] = {
         {"key", l_key, "Next pending key as a 1-byte string, or nil (non-blocking).",
          .rets = {{"ch", "string?", "the character, or nil if none pending"}}},
         {"mouse", l_mouse, "Absolute cursor position and button state.",

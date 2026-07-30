@@ -88,7 +88,7 @@ static int l_play(lua_State* L)
         return luaL_error(L, "audio.play: no such file: %s", name);
     }
 
-    qoa_desc d;
+    struct qoa_desc d;
     int16_t* pcm = qoa_decode(&heap_default()->base, data, size, &d);
     if (owned != NULL) {
         ext2_free(owned);
@@ -119,7 +119,7 @@ static int l_stop(lua_State* L)
     return 0;
 }
 
-static const lua_fndoc audiolib[] = {
+static const struct lua_fndoc audiolib[] = {
         {"info", l_info, "Audio backend + interrupt state.",
          .rets = {{"present", "boolean", "true if an output device is up"},
                   {"backend", "string", "backend name (ac97 / none)"},

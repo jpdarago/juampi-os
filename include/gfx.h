@@ -34,40 +34,41 @@ bool gfx_set_mode(uint32_t width, uint32_t height);
 // value type — construct one over a packed buffer with gfx_surface_make(), or
 // get the screen's with gfx_screen(). `pitch` is in bytes; the clip is an
 // exclusive [cx0,cx1) x [cy0,cy1) box (INT64_MAX = whole surface).
-typedef struct {
+struct gfx_surface {
     uint8_t* pixels;
     uint64_t w, h, pitch;
     uint8_t r_shift, g_shift, b_shift;
     int64_t cx0, cy0, cx1, cy1;
-} gfx_surface;
+};
 
 // The screen as a surface (the back buffer when double-buffering, else the
 // hardware framebuffer). Its clip persists across calls; the UI renderer sets
 // it per microui CLIP command. NULL if headless.
-gfx_surface* gfx_screen(void);
+struct gfx_surface* gfx_screen(void);
 
 // Build a surface over a tightly packed (pitch = w*4) native-layout buffer,
 // taking the screen's channel shifts and a full (unclipped) clip box.
-gfx_surface gfx_surface_make(uint32_t* pixels, uint64_t w, uint64_t h);
+struct gfx_surface gfx_surface_make(uint32_t* pixels, uint64_t w, uint64_t h);
 
 // Drawing primitives, all into an explicit surface, all clipped to the
 // surface's clip box and bounds. gfx_clip sets that box; gfx_clip_reset drops
 // back to the whole surface.
-void gfx_clip(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h);
-void gfx_clip_reset(gfx_surface* s);
-void gfx_pixel(gfx_surface* s, int64_t x, int64_t y, uint32_t rgb);
-void gfx_rect(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
+void gfx_clip(struct gfx_surface* s, int64_t x, int64_t y, int64_t w,
+              int64_t h);
+void gfx_clip_reset(struct gfx_surface* s);
+void gfx_pixel(struct gfx_surface* s, int64_t x, int64_t y, uint32_t rgb);
+void gfx_rect(struct gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
               uint32_t rgb);
-void gfx_clear(gfx_surface* s, uint32_t rgb);
-void gfx_line(gfx_surface* s, int64_t x0, int64_t y0, int64_t x1, int64_t y1,
-              uint32_t rgb);
-void gfx_fill(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
+void gfx_clear(struct gfx_surface* s, uint32_t rgb);
+void gfx_line(struct gfx_surface* s, int64_t x0, int64_t y0, int64_t x1,
+              int64_t y1, uint32_t rgb);
+void gfx_fill(struct gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
               uint32_t rgb);
 // Draw one 8x16 glyph / an n-byte string at pixel (x, y), honoring the clip.
-void gfx_glyph(gfx_surface* s, int64_t x, int64_t y, unsigned char c,
+void gfx_glyph(struct gfx_surface* s, int64_t x, int64_t y, unsigned char c,
                uint32_t rgb);
-void gfx_text(gfx_surface* s, int64_t x, int64_t y, const char* str, size_t n,
-              uint32_t rgb);
+void gfx_text(struct gfx_surface* s, int64_t x, int64_t y, const char* str,
+              size_t n, uint32_t rgb);
 
 // Save / restore the current draw target (back buffer when buffered, else the
 // screen) into a heap snapshot. The UI loop snapshots the shell image once,
@@ -78,14 +79,14 @@ void gfx_snapshot_free(void);
 
 // Blit a native-layout w*h buffer (a Lua canvas) into surface `s` at (x, y),
 // 1:1 and clip-aware, to paint a canvas window.
-void gfx_image(gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
-               const uint32_t* buf);
+void gfx_image(struct gfx_surface* s, int64_t x, int64_t y, int64_t w,
+               int64_t h, const uint32_t* buf);
 
 // Blit a width*height array of 0xAARRGGBB pixels into surface `s` with its
 // top-left at (x, y). Fully transparent pixels (alpha 0) are skipped, so images
 // with a cut-out background compose onto what is already there; any other alpha
 // is treated as opaque.
-void gfx_blit(gfx_surface* s, int64_t x, int64_t y, uint64_t width,
+void gfx_blit(struct gfx_surface* s, int64_t x, int64_t y, uint64_t width,
               uint64_t height, const uint32_t* pixels);
 
 // Double buffering. gfx_buffer(true) allocates an off-screen back buffer and

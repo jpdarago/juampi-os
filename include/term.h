@@ -14,20 +14,20 @@
 // scrollback, feed keystrokes with term_key, and draw the window each frame
 // with term_build. See src/term.c.
 
-typedef struct term term;
+struct term;
 struct mu_Context;
 
 // Create a terminal whose memory all comes from `mem`.
-term* term_open(allocator* mem);
+struct term* term_open(struct allocator* mem);
 
 // Console sink: append one output byte to the scrollback. `ctx` is the term*
 // (the signature matches console_set_sink's callback).
 void term_write(void* ctx, char c);
 
 // Feed one input byte (non-blocking, from the pump).
-void term_key(term* t, int c);
+void term_key(struct term* t, int c);
 
 // Render the terminal window this frame.
-void term_build(term* t, struct mu_Context* ctx);
+void term_build(struct term* t, struct mu_Context* ctx);
 
 #endif

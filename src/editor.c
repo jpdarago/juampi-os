@@ -59,7 +59,7 @@ enum { M_NORMAL, M_INSERT, M_COMMAND, M_SEARCH };
 typedef char ed_line[ED_MAX_COLS + 1];
 
 struct editor {
-    allocator* mem; // the widget's lifetime allocator (an arena)
+    struct allocator* mem; // the widget's lifetime allocator (an arena)
 
     // Document: nlines lines, each a NUL-terminated string of line_len[i]
     // chars.
@@ -108,7 +108,7 @@ struct editor {
 // --- One-frame output buffer (classic renderer) ------------------------------
 
 // Ensure the frame/serialization scratch exists (first classic render or save).
-static char* ed_scratch(editor* e)
+static char* ed_scratch(struct editor* e)
 {
     if (e->scr == NULL) {
         e->scr = new (e->mem, char, ED_SCR_MAX);
@@ -116,7 +116,7 @@ static char* ed_scratch(editor* e)
     return e->scr;
 }
 
-static void s_raw(editor* e, const char* p, size_t n)
+static void s_raw(struct editor* e, const char* p, size_t n)
 {
     if (e->scr_len + n > ED_SCR_MAX) {
         return; // frame buffer full; drop the tail (never happens in practice)
@@ -126,7 +126,7 @@ static void s_raw(editor* e, const char* p, size_t n)
     }
 }
 
-static void s_puts(editor* e, const char* z)
+static void s_puts(struct editor* e, const char* z)
 {
     size_t n = 0;
     while (z[n]) {
@@ -136,7 +136,7 @@ static void s_puts(editor* e, const char* z)
 }
 
 // Append an unsigned decimal (used for the CSI coordinates).
-static void s_putu(editor* e, size_t v)
+static void s_putu(struct editor* e, size_t v)
 {
     char tmp[20];
     size_t i = 0;
@@ -156,7 +156,7 @@ static void s_putu(editor* e, size_t v)
 }
 
 // Move the cursor to (row, col), 1-based (ANSI CUP).
-static void s_moveto(editor* e, size_t row, size_t col)
+static void s_moveto(struct editor* e, size_t row, size_t col)
 {
     s_puts(e, "\033[");
     s_putu(e, row);
@@ -167,14 +167,14 @@ static void s_moveto(editor* e, size_t row, size_t col)
 
 // --- Buffer helpers ---------------------------------------------------------
 
-static void set_status(editor* e, const char* msg)
+static void set_status(struct editor* e, const char* msg)
 {
     e->status_msg = msg;
 }
 
 // Parse `size` bytes of text `p` into the line array (splitting on '\n',
 // dropping '\r', clipping long lines). Shared by load_file and undo.
-static void buffer_from_text(editor* e, const char* p, size_t size)
+static void buffer_from_text(struct editor* e, const char* p, size_t size)
 {
     e->nlines = 0;
     size_t col = 0;
@@ -210,7 +210,7 @@ static void buffer_from_text(editor* e, const char* p, size_t size)
 }
 
 // Load `path` into the line array; a missing file yields a single empty line.
-static void load_file(editor* e, const char* path)
+static void load_file(struct editor* e, const char* path)
 {
     // Copy the path (bounded) for the status bar and for saving.
     size_t i = 0;
@@ -234,7 +234,7 @@ static void load_file(editor* e, const char* path)
 
 // Serialize the buffer (lines joined with '\n') into `out` (capacity `cap`).
 // Returns the length, or 0 if it does not fit.
-static size_t serialize_into(editor* e, char* out, size_t cap)
+static size_t serialize_into(struct editor* e, char* out, size_t cap)
 {
     size_t total = 0;
     for (size_t i = 0; i < e->nlines; i++) {
@@ -254,7 +254,7 @@ static size_t serialize_into(editor* e, char* out, size_t cap)
 }
 
 // Serialize into the frame scratch and write back to ext2.
-static bool save_file(editor* e)
+static bool save_file(struct editor* e)
 {
     char* out = ed_scratch(e);
     size_t total = serialize_into(e, out, ED_SCR_MAX);
@@ -269,7 +269,7 @@ static bool save_file(editor* e)
 }
 
 // Insert a printable character at the cursor.
-static void insert_char(editor* e, char ch)
+static void insert_char(struct editor* e, char ch)
 {
     if (e->line_len[e->cy] >= ED_MAX_COLS) {
         return; // line full
@@ -286,7 +286,7 @@ static void insert_char(editor* e, char ch)
 }
 
 // Split the current line at the cursor, pushing the tail down into a new line.
-static void insert_newline(editor* e)
+static void insert_newline(struct editor* e)
 {
     if (e->nlines >= ED_MAX_LINES) {
         return;
@@ -317,7 +317,7 @@ static void insert_newline(editor* e)
 }
 
 // Append line `src` onto the end of line `dst` (bounded), used when joining.
-static void join_into(editor* e, size_t dst, size_t src)
+static void join_into(struct editor* e, size_t dst, size_t src)
 {
     size_t room = ED_MAX_COLS - e->line_len[dst];
     size_t n = e->line_len[src];
@@ -332,7 +332,7 @@ static void join_into(editor* e, size_t dst, size_t src)
 }
 
 // Remove line `row` by shifting the lines below it up.
-static void delete_line(editor* e, size_t row)
+static void delete_line(struct editor* e, size_t row)
 {
     for (size_t i = row; i + 1 < e->nlines; i++) {
         for (size_t j = 0; j <= e->line_len[i + 1]; j++) {
@@ -345,7 +345,7 @@ static void delete_line(editor* e, size_t row)
 
 // Delete the character before the cursor, joining with the previous line at
 // BOL.
-static void do_backspace(editor* e)
+static void do_backspace(struct editor* e)
 {
     if (e->cx > 0) {
         char* line = e->lines[e->cy];
@@ -367,7 +367,7 @@ static void do_backspace(editor* e)
 }
 
 // Delete the character at the cursor, joining the next line at EOL.
-static void do_delete(editor* e)
+static void do_delete(struct editor* e)
 {
     if (e->cx < e->line_len[e->cy]) {
         char* line = e->lines[e->cy];
@@ -385,7 +385,7 @@ static void do_delete(editor* e)
 }
 
 // Clamp the cursor column to the current line's length (after vertical motion).
-static void clamp_cx(editor* e)
+static void clamp_cx(struct editor* e)
 {
     if (e->cx > e->line_len[e->cy]) {
         e->cx = e->line_len[e->cy];
@@ -396,13 +396,13 @@ static void clamp_cx(editor* e)
 
 // Effective editable width, capped so a very wide terminal can't overrun the
 // per-line color scratch buffer.
-static size_t view_width(editor* e)
+static size_t view_width(struct editor* e)
 {
     return e->term_cols > ED_MAX_COLS ? ED_MAX_COLS : e->term_cols;
 }
 
 // Adjust the scroll offsets so the cursor is on screen.
-static void scroll_to_cursor(editor* e)
+static void scroll_to_cursor(struct editor* e)
 {
     size_t textrows = e->term_rows - 1;
     size_t width = view_width(e);
@@ -420,7 +420,7 @@ static void scroll_to_cursor(editor* e)
     }
 }
 
-static void render_line(editor* e, size_t row)
+static void render_line(struct editor* e, size_t row)
 {
     size_t len = e->line_len[row];
     size_t width = view_width(e);
@@ -435,7 +435,7 @@ static void render_line(editor* e, size_t row)
     s_puts(e, e->hl);
 }
 
-static void draw_status(editor* e)
+static void draw_status(struct editor* e)
 {
     s_moveto(e, e->term_rows, 1);
     s_puts(e, "\033[7m"); // reverse video
@@ -485,7 +485,7 @@ static void draw_status(editor* e)
     s_puts(e, "\033[0m");
 }
 
-static void render(editor* e)
+static void render(struct editor* e)
 {
     console_dimensions(&e->term_cols, &e->term_rows);
     if (e->term_rows < 2) {
@@ -625,7 +625,7 @@ static int read_key(void)
 
 // --- Classic full-screen editor (headless fallback) --------------------------
 
-int editor_run(editor* e)
+int editor_run(struct editor* e)
 {
     bool quit_armed = false; // set after a Ctrl-Q on a dirty buffer
 
@@ -743,7 +743,7 @@ static bool ed_isspace(char c)
 
 // Snapshot the buffer for undo before a modifying command group. Slots are
 // fixed-capacity and reused; an oversized buffer is simply not snapshotted.
-static void push_undo(editor* e)
+static void push_undo(struct editor* e)
 {
     int slot = e->undo_head;
     if (e->undo[slot] == NULL) {
@@ -763,7 +763,7 @@ static void push_undo(editor* e)
     }
 }
 
-static void do_undo(editor* e)
+static void do_undo(struct editor* e)
 {
     if (e->undo_count == 0) {
         set_status(e, "Already at oldest change");
@@ -784,7 +784,7 @@ static void do_undo(editor* e)
 
 // --- motions ----------------------------------------------------------------
 
-static void vim_w(editor* e)
+static void vim_w(struct editor* e)
 {
     size_t len = e->line_len[e->cy];
     if (e->cx < len && !ed_isspace(e->lines[e->cy][e->cx])) {
@@ -812,7 +812,7 @@ static void vim_w(editor* e)
     }
 }
 
-static void vim_b(editor* e)
+static void vim_b(struct editor* e)
 {
     if (e->cx == 0) {
         if (e->cy == 0) {
@@ -836,7 +836,7 @@ static void vim_b(editor* e)
     }
 }
 
-static void vim_e(editor* e)
+static void vim_e(struct editor* e)
 {
     size_t len = e->line_len[e->cy];
     if (e->cx + 1 >= len) {
@@ -875,7 +875,7 @@ static void vim_e(editor* e)
 // --- edits ------------------------------------------------------------------
 
 // Delete the char at the cursor without joining lines (vim 'x').
-static void del_char(editor* e)
+static void del_char(struct editor* e)
 {
     if (e->cx >= e->line_len[e->cy]) {
         return;
@@ -891,7 +891,7 @@ static void del_char(editor* e)
 
 // Delete from the cursor to the start of the next word, on the current line
 // (vim 'dw').
-static void del_word(editor* e)
+static void del_word(struct editor* e)
 {
     size_t len = e->line_len[e->cy];
     size_t end = e->cx;
@@ -919,7 +919,7 @@ static void del_word(editor* e)
     e->dirty = true;
 }
 
-static void vim_join(editor* e)
+static void vim_join(struct editor* e)
 {
     if (e->cy + 1 >= e->nlines) {
         return;
@@ -944,7 +944,7 @@ static void vim_join(editor* e)
 
 // Copy `count` lines starting at `from` into the yank register (linewise,
 // truncated at the register's fixed capacity).
-static void yank_lines(editor* e, size_t from, size_t count)
+static void yank_lines(struct editor* e, size_t from, size_t count)
 {
     if (e->yank == NULL) {
         e->yank = new (e->mem, char, ED_YANK_CAP);
@@ -964,7 +964,8 @@ static void yank_lines(editor* e, size_t from, size_t count)
     e->yank_len = o;
 }
 
-static void insert_line_at(editor* e, size_t at, const char* text, size_t len)
+static void insert_line_at(struct editor* e, size_t at, const char* text,
+                           size_t len)
 {
     if (e->nlines >= ED_MAX_LINES) {
         return;
@@ -985,7 +986,7 @@ static void insert_line_at(editor* e, size_t at, const char* text, size_t len)
 }
 
 // Paste the (linewise) yank register below or above the current line.
-static void paste_lines(editor* e, bool below)
+static void paste_lines(struct editor* e, bool below)
 {
     if (e->yank == NULL || e->yank_len == 0) {
         return;
@@ -1007,7 +1008,7 @@ static void paste_lines(editor* e, bool below)
 
 // Linear substring search from just after the cursor (dir +1) or before it
 // (dir -1), wrapping. Moves the cursor to a match or reports not found.
-static void do_search(editor* e, int dir)
+static void do_search(struct editor* e, int dir)
 {
     if (e->vsearch_len == 0) {
         return;
@@ -1034,7 +1035,7 @@ static void do_search(editor* e, int dir)
 
 // --- dispatch ---------------------------------------------------------------
 
-static int run_command(editor* e)
+static int run_command(struct editor* e)
 {
     e->vcmd[e->vcmd_len] = '\0';
     const char* c = e->vcmd;
@@ -1085,7 +1086,7 @@ static int run_command(editor* e)
     return EDITOR_CONTINUE;
 }
 
-static int handle_normal(editor* e, int k)
+static int handle_normal(struct editor* e, int k)
 {
     // Numeric count prefix ('0' is a motion unless a count is in progress).
     if ((k >= '1' && k <= '9') || (k == '0' && e->vcount > 0)) {
@@ -1349,7 +1350,7 @@ static int handle_normal(editor* e, int k)
     return EDITOR_CONTINUE;
 }
 
-static void handle_insert(editor* e, int k)
+static void handle_insert(struct editor* e, int k)
 {
     switch (k) {
     case KEY_ENTER:
@@ -1398,7 +1399,7 @@ static void handle_insert(editor* e, int k)
 }
 
 // Esc / mode return.
-static void vim_escape(editor* e)
+static void vim_escape(struct editor* e)
 {
     if (e->vmode == M_INSERT && e->cx > 0) {
         e->cx--; // vim steps left leaving insert
@@ -1408,7 +1409,7 @@ static void vim_escape(editor* e)
     e->vcount = 0;
 }
 
-static int handle_line_mode(editor* e, int k)
+static int handle_line_mode(struct editor* e, int k)
 {
     if (k == 27) { // Esc cancels
         e->vmode = M_NORMAL;
@@ -1444,7 +1445,7 @@ static int handle_line_mode(editor* e, int k)
 }
 
 // Dispatch one decoded key (a byte or a KEY_* code) by mode.
-static int vim_key_logical(editor* e, int k)
+static int vim_key_logical(struct editor* e, int k)
 {
     if (k == 27) {
         if (e->vmode == M_COMMAND || e->vmode == M_SEARCH) {
@@ -1471,7 +1472,7 @@ static int vim_key_logical(editor* e, int k)
 
 // Byte-level VT100 decoder feeding vim_key_logical. Handles a lone Esc vs an
 // ESC [ ... arrow sequence (resolved by a flush from the loop, byte < 0).
-int editor_vim_key(editor* e, int byte)
+int editor_vim_key(struct editor* e, int byte)
 {
     if (byte < 0) { // frame flush: resolve a dangling Esc as a lone Esc
         if (e->key_es == 1) {
@@ -1558,9 +1559,9 @@ int editor_vim_key(editor* e, int byte)
 // --- lifecycle
 // ----------------------------------------------------------------
 
-editor* editor_open(allocator* mem, const char* path)
+struct editor* editor_open(struct allocator* mem, const char* path)
 {
-    editor* e = new (mem, editor, 1);
+    struct editor* e = new (mem, struct editor, 1);
     e->mem = mem;
     e->lines = new (mem, ed_line, ED_MAX_LINES);
     e->line_len = new (mem, size_t, ED_MAX_LINES);
@@ -1578,7 +1579,7 @@ static mu_Color vrgb(uint32_t c)
     return mu_color((c >> 16) & 0xff, (c >> 8) & 0xff, c & 0xff, 255);
 }
 
-void editor_vim_draw(editor* e, mu_Context* ctx)
+void editor_vim_draw(struct editor* e, mu_Context* ctx)
 {
     mu_Container* cnt = mu_get_current_container(ctx);
     if (cnt == NULL) {

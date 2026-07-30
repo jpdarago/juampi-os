@@ -59,9 +59,9 @@ static int build_query(uint8_t* q, uint16_t id, const char* host)
     h->nscount = 0;
     h->arcount = 0;
     int o = sizeof(struct dns_header);
-    str rest = str_from(host);
+    struct str rest = str_from(host);
     while (rest.len > 0) {
-        str label;
+        struct str label;
         str_cut_ch(rest, '.', &label, &rest); // no '.': label = rest, rest = ""
         if (label.len == 0 || label.len > 63 || o + 1 + (int)label.len > 500) {
             return -1;

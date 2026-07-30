@@ -47,32 +47,32 @@ static size_t ui_strlen(const char* s)
 // The UI's root allocator, injected once at boot (shell_run -> ui_init). The UI
 // never calls heap_default(); per-widget arenas and the microui context are
 // carved from this.
-static heap_allocator* ui_heap;
+static struct heap_allocator* ui_heap;
 
-void ui_init(heap_allocator* h)
+void ui_init(struct heap_allocator* h)
 {
     ui_heap = h;
 }
-heap_allocator* ui_root_heap(void)
+struct heap_allocator* ui_root_heap(void)
 {
     return ui_heap;
 }
 
 // A lifetime-scoped arena for a widget: one block from the injected root heap,
 // wrapped in an arena the widget allocates from, freed wholesale on close.
-typedef struct {
-    arena a;
+struct ui_arena {
+    struct arena a;
     void* backing;
-} ui_arena;
+};
 
-static ui_arena ui_arena_new(ptrdiff_t size)
+static struct ui_arena ui_arena_new(ptrdiff_t size)
 {
     // 16 is the heap's maximum alignment; the arena pads its own allocations.
     void* backing = alloc(&ui_heap->base, size, 16, 1);
-    ui_arena ua = {arena_init(backing, size), backing};
+    struct ui_arena ua = {arena_init(backing, size), backing};
     return ua;
 }
-static void ui_arena_free(ui_arena* ua)
+static void ui_arena_free(struct ui_arena* ua)
 {
     heap_free(ui_heap, ua->backing);
     ua->backing = NULL;
@@ -189,12 +189,12 @@ mu_Context* ui_current(void)
 // A custom microui command: blit a native-layout pixel buffer (a Lua canvas)
 // into a window. Pushed by ui_image(), handled in render().
 #define CMD_IMAGE (MU_COMMAND_MAX + 1)
-typedef struct {
+struct ImageCommand {
     mu_BaseCommand base;
     const uint32_t* buf;
     int w, h;
     mu_Rect rect;
-} ImageCommand;
+};
 
 void ui_image(mu_Context* ctx, const uint32_t* buf, int w, int h)
 {
@@ -206,8 +206,8 @@ void ui_image(mu_Context* ctx, const uint32_t* buf, int w, int h)
     // Dark letterbox behind the image so any body the canvas doesn't cover
     // reads as intentional, not the light window background.
     mu_draw_rect(ctx, b, mu_color(14, 17, 22, 255));
-    ImageCommand* c = (ImageCommand*)mu_push_command(ctx, CMD_IMAGE,
-                                                     sizeof(ImageCommand));
+    struct ImageCommand* c = (struct ImageCommand*)mu_push_command(
+            ctx, CMD_IMAGE, sizeof(struct ImageCommand));
     c->buf = buf;
     c->w = w;
     c->h = h;
@@ -278,8 +278,8 @@ void ui_text_ansi(mu_Context* ctx, const char* s, int x, int y)
 // tick, and treenode collapse/expand markers.
 // Stroke a rectangle outline `t` pixels thick — the window-control icons are
 // drawn from these rather than glyphs so they read as buttons, not letters.
-static void stroke_rect(gfx_surface* s, int x, int y, int w, int h, int t,
-                        uint32_t col)
+static void stroke_rect(struct gfx_surface* s, int x, int y, int w, int h,
+                        int t, uint32_t col)
 {
     gfx_fill(s, x, y, w, t, col);         // top
     gfx_fill(s, x, y + h - t, w, t, col); // bottom
@@ -287,7 +287,7 @@ static void stroke_rect(gfx_surface* s, int x, int y, int w, int h, int t,
     gfx_fill(s, x + w - t, y, t, h, col); // right
 }
 
-static void draw_icon(gfx_surface* s, int id, mu_Rect r, mu_Color c)
+static void draw_icon(struct gfx_surface* s, int id, mu_Rect r, mu_Color c)
 {
     uint32_t col = rgb(c);
     switch (id) {
@@ -349,7 +349,7 @@ static void draw_icon(gfx_surface* s, int id, mu_Rect r, mu_Color c)
 
 static void render(mu_Context* ctx)
 {
-    gfx_surface* s = gfx_screen();
+    struct gfx_surface* s = gfx_screen();
     mu_Command* cmd = NULL;
     while (mu_next_command(ctx, &cmd)) {
         switch (cmd->type) {
@@ -373,7 +373,7 @@ static void render(mu_Context* ctx)
             break;
         }
         case CMD_IMAGE: {
-            ImageCommand* ic = (ImageCommand*)cmd;
+            struct ImageCommand* ic = (struct ImageCommand*)cmd;
             gfx_image(s, ic->rect.x, ic->rect.y, ic->w, ic->h, ic->buf);
             break;
         }
@@ -394,7 +394,7 @@ static const char* const CURSOR[] = {
 
 static void draw_cursor(int x, int y)
 {
-    gfx_surface* s = gfx_screen();
+    struct gfx_surface* s = gfx_screen();
     int rows = (int)(sizeof CURSOR / sizeof CURSOR[0]);
     for (int j = 0; j < rows; j++) {
         const char* row = CURSOR[j];
@@ -753,7 +753,7 @@ static void desktop_windows(mu_Context* ctx)
 // restores buffering + the sink; the desktop loop repaints on the next frame.
 // The desktop's single terminal instance (its state lives in a per-terminal
 // arena; this pointer lets ui_fullscreen_end re-attach the console sink to it).
-static term* desk_term;
+static struct term* desk_term;
 
 // The terminal's whole lifetime: the ~430 KB scrollback grid + input/history,
 // with headroom. Lives for the desktop's life (never freed).
@@ -782,7 +782,7 @@ void ui_fullscreen_end(void)
 // flood-filled transparent, so gfx_blit composes it over the desktop colour).
 // Decoded once; NULL if the module is missing or the decode fails.
 static uint32_t* logo_pixels;
-static qoi_image logo_img;
+static struct qoi_image logo_img;
 
 static void desktop_logo_load(void)
 {
@@ -813,7 +813,8 @@ void ui_desktop_run(void)
     }
     desktop_logo_load();
     mu_Context* ctx = ui_loop_ctx();
-    ui_arena ta = ui_arena_new(TERM_ARENA_SIZE); // desktop-lifetime, not freed
+    struct ui_arena ta =
+            ui_arena_new(TERM_ARENA_SIZE); // desktop-lifetime, not freed
     desk_term = term_open(&ta.a.base);
     console_set_sink(term_write,
                      desk_term); // shell output now lands in the terminal grid
@@ -882,8 +883,8 @@ int ui_edit(const char* path)
 {
     // The editor's whole lifetime lives in one arena, whether windowed or
     // headless; ui_arena_free at the end releases every buffer at once.
-    ui_arena ua = ui_arena_new(EDITOR_ARENA_SIZE);
-    editor* e = editor_open(&ua.a.base, path);
+    struct ui_arena ua = ui_arena_new(EDITOR_ARENA_SIZE);
+    struct editor* e = editor_open(&ua.a.base, path);
 
     if (!gfx_available()) {
         int r = editor_run(e); // classic full-screen editor (headless)

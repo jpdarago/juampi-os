@@ -7,7 +7,7 @@
 
 // Minimal ELF64 definitions — just enough to load a static executable's
 // loadable segments.
-typedef struct {
+struct Elf64_Ehdr {
     uint8_t e_ident[16];
     uint16_t e_type;
     uint16_t e_machine;
@@ -22,9 +22,9 @@ typedef struct {
     uint16_t e_shentsize;
     uint16_t e_shnum;
     uint16_t e_shstrndx;
-} __attribute__((__packed__)) Elf64_Ehdr;
+} __attribute__((__packed__));
 
-typedef struct {
+struct Elf64_Phdr {
     uint32_t p_type;
     uint32_t p_flags;
     uint64_t p_offset;
@@ -33,9 +33,9 @@ typedef struct {
     uint64_t p_filesz;
     uint64_t p_memsz;
     uint64_t p_align;
-} __attribute__((__packed__)) Elf64_Phdr;
+} __attribute__((__packed__));
 
-typedef struct {
+struct Elf64_Shdr {
     uint32_t sh_name;
     uint32_t sh_type;
     uint64_t sh_flags;
@@ -46,16 +46,16 @@ typedef struct {
     uint32_t sh_info;
     uint64_t sh_addralign;
     uint64_t sh_entsize;
-} __attribute__((__packed__)) Elf64_Shdr;
+} __attribute__((__packed__));
 
-typedef struct {
+struct Elf64_Sym {
     uint32_t st_name;
     uint8_t st_info;
     uint8_t st_other;
     uint16_t st_shndx;
     uint64_t st_value;
     uint64_t st_size;
-} __attribute__((__packed__)) Elf64_Sym;
+} __attribute__((__packed__));
 
 #define PT_LOAD 1
 #define SHT_SYMTAB 2

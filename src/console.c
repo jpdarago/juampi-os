@@ -71,7 +71,7 @@ void console_reinit(void* fb, uint64_t w, uint64_t h, uint64_t pitch)
 // Serializes console output across cores (the APs share these sinks once SMP is
 // up). Taken at the string level so a whole print/number stays intact; the
 // unlocked emit() below is the single writer the locked wrappers call.
-static spinlock console_lock;
+static struct spinlock console_lock;
 
 // Optional extra sink (the windowed terminal's scrollback). Receives the raw
 // character stream — including the SGR escapes from the highlighter — before

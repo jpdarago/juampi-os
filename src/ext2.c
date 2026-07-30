@@ -108,13 +108,13 @@ static bool has_filetype;
 // module never reaches for the global heap_default(). Block buffers are alloc'd
 // and freed within an operation; ext2_read_path's result outlives the call and
 // is released by the caller via ext2_free().
-static heap_allocator* fs_heap;
+static struct heap_allocator* fs_heap;
 
 // The block device this filesystem is mounted on (set by ext2_mount). All
 // sector I/O goes through it, so ext2 is decoupled from any one driver.
-static const blockdev* fs_dev;
+static const struct blockdev* fs_dev;
 
-static allocator* mem(void)
+static struct allocator* mem(void)
 {
     return &fs_heap->base;
 }
@@ -331,7 +331,7 @@ static bool resolve(const char* path, uint32_t* out_ino, struct inode* out)
 
 // --- Public API ------------------------------------------------------------
 
-bool ext2_mount(const blockdev* dev, heap_allocator* heap)
+bool ext2_mount(const struct blockdev* dev, struct heap_allocator* heap)
 {
     mounted = false;
     fs_heap = heap; // must be set before any mem()/read below
@@ -391,7 +391,7 @@ void* ext2_read_path(const char* path, size_t* size)
     return read_file(&in, inode_file_size(&in), size);
 }
 
-bool ext2_stat_path(const char* path, ext2_stat* out)
+bool ext2_stat_path(const char* path, struct ext2_stat* out)
 {
     if (!mounted) {
         return false;

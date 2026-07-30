@@ -129,11 +129,11 @@ static struct {
     uint8_t stream_tag;     // stream number programmed into SDCTL + the codec
     uint32_t sd_int_bit;    // INTCTL/INTSTS bit for this stream
 
-    dma_buf corb, rirb;       // command / response rings
-    uint16_t rirb_rp;         // our RIRB read pointer (entries consumed)
-    dma_buf bdl;              // buffer descriptor list
-    dma_buf buf[BDL_ENTRIES]; // period buffers
-    uint32_t wr;              // next period to hand the mixer (producer cursor)
+    struct dma_buf corb, rirb;       // command / response rings
+    uint16_t rirb_rp;                // our RIRB read pointer (entries consumed)
+    struct dma_buf bdl;              // buffer descriptor list
+    struct dma_buf buf[BDL_ENTRIES]; // period buffers
+    uint32_t wr; // next period to hand the mixer (producer cursor)
 
     uint8_t codec; // codec address on the link
     uint16_t dac;  // audio-output converter node
@@ -334,7 +334,7 @@ static void hda_stop(void)
 
 // Completion ISR: acknowledge the stream's buffer-completion status (level-
 // triggered, so it stays asserted until cleared) and refill the ring.
-static void hda_irq(interrupt_frame* f)
+static void hda_irq(struct interrupt_frame* f)
 {
     (void)f;
     uint32_t is = r32(REG_INTSTS);
@@ -464,7 +464,8 @@ static void stream_setup(void)
 
 static bool hda_init(void)
 {
-    pci_addr a = pci_find_class(PCI_CLASS_MULTIMEDIA, PCI_SUBCLASS_HDA, 0x00);
+    struct pci_addr a =
+            pci_find_class(PCI_CLASS_MULTIMEDIA, PCI_SUBCLASS_HDA, 0x00);
     if (!a.found) {
         return false; // no HDA controller — silent (audio is optional)
     }
@@ -526,7 +527,7 @@ static bool hda_init(void)
     return true;
 }
 
-const audio_output hda_backend = {
+const struct audio_output hda_backend = {
         .name = "hda",
         .init = hda_init,
         .period_frames = hda_period_frames,

@@ -87,7 +87,7 @@ static void early_halt(const char* msg)
 
 // Non-fatal breakpoint (int3) handler used by the milestone-2 self-test.
 static volatile int bp_hits;
-static void breakpoint_handler(interrupt_frame* f)
+static void breakpoint_handler(struct interrupt_frame* f)
 {
     (void)f;
     bp_hits++;
@@ -143,7 +143,7 @@ static void sum_worker(void* p)
 // then verify every survivor is intact (catching overlaps/corruption) and that
 // freed blocks are reused. Returns true on success.
 #define STRESS_N 300
-static bool heap_stress(allocator* mem, heap_allocator* h)
+static bool heap_stress(struct allocator* mem, struct heap_allocator* h)
 {
     static void* ptrs[STRESS_N];
     static ptrdiff_t sizes[STRESS_N];
@@ -256,10 +256,10 @@ void kmain(void)
     }
     // The kernel heap (alloc.h interface) lives in the window paging_init
     // mapped; long-lived subsystem allocations draw from it via `allocator*`.
-    heap_allocator heap = heap_init(
+    struct heap_allocator heap = heap_init(
             paging_init(hhdm_request.response->offset, best_base, best_len),
             KHEAP_SIZE);
-    allocator* mem = &heap.base;
+    struct allocator* mem = &heap.base;
     heap_set_default(&heap); // back the libc shim's malloc/free (Lua)
 
     // Self-test: distinct frames, writable zeroed heap and arena blocks (the
@@ -273,7 +273,7 @@ void kmain(void)
     h[0] = 0x1234;
     h[15] = 0x5678;
 
-    arena scratch = arena_init(new (mem, char, 1024), 1024);
+    struct arena scratch = arena_init(new (mem, char, 1024), 1024);
     uint64_t* av = new (&scratch.base, uint64_t, 4);
     av[3] = 0xA5A5A5A5u;
     void* before_free = h;

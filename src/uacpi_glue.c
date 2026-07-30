@@ -252,9 +252,9 @@ uacpi_status uacpi_kernel_io_write32(uacpi_handle h, uacpi_size off,
 }
 
 // --- PCI config space (legacy 0xCF8/0xCFC via pci_read32/write32) -----------
-typedef struct {
+struct pci_dev {
     uint8_t bus, dev, func;
-} pci_dev;
+};
 
 uacpi_status uacpi_kernel_pci_device_open(uacpi_pci_address address,
                                           uacpi_handle* out)
@@ -262,7 +262,7 @@ uacpi_status uacpi_kernel_pci_device_open(uacpi_pci_address address,
     if (address.segment != 0) {
         return UACPI_STATUS_NOT_FOUND; // legacy config: segment 0 only
     }
-    pci_dev* d = alloc(&heap_default()->base, 1, 1, sizeof *d);
+    struct pci_dev* d = alloc(&heap_default()->base, 1, 1, sizeof *d);
     d->bus = address.bus;
     d->dev = address.device;
     d->func = address.function;
@@ -275,7 +275,7 @@ void uacpi_kernel_pci_device_close(uacpi_handle h)
         heap_free(heap_default(), h);
     }
 }
-static uint32_t pci_cfg_dword(pci_dev* d, uacpi_size off)
+static uint32_t pci_cfg_dword(struct pci_dev* d, uacpi_size off)
 {
     return pci_read32(d->bus, d->dev, d->func, (uint8_t)(off & ~3u));
 }
@@ -298,7 +298,7 @@ uacpi_status uacpi_kernel_pci_read32(uacpi_handle h, uacpi_size off,
 }
 uacpi_status uacpi_kernel_pci_write8(uacpi_handle h, uacpi_size off, uacpi_u8 v)
 {
-    pci_dev* d = h;
+    struct pci_dev* d = h;
     uint32_t dw = pci_cfg_dword(d, off);
     uint32_t sh = (off & 3) * 8;
     dw = (dw & ~(0xFFu << sh)) | ((uint32_t)v << sh);
@@ -308,7 +308,7 @@ uacpi_status uacpi_kernel_pci_write8(uacpi_handle h, uacpi_size off, uacpi_u8 v)
 uacpi_status uacpi_kernel_pci_write16(uacpi_handle h, uacpi_size off,
                                       uacpi_u16 v)
 {
-    pci_dev* d = h;
+    struct pci_dev* d = h;
     uint32_t dw = pci_cfg_dword(d, off);
     uint32_t sh = (off & 2) * 8;
     dw = (dw & ~(0xFFFFu << sh)) | ((uint32_t)v << sh);
@@ -318,7 +318,7 @@ uacpi_status uacpi_kernel_pci_write16(uacpi_handle h, uacpi_size off,
 uacpi_status uacpi_kernel_pci_write32(uacpi_handle h, uacpi_size off,
                                       uacpi_u32 v)
 {
-    pci_dev* d = h;
+    struct pci_dev* d = h;
     pci_write32(d->bus, d->dev, d->func, (uint8_t)(off & ~3u), v);
     return UACPI_STATUS_OK;
 }
@@ -326,7 +326,7 @@ uacpi_status uacpi_kernel_pci_write32(uacpi_handle h, uacpi_size off,
 // --- interrupts: the ACPI SCI (a single line) -------------------------------
 static uacpi_interrupt_handler g_sci_handler;
 static uacpi_handle g_sci_ctx;
-static void sci_trampoline(interrupt_frame* f)
+static void sci_trampoline(struct interrupt_frame* f)
 {
     (void)f;
     if (g_sci_handler != NULL) {
