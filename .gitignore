@@ -66,3 +66,4 @@ build/tools/png2qoi
 build/disk/chello.elf
 build/hosted/*.elf
 build/disk/filetest.elf
+build/hosted/libnewlib.a

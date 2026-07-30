@@ -18,6 +18,7 @@
 CROSS        ?=
 CC            = $(CROSS)gcc
 LD            = $(CROSS)ld
+AR            = $(CROSS)ar
 CLANG_FORMAT  = clang-format
 # Native compiler for build-time host tools (e.g. the logo generator). Never
 # the cross prefix: these run on the build host, not the target.
@@ -114,6 +115,30 @@ UACPI_SRCS := $(wildcard $(SRC_DIR)/uacpi/*.c)
 UACPI_OBJS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(UACPI_SRCS))
 UACPI_DEF  := -DUACPI_USE_BUILTIN_STRING
 
+# Vendored newlib subset (src/newlib/, curated from the linker map of the hosted
+# demos) — the libc for hosted C programs (build/hosted/), NOT the kernel. Built
+# per-file with the host GCC into a static archive that hosted programs link
+# against, with our crt0 + int-0x80 libgloss stubs. See docs/hosted-libc.md.
+# _mallocr.c is #included by mallocr.c/freer.c/... — not compiled on its own.
+NEWLIB_DIR  := $(SRC_DIR)/newlib
+NEWLIB_SRCS := $(filter-out $(NEWLIB_DIR)/stdlib/_mallocr.c,\
+	$(shell find $(NEWLIB_DIR) -name '*.c' 2>/dev/null))
+NEWLIB_OBJS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(NEWLIB_SRCS))
+HOSTED_DIR  := $(BUILD_DIR)/hosted
+HOSTED_LIB  := $(HOSTED_DIR)/libnewlib.a
+# Hosted-userland flags: newlib headers only (no host libc, no kernel headers),
+# default code model (programs load low at 0x400000). _LIBC disables newlib's
+# fortify/ssp wrappers when compiling libc itself; MISSING_SYSCALL_NAMES makes
+# the reent layer call our bare-named syscalls; HAVE_MMAP=0 -> sbrk-only malloc.
+HOSTED_CFLAGS := -O2 -std=gnu11 -ffreestanding -nostdinc \
+	-isystem $(shell $(CC) -print-file-name=include) -I$(NEWLIB_DIR)/include \
+	-w -fno-pic -fno-pie -fno-stack-protector -fno-builtin -mno-red-zone \
+	-DMISSING_SYSCALL_NAMES -DHAVE_MMAP=0 -D_LIBC
+LIBGCC       := $(shell $(CC) -print-libgcc-file-name)
+# Hosted demo programs, shipped as Limine modules (run("chello.elf")).
+HOSTED_PROGS := chello filetest
+HOSTED_ELVES := $(patsubst %,$(HOSTED_DIR)/%.elf,$(HOSTED_PROGS))
+
 VENDOR_OBJS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(VENDOR_CSOURCES))
 OBJS       := $(COBJS) $(ASMOBJS) $(VENDOR_OBJS) $(LUA_OBJS) $(LUA_ASM_OBJ) $(HL_OBJS) $(HTTP_OBJS) $(MICROUI_OBJS) $(BEARSSL_OBJS) $(UACPI_OBJS)
 DEPS       := $(COBJS:.o=.d) $(VENDOR_OBJS:.o=.d) $(LUA_OBJS:.o=.d) $(HL_OBJS:.o=.d) $(HTTP_OBJS:.o=.d) $(MICROUI_OBJS:.o=.d) $(BEARSSL_OBJS:.o=.d) $(UACPI_OBJS:.o=.d)
@@ -163,6 +188,33 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.S | $(OBJ_DIR)
 $(OBJ_DIR)/flanterm/%.o: $(SRC_DIR)/flanterm/%.c | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w $(CPPFLAGS) -c -o $@ $<
+
+# Vendored newlib: host GCC, hosted flags (more specific than the generic obj
+# rule, so it wins for src/newlib/**). These objects go into libnewlib.a for
+# hosted programs, never into the kernel.
+$(OBJ_DIR)/newlib/%.o: $(SRC_DIR)/newlib/%.c | $(OBJ_DIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(HOSTED_CFLAGS) -c -o $@ $<
+
+$(HOSTED_LIB): $(NEWLIB_OBJS)
+	$(AR) rcs $@ $^
+
+# crt0 + libgloss stubs, compiled against the newlib headers.
+$(OBJ_DIR)/hosted/crt0.o: $(HOSTED_DIR)/crt0.S | $(OBJ_DIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(HOSTED_CFLAGS) -c -o $@ $<
+$(OBJ_DIR)/hosted/syscalls.o: $(HOSTED_DIR)/syscalls.c | $(OBJ_DIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(HOSTED_CFLAGS) -c -o $@ $<
+
+# A hosted program: compile against newlib, then link static at 0x400000 with
+# our crt0 + stubs + the vendored libc + the compiler's libgcc (entry _start).
+$(HOSTED_DIR)/%.elf: $(HOSTED_DIR)/%.c $(OBJ_DIR)/hosted/crt0.o \
+		$(OBJ_DIR)/hosted/syscalls.o $(HOSTED_LIB)
+	$(CC) $(HOSTED_CFLAGS) -c -o $(OBJ_DIR)/hosted/$*.o $<
+	$(CC) -nostdlib -static -no-pie -Wl,-Ttext-segment=0x400000 \
+		$(OBJ_DIR)/hosted/crt0.o $(OBJ_DIR)/hosted/$*.o \
+		$(OBJ_DIR)/hosted/syscalls.o $(HOSTED_LIB) $(LIBGCC) -o $@
 
 $(OBJ_DIR)/printf/%.o: $(SRC_DIR)/printf/%.c | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
@@ -299,7 +351,7 @@ lab: $(LAB_ELVES)
 SNDASSETS := $(wildcard $(BUILD_DIR)/scripts/*.qoa)
 
 # Everything shipped to the image as a Limine module.
-MODULES := $(SCRIPTS) $(LOGO) $(SNDASSETS) $(LAB_ELVES)
+MODULES := $(SCRIPTS) $(LOGO) $(SNDASSETS) $(LAB_ELVES) $(HOSTED_ELVES)
 
 # Pack the kernel and the modules (scripts + logo) into a bootable UEFI image
 # with Limine (sudo-free, mtools).
@@ -371,6 +423,10 @@ test: boot.img $(DISK_IMG)
 		INPUT='assert(k.time()>0 and k.date().year>=2026); assert(type((input.mouse()))=="number"); fb.text(0,0,"x"); k.sleep(1); print("API_OK")' \
 		MARKER=API_OK tests/boot-smoke.sh
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" \
+		INPUT='run("chello.elf")' MARKER=HOSTED_OK tests/boot-smoke.sh
+	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" DISK="$(DISK_IMG)" \
+		INPUT='run("filetest.elf")' MARKER=FILEIO_OK tests/boot-smoke.sh
+	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" \
 		INPUT='run("parallel.lua")' MARKER=PARALLEL_OK tests/boot-smoke.sh
 
 # --- Formatting / linting ---------------------------------------------------
@@ -387,7 +443,7 @@ lint:
 # clean leaves it in place (regenerate it with `make logo`).
 clean:
 	rm -rf $(OBJ_DIR) $(KERNEL) boot.img disk.img .ovmf.fd $(PNG2QOI) \
-		$(LAB_DIR)/*.o $(LAB_DIR)/*.elf
+		$(LAB_DIR)/*.o $(LAB_DIR)/*.elf $(HOSTED_LIB) $(HOSTED_ELVES)
 
 help:
 	@echo "Targets: all kernel.bin run test format lint clean"
