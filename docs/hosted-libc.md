@@ -14,12 +14,20 @@ reasoning.
 
 ## Pieces
 
-- **newlib** (built from source for `x86_64-elf`, `--disable-newlib-supplied-
-  syscalls`, so it calls our stubs). Bootstrap build: `build/hosted/build-newlib.sh`
-  runs newlib's own autotools build with the nix cross toolchain
-  (`pkgsCross.x86_64-embedded`) into the gitignored `.newlib/`. A curated,
-  vendored subset compiled per-file by our Makefile (like BearSSL/Lua/uACPI) is
-  the planned follow-up; the autotools build is the get-it-working step.
+- **newlib** — a **curated subset vendored under `src/newlib/`** and compiled
+  per-file by the host GCC in the Makefile (like BearSSL/Lua/uACPI). The subset
+  (63 libc `.c` files: stdio, stdlib incl. `dtoa`/`mprec`, string, reent, ctype,
+  locale, signal, errno) was chosen from a linker map of the demos, so nothing
+  unused is carried. Subdirs are preserved so same-dir `"local.h"` includes
+  resolve; the installed public headers sit in `src/newlib/include`. Compile
+  flags that matter: `-D_LIBC` (disable newlib's fortify/ssp wrappers — the nix
+  gcc wrapper's default `-D_FORTIFY_SOURCE=2` would otherwise pull them in),
+  `-DMISSING_SYSCALL_NAMES` (reent layer calls our bare-named syscalls),
+  `-DHAVE_MMAP=0` (sbrk-only malloc), `-nostdinc` + newlib headers only.
+  Re-vendoring pipeline (only needed to change the subset): `build-newlib.sh`
+  does newlib's autotools build for `x86_64-elf` (via the nix
+  `pkgsCross.x86_64-embedded` toolchain) into the gitignored `.newlib/`, then
+  `vendor-newlib.sh` copies the curated files into `src/newlib/`.
 - **crt0** (`build/hosted/crt0.S`) — `_start(argc, argv)`: run `.init_array`
   constructors, call `main`, hand the result to `exit()` (which flushes stdio and
   traps out via the exit syscall). Also supplies empty `_init`/`_fini`.
@@ -53,33 +61,24 @@ Files are buffered whole in the kernel heap: reads serve from the buffer, writes
 grow it, and `close` (or program teardown) flushes a dirty file to ext2 with
 `ext2_write_file` — matching the raw-block Lua API's simple whole-file model.
 
-## Building and running (bootstrap phase)
+## Building and running
 
-```sh
-# One-time: build newlib for x86_64-elf into .newlib/
-nix shell nixpkgs#pkgsCross.x86_64-embedded.buildPackages.gcc \
-          nixpkgs#pkgsCross.x86_64-embedded.buildPackages.binutils \
-  --command bash build/hosted/build-newlib.sh
+Just `make` — the vendored newlib compiles with the host GCC, no cross toolchain
+needed. The demo programs `build/hosted/chello.c` (printf/snprintf/malloc) and
+`filetest.c` (fopen/fread/fwrite over ext2) build into Limine modules; run them
+from the shell with `run("chello.elf")` / `run("filetest.elf")`. Both are in
+`make test` (`HOSTED_OK`, `FILEIO_OK`).
 
-# Link a program against newlib + our crt0 + stubs -> a ring-0 ELF at 0x400000
-nix shell nixpkgs#pkgsCross.x86_64-embedded.buildPackages.gcc \
-          nixpkgs#pkgsCross.x86_64-embedded.buildPackages.binutils \
-  --command bash build/hosted/build-prog.sh build/hosted/hello.c build/disk/chello.elf
-
-make disk.img          # ship it on the ext2 disk
-# then, in the shell:  run("chello.elf")
-```
-
-`build/hosted/hello.c` (printf/snprintf/malloc) and `filetest.c` (fopen/fread/
-fwrite over ext2) are the worked examples; both are verified in QEMU.
+To add a program: drop a `.c` in `build/hosted/`, add its name to `HOSTED_PROGS`
+in the Makefile, and add a `module_path` line to `build/limine.conf`.
 
 ## Known limits / follow-ups
 
-- **Not yet in `make`**: building hosted programs needs the cross toolchain,
-  which isn't in devenv. The planned vendored-subset step compiles newlib and
-  programs with the host GCC (which already emits x86_64 ELF), folding it into
-  the normal build and `make test`.
 - This newlib's `printf` mishandles the **`%z`** length modifier — use `%u`/`%lu`.
+- The vendored subset covers stdio/stdlib/string/math-printf; a program using
+  more of libc (e.g. `<math.h>` functions, `qsort`, more of `<time.h>`) will hit
+  an undefined reference — add the needed `.c` files to `src/newlib/` (re-run
+  `vendor-newlib.sh` with the extra members) and rebuild.
 - No real process model: `fork`/`exec`/signals are `ENOSYS` stubs; `getpid` is 1.
 - Stdout is line-buffered via the console; there is no `stdin` line editing beyond
   the console's own.

@@ -147,9 +147,8 @@ TODOs
 * Processes and `fork`/copy-on-write on the 64-bit base.
 * USB polish: host-side key repeat, transaction translators (low/full-speed
   devices behind high-speed hubs).
-* Fold the hosted-newlib build into `make` (vendor a curated subset compiled by
-  the host GCC) and, longer term, run hosted programs in ring 3 with process
-  isolation (needs preemptive scheduling + a fuller syscall surface).
+* Run hosted C programs in ring 3 with process isolation (needs preemptive
+  scheduling + a fuller syscall surface); today they run in ring 0.
 
 License
 -------

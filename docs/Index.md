@@ -35,8 +35,8 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
   enumeration, stream DMA — the modern/real-XPS audio path behind the mixer
   vtable. *Status: complete in QEMU; real-HW headphone path deferred.*
 - [[hosted-libc]] — run ordinary newlib-linked C programs in ring 0 via an
-  int-0x80 syscall layer (stdio, malloc, math, ext2 file I/O). *Status: working
-  (autotools bootstrap); vendored subset + Makefile integration to come.*
+  int-0x80 syscall layer (stdio, malloc, math, ext2 file I/O). *Status: complete
+  — curated newlib subset vendored + built by `make`.*
 
 ## By status
 
@@ -50,7 +50,7 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
 | [[constants-audit]]  | in progress       | M11       |
 | [[acpi-uacpi]]       | in progress       | —         |
 | [[hda-audio]]        | complete (QEMU)   | —         |
-| [[hosted-libc]]      | working (bootstrap) | —       |
+| [[hosted-libc]]      | complete          | —         |
 
 ## Conventions
 
