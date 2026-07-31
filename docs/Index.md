@@ -37,6 +37,10 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
 - [[hosted-libc]] — run ordinary newlib-linked C programs in ring 0 via an
   int-0x80 syscall layer (stdio, malloc, math, ext2 file I/O). *Status: complete
   — curated newlib subset vendored + built by `make`.*
+- [[api-layers]] — review of the API surfaces (Lua bindings, lab API table,
+  hosted syscall ABI + juampi platform lib, the two libcs): how each works,
+  the decisions behind them, and a prioritized friction/improvement list.
+  *Status: review.*
 
 ## By status
 
@@ -51,6 +55,7 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
 | [[acpi-uacpi]]       | in progress       | —         |
 | [[hda-audio]]        | complete (QEMU)   | —         |
 | [[hosted-libc]]      | complete          | —         |
+| [[api-layers]]       | review            | —         |
 
 ## Conventions
 
