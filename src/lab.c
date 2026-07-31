@@ -41,6 +41,44 @@ static void lab_join(unsigned index)
 {
     smp_join(index);
 }
+
+// Data-parallel fan-out over smp_run_on/join. smp_run_on hands the AP a
+// void(*)(void*), so we thread the (worker, count) through a per-core slot and
+// unpack it in a trampoline. The slots live on this stack frame and outlive the
+// APs because we join before returning.
+#define LAB_MAX_WORKERS 64
+struct lab_par_slot {
+    void (*fn)(void*, unsigned, unsigned);
+    void* ctx;
+    unsigned worker;
+    unsigned nworkers;
+};
+static void lab_par_trampoline(void* p)
+{
+    struct lab_par_slot* s = (struct lab_par_slot*)p;
+    s->fn(s->ctx, s->worker, s->nworkers);
+}
+static void lab_parallel(void (*fn)(void*, unsigned, unsigned), void* ctx)
+{
+    unsigned n = (unsigned)smp_cpu_count();
+    if (n < 1) {
+        n = 1;
+    }
+    if (n > LAB_MAX_WORKERS) {
+        n = LAB_MAX_WORKERS;
+    }
+    struct lab_par_slot slots[LAB_MAX_WORKERS];
+    for (unsigned i = 0; i < n; i++) {
+        slots[i] = (struct lab_par_slot){fn, ctx, i, n};
+    }
+    for (unsigned i = 1; i < n; i++) {
+        smp_run_on(i, lab_par_trampoline, &slots[i]);
+    }
+    lab_par_trampoline(&slots[0]); // this core is worker 0
+    for (unsigned i = 1; i < n; i++) {
+        smp_join(i);
+    }
+}
 // The current run's render target: a canvas buffer (drawn into a window) when
 // lab_run was given one, else NULL to draw straight to the live screen. Native
 // binaries are sequential (BSP, one at a time), so a single current-target is
@@ -83,6 +121,7 @@ static const struct lab_api api = {
         .ncores = lab_ncores,
         .run_on = lab_run_on,
         .join = lab_join,
+        .parallel = lab_parallel,
         .fb = lab_fb,
         .fb_width = lab_fb_width,
         .fb_height = lab_fb_height,

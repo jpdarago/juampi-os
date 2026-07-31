@@ -29,6 +29,15 @@ struct lab_api {
     void (*run_on)(unsigned index, // dispatch fn(arg) to core `index`...
                    void (*fn)(void*), void* arg);
     void (*join)(unsigned index); // ...then wait for it to finish
+    // Data-parallel helper over run_on/join: run fn on every online core at
+    // once and wait for all of them. Each invocation gets its worker index
+    // (0..nworkers-1) and the worker count, so it can carve out its share of
+    // the work (e.g. rows [worker*H/nworkers, (worker+1)*H/nworkers)). Worker 0
+    // runs on the calling core. `ctx` is shared read-only/disjoint-write across
+    // workers (no locking is provided). This is the ergonomic SMP entry point;
+    // run_on/join remain for finer control.
+    void (*parallel)(void (*fn)(void* ctx, unsigned worker, unsigned nworkers),
+                     void* ctx);
     // Framebuffer, for native programs that draw (a raytracer, say). All zero
     // when headless. Pixels are 32bpp; pack them with the fb_shifts() layout
     // and store at fb() + y*fb_pitch() + x*4. fb_pitch() is in bytes and may

@@ -189,27 +189,29 @@ static struct col trace(double ex, double ey, double ez, double dx, double dy,
     return out;
 }
 
-struct band {
+struct rt_scene {
     unsigned* fb; // framebuffer base (32bpp)
     unsigned W, H, pxpitch;
     unsigned rs, gs, bs;
-    unsigned cpu, nc;
 };
 
-// Render this core's horizontal band straight into the framebuffer.
-static void render_band(void* p)
+// A parallel worker: render this worker's horizontal band of the scene straight
+// into the framebuffer. Called on every core by api->parallel(); `worker` and
+// `nworkers` carve the frame into disjoint, interleaved rows (worker w renders
+// rows w, w+nworkers, w+2*nworkers, ...). Interleaving balances the load: the
+// scene's detail is concentrated in the middle rows, so contiguous bands would
+// leave the middle worker doing most of the work.
+static void render_worker(void* p, unsigned worker, unsigned nworkers)
 {
-    struct band* bd = (struct band*)p;
-    unsigned W = bd->W, H = bd->H, pxpitch = bd->pxpitch;
-    unsigned rs = bd->rs, gs = bd->gs, bs = bd->bs;
-    unsigned* fb = bd->fb;
+    struct rt_scene* s = (struct rt_scene*)p;
+    unsigned W = s->W, H = s->H, pxpitch = s->pxpitch;
+    unsigned rs = s->rs, gs = s->gs, bs = s->bs;
+    unsigned* fb = s->fb;
     double aspect = (double)W / (double)H;
     double ox = 0.0, oy = 1.3, oz = 1.0; // camera
     double inv = 1.0 / NSAMP;
-    unsigned lo = (H / bd->nc) * bd->cpu;
-    unsigned hi = (bd->cpu == bd->nc - 1) ? H : (H / bd->nc) * (bd->cpu + 1);
 
-    for (unsigned y = lo; y < hi; y++) {
+    for (unsigned y = worker; y < H; y += nworkers) {
         for (unsigned x = 0; x < W; x++) {
             double cr = 0, cg = 0, cb = 0;
             for (int si = 0; si < NSAMP; si++) {
@@ -271,25 +273,22 @@ long bench(const struct lab_api* api, long arg)
     unsigned pxpitch = (unsigned)(api->fb_pitch() / 4);
     unsigned char rs, gs, bs;
     api->fb_shifts(&rs, &gs, &bs);
-    unsigned nc = (unsigned)api->ncores();
-    if (nc > 64)
-        nc = 64;
+    struct rt_scene scene = {
+            .fb = (unsigned*)base,
+            .W = W,
+            .H = H,
+            .pxpitch = pxpitch,
+            .rs = rs,
+            .gs = gs,
+            .bs = bs,
+    };
 
-    struct band bands[64];
-    for (unsigned i = 0; i < nc; i++) {
-        bands[i].fb = (unsigned*)base;
-        bands[i].W = W, bands[i].H = H, bands[i].pxpitch = pxpitch;
-        bands[i].rs = rs, bands[i].gs = gs, bands[i].bs = bs;
-        bands[i].cpu = i, bands[i].nc = nc;
-    }
-
+    // Fan the frame across all cores and wait for them — one call, no manual
+    // per-core run_on/join bookkeeping.
     unsigned long t0 = api->ns();
-    for (unsigned i = 1; i < nc; i++)
-        api->run_on(i, render_band, &bands[i]);
-    render_band(&bands[0]); // the BSP renders band 0
-    for (unsigned i = 1; i < nc; i++)
-        api->join(i);
+    api->parallel(render_worker, &scene);
     unsigned long ms = (api->ns() - t0) / 1000000UL;
+    unsigned nc = (unsigned)api->ncores();
 
     api->print("raytraced ");
     print_uint(api, W);
