@@ -176,87 +176,118 @@ all: $(KERNEL) boot.img
 $(OBJ_DIR):
 	mkdir -p $(OBJ_DIR)
 
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
+# Flag stamps: make only compares file mtimes, so editing a rule's compile
+# flags (say, adding a -D) leaves stale objects behind — the exact failure mode
+# that once shipped a silent Doom (a pre-FEATURE_SOUND i_sound.o). Each stamp
+# file holds its rule family's full command prefix and is rewritten only when
+# that changes; objects depend on their family's stamp, so a flags edit
+# rebuilds exactly that family and an unchanged one rebuilds nothing.
+.PHONY: FORCE
+FORCE:
+$(OBJ_DIR)/.flags.kernel: FORCE | $(OBJ_DIR)
+	@printf '%s\n' '$(CC) $(CFLAGS) $(CPPFLAGS)' | cmp -s - $@ 2>/dev/null || \
+		printf '%s\n' '$(CC) $(CFLAGS) $(CPPFLAGS)' > $@
+$(OBJ_DIR)/.flags.hosted: FORCE | $(OBJ_DIR)
+	@printf '%s\n' '$(CC) $(HOSTED_CFLAGS)' | cmp -s - $@ 2>/dev/null || \
+		printf '%s\n' '$(CC) $(HOSTED_CFLAGS)' > $@
+$(OBJ_DIR)/.flags.doom: FORCE | $(OBJ_DIR)
+	@printf '%s\n' '$(CC) $(HOSTED_CFLAGS) -I$(DOOM_DIR) -DFEATURE_SOUND' | \
+		cmp -s - $@ 2>/dev/null || \
+		printf '%s\n' '$(CC) $(HOSTED_CFLAGS) -I$(DOOM_DIR) -DFEATURE_SOUND' > $@
+$(OBJ_DIR)/.flags.lab: FORCE | $(OBJ_DIR)
+	@printf '%s\n' '$(CC) $(LAB_CFLAGS)' | cmp -s - $@ 2>/dev/null || \
+		printf '%s\n' '$(CC) $(LAB_CFLAGS)' > $@
+
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c $(OBJ_DIR)/.flags.kernel | $(OBJ_DIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o $@ $<
 
 # GNU-assembler sources (.S): assembled by gcc (runs cpp + as).
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.S | $(OBJ_DIR)
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.S $(OBJ_DIR)/.flags.kernel | $(OBJ_DIR)
 	$(CC) $(CPPFLAGS) -c -o $@ $<
 
 # Vendored third-party C (flanterm, printf): compiled with our kernel flags but
 # without our warning gauntlet (kept verbatim). The %-stem includes the subdir.
-$(OBJ_DIR)/flanterm/%.o: $(SRC_DIR)/flanterm/%.c | $(OBJ_DIR)
+$(OBJ_DIR)/flanterm/%.o: $(SRC_DIR)/flanterm/%.c $(OBJ_DIR)/.flags.kernel \
+		| $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w $(CPPFLAGS) -c -o $@ $<
 
 # Vendored newlib: host GCC, hosted flags (more specific than the generic obj
 # rule, so it wins for src/newlib/**). These objects go into libnewlib.a for
 # hosted programs, never into the kernel.
-$(OBJ_DIR)/newlib/%.o: $(SRC_DIR)/newlib/%.c | $(OBJ_DIR)
+$(OBJ_DIR)/newlib/%.o: $(SRC_DIR)/newlib/%.c $(OBJ_DIR)/.flags.hosted \
+		| $(OBJ_DIR)
 	@mkdir -p $(dir $@)
-	$(CC) $(HOSTED_CFLAGS) -c -o $@ $<
+	$(CC) $(HOSTED_CFLAGS) $(CPPFLAGS) -c -o $@ $<
 
 $(HOSTED_LIB): $(NEWLIB_OBJS)
 	$(AR) rcs $@ $^
 
 # crt0 + libgloss stubs, compiled against the newlib headers.
-$(OBJ_DIR)/hosted/crt0.o: $(HOSTED_DIR)/crt0.S | $(OBJ_DIR)
+$(OBJ_DIR)/hosted/crt0.o: $(HOSTED_DIR)/crt0.S $(OBJ_DIR)/.flags.hosted \
+		| $(OBJ_DIR)
 	@mkdir -p $(dir $@)
-	$(CC) $(HOSTED_CFLAGS) -c -o $@ $<
-$(OBJ_DIR)/hosted/syscalls.o: $(HOSTED_DIR)/syscalls.c | $(OBJ_DIR)
+	$(CC) $(HOSTED_CFLAGS) $(CPPFLAGS) -c -o $@ $<
+$(OBJ_DIR)/hosted/syscalls.o: $(HOSTED_DIR)/syscalls.c $(OBJ_DIR)/.flags.hosted \
+		| $(OBJ_DIR)
 	@mkdir -p $(dir $@)
-	$(CC) $(HOSTED_CFLAGS) -c -o $@ $<
+	$(CC) $(HOSTED_CFLAGS) $(CPPFLAGS) -c -o $@ $<
 
 # A hosted program: compile against newlib, then link static at 0x400000 with
 # our crt0 + stubs + the vendored libc + the compiler's libgcc (entry _start).
 $(HOSTED_DIR)/%.elf: $(HOSTED_DIR)/%.c $(OBJ_DIR)/hosted/crt0.o \
-		$(OBJ_DIR)/hosted/syscalls.o $(HOSTED_LIB)
-	$(CC) $(HOSTED_CFLAGS) -c -o $(OBJ_DIR)/hosted/$*.o $<
+		$(OBJ_DIR)/hosted/syscalls.o $(HOSTED_LIB) $(OBJ_DIR)/.flags.hosted
+	$(CC) $(HOSTED_CFLAGS) $(CPPFLAGS) -c -o $(OBJ_DIR)/hosted/$*.o $<
 	$(CC) -nostdlib -static -no-pie -Wl,-Ttext-segment=0x400000 \
 		$(OBJ_DIR)/hosted/crt0.o $(OBJ_DIR)/hosted/$*.o \
 		$(OBJ_DIR)/hosted/syscalls.o $(HOSTED_LIB) $(LIBGCC) -o $@
 
-$(OBJ_DIR)/printf/%.o: $(SRC_DIR)/printf/%.c | $(OBJ_DIR)
+$(OBJ_DIR)/printf/%.o: $(SRC_DIR)/printf/%.c $(OBJ_DIR)/.flags.kernel \
+		| $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w $(CPPFLAGS) -c -o $@ $<
 
 # Generated highlighter (ragel/gperf output): kernel flags, warnings off, with
 # the klibc <string.h> ahead of the gcc one (the gperf lookup calls memcmp).
-$(OBJ_DIR)/highlight/%.o: $(HL_DIR)/%.c | $(OBJ_DIR)
+$(OBJ_DIR)/highlight/%.o: $(HL_DIR)/%.c $(OBJ_DIR)/.flags.kernel | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w -I$(SRC_DIR)/lua/klibc $(CPPFLAGS) -c -o $@ $<
 
 # Vendored picohttpparser: same treatment (verbatim, klibc headers).
-$(OBJ_DIR)/http/%.o: $(SRC_DIR)/http/%.c | $(OBJ_DIR)
+$(OBJ_DIR)/http/%.o: $(SRC_DIR)/http/%.c $(OBJ_DIR)/.flags.kernel | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w -I$(SRC_DIR)/lua/klibc $(CPPFLAGS) -c -o $@ $<
 
 # Vendored microui: same treatment (verbatim, klibc headers for sprintf/qsort).
-$(OBJ_DIR)/microui/%.o: $(SRC_DIR)/microui/%.c | $(OBJ_DIR)
+$(OBJ_DIR)/microui/%.o: $(SRC_DIR)/microui/%.c $(OBJ_DIR)/.flags.kernel \
+		| $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w -I$(SRC_DIR)/lua/klibc $(CPPFLAGS) -c -o $@ $<
 
 # Vendored BearSSL: verbatim (-w) with its own includes; objects mirror the tree.
-$(OBJ_DIR)/bearssl/%.o: $(SRC_DIR)/bearssl/%.c | $(OBJ_DIR)
+$(OBJ_DIR)/bearssl/%.o: $(SRC_DIR)/bearssl/%.c $(OBJ_DIR)/.flags.kernel \
+		| $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w $(BEARSSL_INC) $(CPPFLAGS) -c -o $@ $<
 
 # Vendored uACPI: verbatim (-w), barebones tables-only mode + builtin strings.
-$(OBJ_DIR)/uacpi/%.o: $(SRC_DIR)/uacpi/%.c | $(OBJ_DIR)
+$(OBJ_DIR)/uacpi/%.o: $(SRC_DIR)/uacpi/%.c $(OBJ_DIR)/.flags.kernel \
+		| $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w $(UACPI_DEF) $(CPPFLAGS) -c -o $@ $<
 
 # Generated TLS trust-anchor table: -w (its initialisers cast away const). An
 # explicit target so it overrides the generic src/%.o gauntlet rule.
-$(OBJ_DIR)/tls_trust_anchors.o: $(SRC_DIR)/tls_trust_anchors.c | $(OBJ_DIR)
+$(OBJ_DIR)/tls_trust_anchors.o: $(SRC_DIR)/tls_trust_anchors.c \
+		$(OBJ_DIR)/.flags.kernel | $(OBJ_DIR)
 	$(CC) $(CFLAGS) -w $(CPPFLAGS) -c -o $@ $<
 
 # Embedded Lua: Lua include path (klibc stubs win for <string.h> etc.), no warns.
-$(OBJ_DIR)/lua/%.o: $(SRC_DIR)/lua/%.c | $(OBJ_DIR)
+$(OBJ_DIR)/lua/%.o: $(SRC_DIR)/lua/%.c $(OBJ_DIR)/.flags.kernel | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w $(LUA_INC) $(CPPFLAGS) -c -o $@ $<
 
-$(OBJ_DIR)/lua/%.o: $(SRC_DIR)/lua/%.S | $(OBJ_DIR)
+$(OBJ_DIR)/lua/%.o: $(SRC_DIR)/lua/%.S $(OBJ_DIR)/.flags.kernel | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) -c -o $@ $<
 
@@ -338,7 +369,7 @@ LAB_CFLAGS := -O2 -std=c11 -ffreestanding -nostdlib -fno-pic -fno-pie \
 	-mno-red-zone -mno-mmx -mno-3dnow -fno-stack-protector \
 	-fcf-protection=none -Wall -Wextra -I$(INCLUDE_DIR)
 
-$(LAB_DIR)/%.elf: $(LAB_DIR)/%.c $(INCLUDE_DIR)/lab.h
+$(LAB_DIR)/%.elf: $(LAB_DIR)/%.c $(INCLUDE_DIR)/lab.h $(OBJ_DIR)/.flags.lab
 	$(CC) $(LAB_CFLAGS) -c -o $(@:.elf=.o) $<
 	$(LD) -melf_x86_64 -e bench -Ttext 0x400000 -o $@ $(@:.elf=.o)
 
@@ -397,9 +428,10 @@ DOOM_SRCS := $(wildcard $(DOOM_DIR)/*.c)
 DOOM_OBJS := $(patsubst $(HOSTED_DIR)/%.c,$(OBJ_DIR)/hosted/%.o,$(DOOM_SRCS))
 DOOM_WAD_URL ?= https://github.com/Akbar30Bill/DOOM_wads/raw/master/doom1.wad
 
-$(OBJ_DIR)/hosted/doom/%.o: $(DOOM_DIR)/%.c | $(OBJ_DIR)
+$(OBJ_DIR)/hosted/doom/%.o: $(DOOM_DIR)/%.c $(OBJ_DIR)/.flags.doom | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
-	$(CC) $(HOSTED_CFLAGS) -I$(DOOM_DIR) -DFEATURE_SOUND -c -o $@ $<
+	$(CC) $(HOSTED_CFLAGS) -I$(DOOM_DIR) -DFEATURE_SOUND $(CPPFLAGS) \
+		-c -o $@ $<
 
 $(DISK_DIR)/doom.elf: $(DOOM_OBJS) $(OBJ_DIR)/hosted/crt0.o \
 		$(OBJ_DIR)/hosted/syscalls.o $(HOSTED_LIB)
@@ -499,3 +531,8 @@ help:
 	@echo "  make clean      remove build artifacts"
 
 -include $(DEPS)
+# Hosted-side dep files (newlib, libgloss stubs, hosted programs, Doom): these
+# compiles now emit -MMD too, so header edits (juampi.h, juampi_abi.h, the
+# doomgeneric headers) rebuild their dependents.
+-include $(NEWLIB_OBJS:.o=.d) $(DOOM_OBJS:.o=.d) \
+	$(wildcard $(OBJ_DIR)/hosted/*.d)

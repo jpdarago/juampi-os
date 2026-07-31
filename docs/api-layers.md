@@ -181,15 +181,14 @@ for hosted), which is duplication of function but not of coupling.
 
 > [!warning] Ordered by leverage; F1–F3 are cheap and worth doing soon.
 
-### F1. The syscall table is duplicated by hand
-`SYS_*` numbers live in **both** `src/syscall.c:28` and
-`build/hosted/syscalls.c:15`, tied only by "must match" comments — now 21
-numbers and growing (the audio arc added seven this week). One drifted define
-would produce silent misbehavior, not an error.
-**Fix:** one shared header of plain defines (e.g. `build/hosted/juampi_abi.h`)
-included from both sides — it's pure preprocessor, so the kernel can include a
-hosted-side header safely. Same file can carry the errno values and the
-`ratevol`-style packing helpers.
+### F1. The syscall table is duplicated by hand — ✅ done
+`SYS_*` numbers lived in **both** `src/syscall.c` and
+`build/hosted/syscalls.c`, tied only by "must match" comments. Now
+`build/hosted/juampi_abi.h` is the single authoritative table — pure
+preprocessor, included verbatim by the kernel dispatcher and the libgloss
+stubs, so a drifted number is structurally impossible. Hosted compiles also
+emit `-MMD` dep files now, so editing the ABI header (or `juampi.h`) rebuilds
+exactly its dependents.
 
 ### F2. Dead code: `elf64_load` — ✅ done
 The ring-3 user-mapping loader had **zero callers** — both models load via
@@ -202,11 +201,14 @@ a stale syscall ABI), plus superseded helpers (`console_read_line`,
 (defined-but-never-referenced across all objects, cross-checked against asm and
 the linker script) lives in the commit message for rerunning later.
 
-### F3. Build staleness on flag changes
-Objects don't rebuild when their *flags* change (bit us this week: a stale
+### F3. Build staleness on flag changes — ✅ done
+Objects didn't rebuild when their *flags* changed (bit us this week: a stale
 `i_sound.o` compiled without `-DFEATURE_SOUND` made the sound module silently
-empty). **Fix:** a flags stamp file (write `$(HOSTED_CFLAGS)` etc. to
-`obj/.flags`, depend objects on it) — standard make hygiene, one-time cost.
+empty). Now four stamp files under `obj/` (`.flags.kernel`, `.flags.hosted`,
+`.flags.doom`, `.flags.lab`) each hold their rule family's full command
+prefix, rewritten only on content change; every compile rule depends on its
+family's stamp. Verified: flag override rebuilds exactly that family (406
+kernel objects), unchanged flags rebuild nothing.
 
 ### F4. Hosted argv is vestigial
 `run("doom.elf")` builds `argv = {name, NULL}` (`lua_run.c:195`) and drops any
