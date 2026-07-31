@@ -87,6 +87,20 @@ SMP, parallel Lua, a read/write filesystem on modern storage, a TCP/IP stack
 with HTTPS, a full-AML ACPI layer, an HD-Audio mixer, and a fully legacy-free
 interrupt and input path are all in place.
 
+And before you ask…
+-------------------
+
+**Yes.**
+
+<p align="center">
+  <img src="assets/doom.webp" alt="QEMU boots juampiOS to the Lua shell; run(&quot;doom.elf&quot;) launches Doom's attract demo" width="760"><br>
+  <em>Booting to the shell, then <code>run("doom.elf")</code> — the shareware
+  WAD loads from the ext2 data disk over NVMe, sound effects and OPL FM music
+  play through the kernel mixer, and quitting returns to the shell.
+  &nbsp;<a href="assets/doom.mov">▶&nbsp;full-quality&nbsp;MOV</a> —
+  <a href="docs/doom-port.md">how it works</a>.</em>
+</p>
+
 Building and running
 --------------------
 
