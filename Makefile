@@ -388,10 +388,11 @@ $(DISK_IMG): $(DISK_FILES) $(DISK_RAYTRACER)
 		-d $(DISK_DIR) $@ $(DISK_BLOCKS)
 
 # --- Doom (doomgeneric), a hosted program (see docs/hosted-libc.md) ----------
-# The engine sources are fetched (make doom-src) into build/hosted/doom/ and not
-# committed (GPL); our frontend doomgeneric_juampi.c is committed there. doom.elf
-# and the WAD live on the ext2 disk (not the boot image); build with `make doom`,
-# then boot with the data disk and run("doom.elf").
+# The engine sources are vendored under build/hosted/doom/ (GPLv2 — see the
+# license note in that dir); our frontend is doomgeneric_juampi.c. doom.elf and
+# the WAD live on the ext2 disk (not the boot image); build with `make doom`,
+# then boot with the data disk and run("doom.elf"). `make doom-src` re-fetches
+# the upstream engine (only needed to update the vendored copy).
 DOOM_DIR  := $(HOSTED_DIR)/doom
 DOOM_SRCS := $(wildcard $(DOOM_DIR)/*.c)
 DOOM_OBJS := $(patsubst $(HOSTED_DIR)/%.c,$(OBJ_DIR)/hosted/%.o,$(DOOM_SRCS))
@@ -417,8 +418,9 @@ doom-wad: | $(DISK_DIR)
 		curl -fL -o $(DISK_DIR)/doom1.wad "$(DOOM_WAD_URL)"
 	@ls -l $(DISK_DIR)/doom1.wad
 
-# Build Doom onto the data disk (fetch engine + WAD, link, rebuild ext2 image).
-doom: doom-src doom-wad
+# Build Doom onto the data disk (fetch the WAD, link the vendored engine, rebuild
+# the ext2 image).
+doom: doom-wad
 	$(MAKE) $(DISK_DIR)/doom.elf
 	$(MAKE) $(DISK_IMG)
 	@echo 'Doom ready. Boot with the data disk, then run("doom.elf")'

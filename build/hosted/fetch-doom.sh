@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Fetch the doomgeneric engine sources into build/hosted/doom/ for `make doom`.
-# The engine is GPL, so it is NOT committed (gitignored); only our frontend
-# doomgeneric_juampi.c lives there in git. Idempotent: skips if already present.
+# Re-fetch the doomgeneric engine sources into build/hosted/doom/. The engine is
+# vendored (committed) — this is only needed to UPDATE the vendored copy from
+# upstream. Our frontend doomgeneric_juampi.c is never overwritten. Idempotent:
+# skips if the engine is already present (delete build/hosted/doom/doomdef.c to
+# force a re-fetch).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"

@@ -159,8 +159,14 @@ The kernel is licensed under the MIT License (see `LICENSE`). Bundled
 third-party components keep their own permissive licenses: flanterm
 (BSD-2-Clause, `src/flanterm/`), eyalroz/printf (MIT, `src/printf/`), Lua 5.4
 (MIT, `src/lua/`), microui (MIT, `src/microui/`), BearSSL (MIT,
-`src/bearssl/`), picohttpparser (MIT, `src/http/`), and the Limine boot
-protocol header (0BSD, `include/limine.h`).
+`src/bearssl/`), picohttpparser (MIT, `src/http/`), a curated newlib subset
+(BSD-ish, `src/newlib/`), and the Limine boot protocol header (0BSD,
+`include/limine.h`).
+
+One vendored component uses a **copyleft** license: the Doom engine
+([doomgeneric](https://github.com/ozkl/doomgeneric)) in `build/hosted/doom/` is
+**GPLv2** (`make doom` only). Our frontend there (`doomgeneric_juampi.c`) and the
+rest of juampiOS remain MIT; see `build/hosted/doom/README.md`.
 
 Acknowledgements
 ---------------

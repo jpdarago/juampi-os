@@ -69,8 +69,3 @@ build/disk/filetest.elf
 build/hosted/libnewlib.a
 build/disk/doom1.wad
 build/disk/doom.elf
-
-# doomgeneric engine (GPL) is fetched by `make doom-src`, not committed;
-# our frontend shim is the exception.
-build/hosted/doom/*
-!build/hosted/doom/doomgeneric_juampi.c
