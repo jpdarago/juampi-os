@@ -132,11 +132,12 @@ HOSTED_LIB  := $(HOSTED_DIR)/libnewlib.a
 # the reent layer call our bare-named syscalls; HAVE_MMAP=0 -> sbrk-only malloc.
 HOSTED_CFLAGS := -O2 -std=gnu11 -ffreestanding -nostdinc \
 	-isystem $(shell $(CC) -print-file-name=include) -I$(NEWLIB_DIR)/include \
+	-I$(HOSTED_DIR) \
 	-w -fno-pic -fno-pie -fno-stack-protector -fno-builtin -mno-red-zone \
 	-DMISSING_SYSCALL_NAMES -DHAVE_MMAP=0 -D_LIBC
 LIBGCC       := $(shell $(CC) -print-libgcc-file-name)
 # Hosted demo programs, shipped as Limine modules (run("chello.elf")).
-HOSTED_PROGS := chello filetest
+HOSTED_PROGS := chello filetest gfxdemo
 HOSTED_ELVES := $(patsubst %,$(HOSTED_DIR)/%.elf,$(HOSTED_PROGS))
 
 VENDOR_OBJS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(VENDOR_CSOURCES))

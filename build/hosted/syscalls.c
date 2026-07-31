@@ -22,6 +22,10 @@
 #define SYS_isatty 7
 #define SYS_sbrk 8
 #define SYS_gettimeofday 9
+#define SYS_fb_info 10
+#define SYS_fb_present 11
+#define SYS_getkey 12
+#define SYS_ticks_ms 13
 
 static long trap(long n, long a, long b, long c)
 {
@@ -48,6 +52,34 @@ void _exit(int code)
     trap(SYS_exit, code, 0, 0);
     for (;;) {
     }
+}
+
+// --- juampiOS platform extensions (see juampi.h) ----------------------------
+int juampi_fb_info(int* w, int* h)
+{
+    long r = trap(SYS_fb_info, 0, 0, 0);
+    if (r < 0) {
+        return -1;
+    }
+    if (w != NULL) {
+        *w = (int)(r & 0xFFFF);
+    }
+    if (h != NULL) {
+        *h = (int)((r >> 16) & 0xFFFF);
+    }
+    return 0;
+}
+int juampi_fb_present(const void* pixels, int w, int h)
+{
+    return (int)trap(SYS_fb_present, (long)pixels, w, h);
+}
+int juampi_getkey(int* pressed)
+{
+    return (int)trap(SYS_getkey, (long)pressed, 0, 0);
+}
+unsigned long juampi_ticks_ms(void)
+{
+    return (unsigned long)trap(SYS_ticks_ms, 0, 0, 0);
 }
 
 int write(int fd, const char* buf, int len)

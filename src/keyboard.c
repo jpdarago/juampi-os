@@ -53,6 +53,39 @@ static volatile uint32_t khead, ktail;
 
 static bool shift, ctrl, caps, extended;
 
+// Raw key-event ring for interactive fullscreen apps (games) that need key
+// press AND release. Every make/break is recorded as the PS/2 set-1 make code
+// (bit 7 set for E0-extended keys: arrows, right-ctrl) plus a pressed flag.
+// Separate from the ASCII ring above, which is line-oriented and press-only.
+#define RAW_SZ 128
+#define RAW_EXT 0x80    // in a raw code: an E0-extended key
+#define RAW_DOWN 0x100u // pressed (make) vs released (break)
+static volatile uint16_t rawbuf[RAW_SZ];
+static volatile uint32_t rhead, rtail;
+
+static void rawpush(uint8_t code, bool ext, bool pressed)
+{
+    uint32_t next = (rhead + 1) % RAW_SZ;
+    if (next != rtail) {
+        rawbuf[rhead] = (uint16_t)((code & 0x7F) | (ext ? RAW_EXT : 0) |
+                                   (pressed ? RAW_DOWN : 0));
+        rhead = next;
+    }
+}
+
+int keyboard_poll_raw(int* pressed)
+{
+    if (rhead == rtail) {
+        return -1;
+    }
+    uint16_t v = rawbuf[rtail];
+    rtail = (rtail + 1) % RAW_SZ;
+    if (pressed) {
+        *pressed = (v & RAW_DOWN) ? 1 : 0;
+    }
+    return v & 0xFF; // make code, bit 7 set if E0-extended
+}
+
 // Push one byte into the input ring (dropping it if the ring is full).
 static void kpush(char c)
 {
@@ -95,6 +128,7 @@ static void kbd_irq(struct interrupt_frame* f)
     if (extended) {
         extended = false;
         uint8_t code = sc & 0x7F;
+        rawpush(code, true, !(sc & 0x80)); // raw event: extended make/break
         if (code == SC_CTRL) {
             ctrl = !(sc & 0x80);
         } else if (!(sc & 0x80)) { // make (press) only
@@ -126,6 +160,7 @@ static void kbd_irq(struct interrupt_frame* f)
 
     bool release = sc & 0x80;
     uint8_t code = sc & 0x7F;
+    rawpush(code, false, !release); // raw event: every key, make and break
 
     if (code == SC_LSHIFT || code == SC_RSHIFT) {
         shift = !release;
