@@ -41,6 +41,9 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
   hosted syscall ABI + juampi platform lib, the two libcs): how each works,
   the decisions behind them, and a prioritized friction/improvement list.
   *Status: review.*
+- [[doom-port]] — walkthrough of the Doom port: architecture, design
+  decisions, kernel changes, the syscall/platform APIs it introduced, and the
+  vendored-engine delta. *Status: complete.*
 
 ## By status
 
@@ -56,6 +59,7 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
 | [[hda-audio]]        | complete (QEMU)   | —         |
 | [[hosted-libc]]      | complete          | —         |
 | [[api-layers]]       | review            | —         |
+| [[doom-port]]        | complete          | —         |
 
 ## Conventions
 
