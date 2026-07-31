@@ -11,6 +11,7 @@
 #include <sys/time.h>
 #include <errno.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #define SYS_exit 0
 #define SYS_read 1
@@ -29,6 +30,10 @@
 #define SYS_audio_play 14
 #define SYS_audio_stop 15
 #define SYS_audio_active 16
+#define SYS_audio_music_start 17
+#define SYS_audio_music_write 18
+#define SYS_audio_music_space 19
+#define SYS_audio_music_stop 20
 
 static long trap(long n, long a, long b, long c)
 {
@@ -96,6 +101,22 @@ void juampi_audio_stop(int voice)
 int juampi_audio_playing(int voice)
 {
     return (int)trap(SYS_audio_active, voice, 0, 0);
+}
+void juampi_music_start(void)
+{
+    trap(SYS_audio_music_start, 0, 0, 0);
+}
+int juampi_music_write(const int16_t* stereo, int frames)
+{
+    return (int)trap(SYS_audio_music_write, (long)stereo, frames, 0);
+}
+int juampi_music_space(void)
+{
+    return (int)trap(SYS_audio_music_space, 0, 0, 0);
+}
+void juampi_music_stop(void)
+{
+    trap(SYS_audio_music_stop, 0, 0, 0);
 }
 
 int write(int fd, const char* buf, int len)

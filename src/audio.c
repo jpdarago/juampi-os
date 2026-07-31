@@ -57,6 +57,20 @@ struct voice {
 static struct voice voices[MAX_VOICES];
 static uint32_t voice_seq; // monotonic generation source
 
+// Streaming music ring (see audio_music_* in audio.h): stereo s16 at
+// AUDIO_RATE, filled by a producer via a syscall and drained one frame at a
+// time by the mixer. head/tail are free-running frame counters (unsigned
+// wraparound is fine); count = head - tail. Single producer (writes ring then
+// head), single consumer (reads head, writes tail) -> lock-free on this
+// in-order path.
+#define MUSIC_RING_FRAMES 32768 // power of two; ~0.68 s of headroom at 48 kHz
+#define MUSIC_GAIN                                                             \
+    400 // Q8 mix level (~1.5x); OPL music sits under the louder
+        // one-shot SFX voices, and clamp16 guards dense passages
+static int16_t music_ring[MUSIC_RING_FRAMES * 2];
+static volatile uint32_t music_head, music_tail;
+static volatile bool music_on;
+
 // A voice handle: slot index in the low 8 bits, generation above (kept positive
 // so audio_stop's <0 "all" sentinel is unambiguous). Bump gen + return this on
 // each (re)use; decode it to safely stop/query a specific play, ignoring a
@@ -256,6 +270,41 @@ bool audio_voice_active(int voice_id)
     return voice_from_handle(voice_id) != NULL;
 }
 
+void audio_music_start(void)
+{
+    music_tail = music_head; // drop anything stale
+    music_on = true;
+}
+
+void audio_music_stop(void)
+{
+    music_on = false;
+    music_head = music_tail;
+}
+
+uint32_t audio_music_space(void)
+{
+    return MUSIC_RING_FRAMES - (music_head - music_tail);
+}
+
+uint32_t audio_music_write(const int16_t* stereo, uint32_t frames)
+{
+    if (stereo == NULL) {
+        return 0;
+    }
+    uint32_t space = audio_music_space();
+    if (frames > space) {
+        frames = space;
+    }
+    for (uint32_t i = 0; i < frames; i++) {
+        uint32_t idx = (music_head + i) & (MUSIC_RING_FRAMES - 1);
+        music_ring[idx * 2] = stereo[i * 2];
+        music_ring[idx * 2 + 1] = stereo[i * 2 + 1];
+    }
+    music_head += frames; // publish only after the samples are in place
+    return frames;
+}
+
 static inline int16_t clamp16(int32_t v)
 {
     if (v > 32767) {
@@ -325,6 +374,15 @@ static void mix_period(int16_t* out, uint32_t frames)
             if (voices[v].active) {
                 voice_mix(&voices[v], &l, &r);
             }
+        }
+        // Streaming music: pull one frame from the ring, if any is buffered.
+        // An underrun just contributes silence (no click on a stopped/starved
+        // stream).
+        if (music_on && music_tail != music_head) {
+            uint32_t idx = music_tail & (MUSIC_RING_FRAMES - 1);
+            l += (music_ring[idx * 2] * MUSIC_GAIN) >> 8;
+            r += (music_ring[idx * 2 + 1] * MUSIC_GAIN) >> 8;
+            music_tail++;
         }
         out[2 * f] = clamp16(l);
         out[2 * f + 1] = clamp16(r);

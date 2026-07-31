@@ -70,4 +70,19 @@ void audio_stop(int voice);
 // generation).
 bool audio_voice_active(int voice);
 
+// Streaming music: a single open-ended source (e.g. a hosted program's software
+// synth) mixed in alongside the voices, fed through a lock-free
+// single-producer/ single-consumer ring. Unlike a voice it never "ends" — the
+// producer keeps it topped up. Samples must already be at the mixer format:
+// AUDIO_RATE, stereo, s16 interleaved (the producer does any resampling).
+//   start(): clear the ring and enable mixing.
+//   write(): enqueue up to `frames` stereo frames; returns how many were
+//            accepted (fewer if the ring is full) so the producer can retry.
+//   space(): free stereo frames right now, so the producer can pace itself.
+//   stop():  disable and drop any buffered audio.
+void audio_music_start(void);
+uint32_t audio_music_write(const int16_t* stereo, uint32_t frames);
+uint32_t audio_music_space(void);
+void audio_music_stop(void);
+
 #endif

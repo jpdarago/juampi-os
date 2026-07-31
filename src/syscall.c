@@ -45,7 +45,11 @@
 #define SYS_ticks_ms 13 // -> milliseconds since boot
 #define SYS_audio_play 14 // play 8-bit unsigned mono PCM -> voice handle, or -1
 #define SYS_audio_stop 15 // stop a voice handle
-#define SYS_audio_active 16 // -> 1 if a voice handle is still playing
+#define SYS_audio_active 16      // -> 1 if a voice handle is still playing
+#define SYS_audio_music_start 17 // enable streaming music, clear the ring
+#define SYS_audio_music_write 18 // enqueue stereo 48 kHz frames -> accepted
+#define SYS_audio_music_space 19 // -> free stereo frames in the music ring
+#define SYS_audio_music_stop 20  // disable streaming music
 
 // errno values returned as negatives (must match newlib's <errno.h>).
 #define E_NOENT 2
@@ -434,6 +438,22 @@ static void syscall_handler(struct interrupt_frame* f)
         break;
     case SYS_audio_active:
         r = audio_voice_active((int)a) ? 1 : 0;
+        break;
+    case SYS_audio_music_start:
+        audio_music_start();
+        r = 0;
+        break;
+    case SYS_audio_music_write:
+        r = (b > 0 && a != 0)
+                    ? (long)audio_music_write((const int16_t*)a, (uint32_t)b)
+                    : 0;
+        break;
+    case SYS_audio_music_space:
+        r = (long)audio_music_space();
+        break;
+    case SYS_audio_music_stop:
+        audio_music_stop();
+        r = 0;
         break;
     default:
         r = -E_NOSYS;

@@ -163,10 +163,13 @@ third-party components keep their own permissive licenses: flanterm
 (BSD-ish, `src/newlib/`), and the Limine boot protocol header (0BSD,
 `include/limine.h`).
 
-One vendored component uses a **copyleft** license: the Doom engine
-([doomgeneric](https://github.com/ozkl/doomgeneric)) in `build/hosted/doom/` is
-**GPLv2** (`make doom` only). Our frontend there (`doomgeneric_juampi.c`) and the
-rest of juampiOS remain MIT; see `build/hosted/doom/README.md`.
+Two vendored components under `build/hosted/doom/` use **copyleft** licenses,
+both built only by `make doom`: the Doom engine
+([doomgeneric](https://github.com/ozkl/doomgeneric)) is **GPLv2**, and the OPL3
+FM synthesizer used for Doom's music ([Nuked-OPL3](https://github.com/nukeykt/Nuked-OPL3),
+`opl3.c`/`opl3.h`) is **LGPL 2.1**. Our frontends there (`doomgeneric_juampi.c`,
+`i_juampisound.c`, `i_juampimusic.c`) and the rest of juampiOS remain MIT; see
+`build/hosted/doom/README.md`.
 
 Acknowledgements
 ---------------

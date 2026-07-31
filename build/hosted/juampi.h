@@ -6,6 +6,8 @@
 #ifndef JUAMPI_H
 #define JUAMPI_H
 
+#include <stdint.h>
+
 // Screen size in pixels. Returns 0 and fills *w/*h, or -1 if headless (no
 // framebuffer). Optional — programs may just render at a fixed size and present.
 int juampi_fb_info(int* w, int* h);
@@ -42,5 +44,15 @@ unsigned long juampi_ticks_ms(void);
 int juampi_audio_play(const void* pcm_u8, int nsamples, int rate, int vol);
 void juampi_audio_stop(int voice);
 int juampi_audio_playing(int voice);
+
+// Streaming music: a continuous 48 kHz stereo s16 source mixed by the kernel,
+// for a software synth (e.g. Doom's OPL music). start() enables it, write()
+// enqueues interleaved L/R frames and returns how many were accepted (fewer if
+// the ring is full), space() reports free frames so you can pace generation, and
+// stop() silences it. Keep calling write() to keep it fed.
+void juampi_music_start(void);
+int juampi_music_write(const int16_t* stereo, int frames);
+int juampi_music_space(void);
+void juampi_music_stop(void);
 
 #endif

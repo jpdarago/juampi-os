@@ -105,11 +105,25 @@ lump (8-bit unsigned mono PCM, 16-sample pad stripped each end) and hands it to
 own loop. Stop/IsPlaying use **generation-tagged** voice handles (`gen<<8 | slot`)
 so a recycled slot can't be mistaken for the original play. `sys_audio_play`
 applies a ~2 ms declick ramp to each one-shot, since DMX samples rarely rest at
-the DC midpoint and would otherwise snap to silence with a click. Music is **not**
-implemented (a null `DG_music_module`) — it needs an OPL/MIDI synth. To enable
+the DC midpoint and would otherwise snap to silence with a click. To enable
 `FEATURE_SOUND` we dropped i_sound.c's unused `<SDL_mixer.h>` include and defined
 the two `use_libsamplerate`/`libsamplerate_scale` config knobs the (unbuilt) SDL
 backend would have provided.
+
+Doom also has **OPL FM music** — the authentic DOS-Doom sound, no external
+assets. `build/hosted/doom/i_juampimusic.c` implements `DG_music_module` over a
+vendored cycle-accurate OPL3 emulator (`opl3.c`, Nuked-OPL3, LGPL 2.1): it parses
+the MUS lump directly, maps each note to an FM patch from the WAD's `GENMIDI`
+lump, drives the emulated OPL (9 voices, OPL3 mode for stereo), renders 48 kHz
+stereo, and pushes it to a new **kernel streaming-music path**. That path
+(`audio_music_*` in src/audio.c, `juampi_music_*` syscalls) is a lock-free
+single-producer/single-consumer ring the mixer drains one frame per output frame,
+mixed alongside the SFX voices — an open-ended source a software synth keeps
+topped up. The song clock runs at the 140 Hz MUS tick rate; the module's `Poll`
+hook (called ~35 Hz by the game) renders up to the next event, processes that
+event batch, and repeats, converting ticks to samples with a fractional carry so
+timing doesn't drift. A perceptual volume curve maps MIDI velocity/volume onto
+the OPL's logarithmic level register.
 
 It starts in a few seconds: `make run` attaches the
 data disk as **NVMe** (DMA + MSI-X completions — the ext2 mount prefers NVMe over
