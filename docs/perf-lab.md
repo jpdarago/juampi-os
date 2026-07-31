@@ -1,7 +1,7 @@
 ---
 title: Performance lab (PMU counters)
-tags: [design, performance, pmu, msr, planned]
-status: planned
+tags: [design, performance, pmu, msr]
+status: complete
 related: ["[[api-layers]]", "[[doom-port]]", "[[Index]]"]
 created: 2026-07-31
 ---
@@ -90,21 +90,33 @@ the module's event table is data, so adding them is additive.
   the effective frequency multiplier). Frequency pinning via
   `IA32_PERF_CTL` is a follow-up under a future power/thermal note.
 
-## Milestones
+## Milestones — all landed
 
-1. **QEMU realism**: add `-cpu host` (KVM) to `make run` and the smoke
-   harness, keeping the TCG fallback path tested (CI uses TCG — the PMU
-   self-test must skip cleanly there).
-2. **Fixed counters**: `pmu.c` detect + fixed-counter bring-up, plus a
-   boot self-test — count a loop with a known instruction total and assert
-   the counter lands within tolerance (like the existing SMP/FP boot
-   checks).
-3. **GP events + `perf.*`**: the architectural event table, programming,
-   `perf.measure`/`start`/`stop`, luadoc entries.
-4. **`bench()` integration** and a `tests/perf-smoke.sh` gated on
-   `perf.available()`.
-5. **Docs**: measurement-discipline guide in this note; flip status to
-   complete.
+1. **QEMU realism** ✅ — `make run` and every smoke script now default to
+   `-machine q35` plus, when `/dev/kvm` exists, `-accel kvm -cpu host`
+   (TCG fallback otherwise). Landing this surfaced two latent issues: a
+   manually-attached boot drive needs `bootindex=0` or OVMF on q35 boots
+   its internal shell, and boot-smoke's substring marker grep could
+   false-pass on the input echo (now line-anchored). One `-machine pc`
+   test variant keeps the legacy ATA driver covered.
+2. **Fixed counters + boot self-test** ✅ — `src/pmu.c`; the self-test
+   counts a 2-instruction asm loop ×1e6 and measured **2,000,004** against
+   2,000,000 expected (0.0002%) under KVM's vPMU (which exposes
+   architectural version 2 with 4 GP counters; the code sizes itself from
+   CPUID).
+3. **GP events + `perf.*`** ✅ — `src/lua/lua_perf.c`, luadoc-registered.
+4. **`bench()` integration + smoke test** ✅ — bench returns a third
+   `{instructions, cycles, ipc}` result (nil without a PMU);
+   `tests/perf-smoke.sh` runs the Lua-measure path under KVM and skips
+   cleanly on CI; the TCG degradation path (`perf.available() == false`,
+   bench third result nil) is verified.
+5. **Docs** ✅ — this note.
+
+> [!note] Serial-burst limit found while testing
+> A single serial input line longer than ~150 characters overruns the
+> UART FIFO while the line editor echoes (per-keystroke rendering), so
+> test inputs must stay short. A serial RX interrupt + ring would remove
+> the limit; noted as a follow-up.
 
 ## Verification
 

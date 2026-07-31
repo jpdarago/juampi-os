@@ -89,7 +89,8 @@ Lua 5.4 shell. Everything runs in one address space at ring 0.
 Core globals:
   run(name[,arg])    run a .lua script or a native .elf binary
   run()              list what you can run
-  bench(t[,arg[,n]]) time a function/script/binary -> total, per_call
+  bench(t[,arg[,n]]) time a function/script/binary -> total, per_call, pmu
+  perf.measure(fn)   hardware counters: instructions, IPC, LLC + branch stats
   edit(name)         vim-style editor window
   files([path])      graphical file browser
   dump(v) / pp(v)    pretty-print a value or table
@@ -249,7 +250,8 @@ local function help_text()
     print("  run(name[,arg])   run a .lua script or a native .elf binary")
     print("  run()             list what you can run")
     print("  edit(name)        full-screen editor (^S save, ^X run, ^Q quit)")
-    print("  bench(t[,arg[,n]]) time a function/script/binary -> total,per_call")
+    print("  bench(t[,arg[,n]]) time a function/script/binary -> total,per_call,pmu")
+    print("  perf.measure(fn)   hardware counters: instructions, IPC, LLC/branch")
     print("  dump(v) / pp(v)   pretty-print a value or table")
     print("  clear()           clear the screen;  up/down arrows recall history")
     print("  help(lib)         details for a library, e.g. help(fb) or help(net)")

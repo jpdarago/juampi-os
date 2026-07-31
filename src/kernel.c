@@ -26,6 +26,7 @@
 #include <nvme.h>
 #include <xhci.h>
 #include <audio.h>
+#include <pmu.h>
 #include <ext2.h>
 #include <smp.h>
 #include <parallel.h>
@@ -441,6 +442,10 @@ void kmain(void)
                            xhci_fail_reason());
         }
     }
+
+    // --- Performance counters: detect the architectural PMU and self-test it
+    // (absent under TCG; the shell's perf.* degrades gracefully). -----------
+    pmu_init();
 
     // --- Audio: bring up the mixer over an AC'97 output, if present.
     // ----------

@@ -19,6 +19,7 @@
 #include <utils.h> // memcpy
 #include <ui.h>    // canvas window for native lab programs on the desktop
 #include <gfx.h>   // off-screen render target
+#include <pmu.h>   // bench() reports instructions + IPC when a PMU exists
 
 #include <printf/printf.h>
 #include <stdint.h>
@@ -253,9 +254,33 @@ static int l_run(lua_State* L)
     return lua_gettop(L) - base;
 }
 
-// bench(target [,arg=0] [,iters=1000]) -> total_cycles, cycles_per_call.
+// PMU bracket for bench(): counters free-run between begin and end, so the
+// snapshot pair must sit tight around the timed region (artifact loading and
+// argument parsing stay outside it).
+static uint64_t pmu_i0, pmu_c0;
+static void bench_pmu_begin(void)
+{
+    if (pmu_present()) {
+        pmu_start();
+        pmu_i0 = pmu_read_fixed(0);
+        pmu_c0 = pmu_read_fixed(1);
+    }
+}
+static bool bench_pmu_end(uint64_t* instr, uint64_t* cyc)
+{
+    if (!pmu_present()) {
+        return false;
+    }
+    *instr = pmu_read_fixed(0) - pmu_i0;
+    *cyc = pmu_read_fixed(1) - pmu_c0;
+    pmu_stop();
+    return true;
+}
+
+// bench(target [,arg=0] [,iters=1000]) -> total_cycles, cycles_per_call, pmu.
 // target may be a function, a Lua script name, or a native binary name; all
-// three are timed the same way so the results are directly comparable.
+// three are timed the same way so the results are directly comparable. `pmu`
+// is a {instructions=..., ipc=...} table, or nil without hardware counters.
 static int l_bench(lua_State* L)
 {
     long arg = (long)luaL_optinteger(L, 2, 0);
@@ -266,6 +291,7 @@ static int l_bench(lua_State* L)
     uint64_t cycles;
 
     if (lua_isfunction(L, 1)) {
+        bench_pmu_begin();
         cycles = time_lua_callable(L, 1, arg, (uint64_t)iters);
     } else {
         const char* name = luaL_checkstring(L, 1);
@@ -276,6 +302,7 @@ static int l_bench(lua_State* L)
             return luaL_error(L, "no such artifact: %s", name);
         }
         if (is_elf(data, size)) {
+            bench_pmu_begin();
             cycles = lab_bench(data, size, arg, (uint64_t)iters);
             if (owned != NULL) {
                 ext2_free(owned);
@@ -288,14 +315,30 @@ static int l_bench(lua_State* L)
             if (status != LUA_OK) {
                 return lua_error(L);
             }
+            bench_pmu_begin();
             cycles = time_lua_callable(L, lua_gettop(L), arg, (uint64_t)iters);
             lua_pop(L, 1); // the loaded chunk
         }
     }
+    uint64_t instr = 0, cyc = 0;
+    bool have_pmu = bench_pmu_end(&instr, &cyc);
 
     lua_pushinteger(L, cycles);
     lua_pushnumber(L, (lua_Number)cycles / (lua_Number)iters);
-    return 2;
+    if (!have_pmu) {
+        lua_pushnil(L);
+        return 3;
+    }
+    lua_createtable(L, 0, 3);
+    lua_pushinteger(L, (lua_Integer)instr);
+    lua_setfield(L, -2, "instructions");
+    lua_pushinteger(L, (lua_Integer)cyc);
+    lua_setfield(L, -2, "cycles");
+    if (cyc > 0) {
+        lua_pushnumber(L, (lua_Number)instr / (lua_Number)cyc);
+        lua_setfield(L, -2, "ipc");
+    }
+    return 3;
 }
 
 // Install the run/bench globals (called from luashell_init after the libraries
