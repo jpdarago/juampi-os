@@ -25,31 +25,9 @@
 #include <keyboard.h> // raw key events for games
 #include <utils.h>
 
-#define SYS_exit 0
-#define SYS_read 1
-#define SYS_write 2
-#define SYS_open 3
-#define SYS_close 4
-#define SYS_lseek 5
-#define SYS_fstat 6
-#define SYS_isatty 7 // resolved in libgloss; never reaches the kernel
-#define SYS_sbrk 8
-#define SYS_gettimeofday 9
-// juampiOS platform extensions for graphical hosted programs (games): the
-// framebuffer, raw key events, and a millisecond clock. See
-// build/hosted/juampi.h.
-#define SYS_fb_info 10 // -> (height<<16)|width of the screen, or -1 headless
-#define SYS_fb_present                                                         \
-    11                  // blit a w*h 0x00RRGGBB buffer, centered, to the screen
-#define SYS_getkey 12   // -> raw key event (make code, bit7=ext), *pressed
-#define SYS_ticks_ms 13 // -> milliseconds since boot
-#define SYS_audio_play 14 // play 8-bit unsigned mono PCM -> voice handle, or -1
-#define SYS_audio_stop 15 // stop a voice handle
-#define SYS_audio_active 16      // -> 1 if a voice handle is still playing
-#define SYS_audio_music_start 17 // enable streaming music, clear the ring
-#define SYS_audio_music_write 18 // enqueue stereo 48 kHz frames -> accepted
-#define SYS_audio_music_space 19 // -> free stereo frames in the music ring
-#define SYS_audio_music_stop 20  // disable streaming music
+// The syscall numbers live in the shared ABI header, included verbatim by both
+// this dispatcher and the hosted-side libgloss stubs so they cannot drift.
+#include "../build/hosted/juampi_abi.h"
 
 // errno values returned as negatives (must match newlib's <errno.h>).
 #define E_NOENT 2

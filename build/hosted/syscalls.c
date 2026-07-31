@@ -13,27 +13,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define SYS_exit 0
-#define SYS_read 1
-#define SYS_write 2
-#define SYS_open 3
-#define SYS_close 4
-#define SYS_lseek 5
-#define SYS_fstat 6
-#define SYS_isatty 7
-#define SYS_sbrk 8
-#define SYS_gettimeofday 9
-#define SYS_fb_info 10
-#define SYS_fb_present 11
-#define SYS_getkey 12
-#define SYS_ticks_ms 13
-#define SYS_audio_play 14
-#define SYS_audio_stop 15
-#define SYS_audio_active 16
-#define SYS_audio_music_start 17
-#define SYS_audio_music_write 18
-#define SYS_audio_music_space 19
-#define SYS_audio_music_stop 20
+#include "juampi_abi.h" // the SYS_* numbers, shared with src/syscall.c
 
 static long trap(long n, long a, long b, long c)
 {
