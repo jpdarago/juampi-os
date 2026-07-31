@@ -441,10 +441,16 @@ int hosted_run(const void* image, size_t size, int argc, char** argv)
         }
     }
 
-    // Hand the screen back to the desktop if the program took it over.
+    // Hand the screen back to the desktop if the program took it over, and drop
+    // any keystrokes the program left in the input rings (e.g. the 'y' that
+    // confirmed a game's quit) so they don't bleed into the shell prompt.
     if (fb_active) {
         ui_fullscreen_end();
         fb_active = false;
+        while (keyboard_poll() >= 0) {
+        }
+        while (keyboard_poll_raw(NULL) >= 0) {
+        }
     }
 
     heap_free(heap_default(), brk_base);

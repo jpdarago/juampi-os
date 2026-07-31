@@ -262,6 +262,10 @@ void I_Quit (void)
 
     exit(0);
 #endif
+    // juampiOS: doomgeneric left the real exit() under ORIGCODE, so "Quit Game"
+    // would just fall back into the game loop. Actually exit — our hosted
+    // runtime unwinds back to the shell (see src/syscall.c hosted_run).
+    exit(0);
 }
 
 #if !defined(_WIN32) && !defined(__MACOSX__) && !defined(__DJGPP__)
