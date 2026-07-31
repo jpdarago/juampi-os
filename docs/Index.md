@@ -44,6 +44,9 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
 - [[doom-port]] — walkthrough of the Doom port: architecture, design
   decisions, kernel changes, the syscall/platform APIs it introduced, and the
   vendored-engine delta. *Status: complete.*
+- [[perf-lab]] — plan: expose the Intel PMU (fixed + architectural events)
+  as a `perf.*` Lua module and an upgraded `bench()` for noise-free
+  measurement. *Status: planned.*
 
 ## By status
 
@@ -60,6 +63,7 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
 | [[hosted-libc]]      | complete          | —         |
 | [[api-layers]]       | review            | —         |
 | [[doom-port]]        | complete          | —         |
+| [[perf-lab]]         | planned           | —         |
 
 ## Conventions
 
