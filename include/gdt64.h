@@ -30,10 +30,6 @@ struct tss64 {
 // before idt_init so the IDT gates reference the GDT's kernel code selector.
 void gdt_init(struct allocator* mem);
 
-// Set the kernel stack the CPU switches to when an interrupt enters ring 0 from
-// ring 3.
-void tss_set_rsp0(uint64_t rsp0);
-
 // Build and load a per-CPU GDT `g` and TSS `t` (with interrupt stack `rsp0`) on
 // the calling core. Used to give each application processor its own GDT/TSS
 // while sharing the same descriptor layout as the BSP.

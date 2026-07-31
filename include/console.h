@@ -38,9 +38,4 @@ int console_getch(void);
 // terminal instance). Pass (NULL, NULL) to detach. BSP-only.
 void console_set_sink(void (*fn)(void*, char), void* ctx);
 
-// Blocking line input with echo and basic editing (backspace), reading from
-// whichever input source has a byte first (PS/2 keyboard or serial). Returns
-// the line length.
-size_t console_read_line(char* buf, size_t max);
-
 #endif

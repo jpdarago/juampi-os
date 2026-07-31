@@ -150,8 +150,7 @@ KERNEL := kernel.bin
 # include/limine.h is vendored from the Limine project and kept verbatim, so it
 # is excluded from our formatting rules.
 FORMAT_FILES := $(filter-out $(INCLUDE_DIR)/limine.h,$(wildcard \
-	$(SRC_DIR)/*.c $(INCLUDE_DIR)/*.h $(BUILD_DIR)/user/*.c \
-	$(BUILD_DIR)/lab/*.c))
+	$(SRC_DIR)/*.c $(INCLUDE_DIR)/*.h $(BUILD_DIR)/lab/*.c))
 
 # QEMU drives both `make run` and `make test`. make run opens a GTK window;
 # override the backend if you prefer, e.g. `make run QEMU_DISPLAY=curses`.

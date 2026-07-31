@@ -16,11 +16,6 @@ char to_lower(char c)
     return (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c;
 }
 
-char to_upper(char c)
-{
-    return (c >= 'a' && c <= 'z') ? (char)(c - 32) : c;
-}
-
 bool str_eq(struct str a, struct str b)
 {
     if (a.len != b.len) {
@@ -81,56 +76,6 @@ struct str str_trim_prefix(struct str s, struct str prefix)
         s.len -= prefix.len;
     }
     return s;
-}
-
-struct str str_trim_suffix(struct str s, struct str suffix)
-{
-    if (str_has_suffix(s, suffix)) {
-        s.len -= suffix.len;
-    }
-    return s;
-}
-
-bool str_cut(struct str s, struct str sep, struct str* before,
-             struct str* after)
-{
-    // Empty separator: match at the front (before = "", after = s), like Go.
-    if (sep.len != 0 && s.len >= sep.len) {
-        for (size_t i = 0; i + sep.len <= s.len; i++) {
-            bool match = true;
-            for (size_t j = 0; j < sep.len; j++) {
-                if (s.data[i + j] != sep.data[j]) {
-                    match = false;
-                    break;
-                }
-            }
-            if (match) {
-                if (before) {
-                    *before = str_span(s.data, i);
-                }
-                if (after) {
-                    *after =
-                            str_span(s.data + i + sep.len, s.len - i - sep.len);
-                }
-                return true;
-            }
-        }
-    } else if (sep.len == 0) {
-        if (before) {
-            *before = str_span(s.data, 0);
-        }
-        if (after) {
-            *after = s;
-        }
-        return true;
-    }
-    if (before) {
-        *before = s;
-    }
-    if (after) {
-        *after = str_span(s.data + s.len, 0);
-    }
-    return false;
 }
 
 bool str_cut_ch(struct str s, char sep, struct str* before, struct str* after)

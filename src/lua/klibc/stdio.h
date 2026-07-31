@@ -18,7 +18,6 @@ extern FILE* stdin;
 // printf/sprintf/snprintf/vsnprintf/vprintf come from <printf/printf.h> above.
 size_t fwrite(const void* p, size_t sz, size_t n, FILE* f);
 int fputs(const char* s, FILE* f);
-int fputc(int c, FILE* f);
 int fflush(FILE* f);
 int fprintf(FILE* f, const char* fmt, ...);
 int vfprintf(FILE* f, const char* fmt, va_list ap);
@@ -30,7 +29,6 @@ FILE* freopen(const char* path, const char* mode, FILE* f);
 int fclose(FILE* f);
 size_t fread(void* p, size_t sz, size_t n, FILE* f);
 int getc(FILE* f);
-int ungetc(int c, FILE* f);
 int feof(FILE* f);
 int ferror(FILE* f);
 #endif

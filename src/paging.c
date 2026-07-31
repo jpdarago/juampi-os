@@ -112,64 +112,6 @@ uintptr_t physical_address(struct page_directory* pd, uintptr_t va)
     return (e & PTE_ADDR) + PAGE_OFFSET(va);
 }
 
-// Walk the current address space and check that the page containing `va` is
-// present and user-accessible (and writable, if requested), honouring large
-// pages. This is the per-page primitive behind user_access_ok.
-static bool page_user_ok(uintptr_t va, bool write)
-{
-    uint32_t idx[4] = {PML4_INDEX(va), PDPT_INDEX(va), PD_INDEX(va),
-                       PT_INDEX(va)};
-    struct page_table* t =
-            (struct page_table*)phys_to_virt(current_directory->pml4_phys);
-    for (int lvl = 0; lvl < 4; lvl++) {
-        pte_t e = t->entries[idx[lvl]];
-        if (!(e & PTE_P) || !(e & PTE_US))
-            return false;
-        bool leaf = (lvl == 3) || (e & PTE_PS);
-        if (leaf)
-            return !write || (e & PTE_RW);
-        t = (struct page_table*)phys_to_virt(e & PTE_ADDR);
-    }
-    return false;
-}
-
-// Checks that [addr, addr+len) is entirely mapped in the current directory with
-// the user bit (and, for writes, the read/write bit) set. This is the gate for
-// any pointer that crosses the syscall boundary: it rejects kernel addresses
-// and unmapped pages so a user program cannot make the kernel read or write
-// outside its own address space.
-bool user_access_ok(uintptr_t addr, uintptr_t len, bool write)
-{
-    if (len == 0)
-        return true;
-    if (addr + len < addr) // wraparound
-        return false;
-    uintptr_t last_page = (addr + len - 1) & ~0xFFFull;
-    for (uintptr_t page = addr & ~0xFFFull;; page += PAGE_SZ) {
-        if (!page_user_ok(page, write))
-            return false;
-        if (page >= last_page)
-            break;
-    }
-    return true;
-}
-
-// Checks that a NUL-terminated user string is entirely readable in user space,
-// scanning at most `max` bytes (including the terminator).
-bool user_string_ok(const char* s, size_t max)
-{
-    uintptr_t addr = (uintptr_t)s;
-    for (size_t i = 0; i < max; i++) {
-        if (i == 0 || ((addr + i) & 0xFFF) == 0) {
-            if (!user_access_ok(addr + i, 1, false))
-                return false;
-        }
-        if (((const char*)addr)[i] == '\0')
-            return true;
-    }
-    return false;
-}
-
 void* paging_init(uintptr_t hhdm, uintptr_t usable_phys_base,
                   uintptr_t usable_len)
 {

@@ -14,7 +14,6 @@ void qsort(void* base, size_t n, size_t size,
            int (*cmp)(const void*, const void*));
 void abort(void);
 void exit(int code);
-char* getenv(const char* name);
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1
 #endif

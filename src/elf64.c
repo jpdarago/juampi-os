@@ -48,12 +48,6 @@ static uint64_t load_segments(void* image, uint64_t seg_flags)
     return eh->e_entry;
 }
 
-// Load a ring-3 user executable: segments mapped user-accessible.
-uint64_t elf64_load(void* image)
-{
-    return load_segments(image, PAGEF_P | PAGEF_RW | PAGEF_U);
-}
-
 // Load a binary to be called directly in ring 0 (the "sterile lab"): segments
 // mapped kernel-only. They are executable because the kernel does not enforce
 // NX (see src/paging.c).

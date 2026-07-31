@@ -8,5 +8,4 @@ struct lconv {
     char* thousands_sep;
 };
 struct lconv* localeconv(void);
-char* setlocale(int cat, const char* name);
 #endif

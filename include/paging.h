@@ -77,9 +77,4 @@ void* iomap(uintptr_t pa, size_t len, uint32_t flags);
 // Physical address backing va, or (uintptr_t)-1 if unmapped.
 uintptr_t physical_address(struct page_directory* pd, uintptr_t va);
 
-// Validate that a user-supplied pointer/range or string lies in the current
-// process's user-accessible address space (used to guard the syscall boundary).
-bool user_access_ok(uintptr_t addr, uintptr_t len, bool write);
-bool user_string_ok(const char* s, size_t max);
-
 #endif

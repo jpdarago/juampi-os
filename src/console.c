@@ -212,27 +212,3 @@ int console_getch(void)
         __asm__ __volatile__("hlt");
     }
 }
-
-size_t console_read_line(char* buf, size_t max)
-{
-    size_t n = 0;
-    for (;;) {
-        char c = (char)console_getch();
-        if (c == '\r' || c == '\n') {
-            console_print("\n");
-            buf[n] = '\0';
-            return n;
-        }
-        if (c == 0x7F || c == 0x08) { // DEL / backspace
-            if (n > 0) {
-                n--;
-                console_print("\b \b"); // erase on the terminal
-            }
-            continue;
-        }
-        if (c >= 0x20 && c < 0x7F && n < max - 1) {
-            buf[n++] = c;
-            console_putc(c); // echo
-        }
-    }
-}

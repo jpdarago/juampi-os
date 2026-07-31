@@ -61,12 +61,9 @@ struct Elf64_Sym {
 #define SHT_SYMTAB 2
 
 // Load an ELF64 image (already in memory at `image`) into the current address
-// space, mapping each loadable segment as user pages. Returns the entry point,
-// or 0 if the image is not a valid ELF64 executable.
-uint64_t elf64_load(void* image);
-
-// Like elf64_load but maps segments as kernel-only pages, for a binary that is
-// called directly in ring 0 (the "sterile lab" — see lab.h). Returns the entry.
+// space, mapping each loadable segment as kernel-only pages, for a binary that
+// is called directly in ring 0 (lab and hosted programs alike). Returns the
+// entry point, or 0 if the image is not a valid ELF64 executable.
 uint64_t elf64_load_exec(void* image);
 
 // Look up a symbol's address (st_value) by name in the image's symbol table.

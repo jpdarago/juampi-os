@@ -191,12 +191,16 @@ included from both sides — it's pure preprocessor, so the kernel can include a
 hosted-side header safely. Same file can carry the errno values and the
 `ratevol`-style packing helpers.
 
-### F2. Dead code: `elf64_load`
-The ring-3 user-mapping loader (`src/elf64.c:52`) has **zero callers** — both
-models load via `elf64_load_exec`. It's a leftover from a user-mode story that
-never materialized. Delete it (git remembers), or keep it only if ring 3 is
-actually on the roadmap; today it misleads readers into thinking a user-mode
-path exists.
+### F2. Dead code: `elf64_load` — ✅ done
+The ring-3 user-mapping loader had **zero callers** — both models load via
+`elf64_load_exec`. Removed in the dead-code pass along with the other ring-3
+remnants it traveled with (`tss_set_rsp0`, `user_access_ok`/`user_string_ok`,
+`build/user/hello.c` — the milestone-5 user-mode experiment, which still spoke
+a stale syscall ABI), plus superseded helpers (`console_read_line`,
+`serial_getc/print/dec/hex`, `e1000_present`, `str_cut`/`str_trim_suffix`/
+`to_upper`, `tls_error`, unused klibc shims). ~280 lines. The `nm`-based sweep
+(defined-but-never-referenced across all objects, cross-checked against asm and
+the linker script) lives in the commit message for rerunning later.
 
 ### F3. Build staleness on flag changes
 Objects don't rebuild when their *flags* change (bit us this week: a stale

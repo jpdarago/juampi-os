@@ -8,11 +8,6 @@
 static uint64_t gdt[7];
 static struct tss64 tss;
 
-void tss_set_rsp0(uint64_t rsp0)
-{
-    tss.rsp0 = rsp0;
-}
-
 // Fill a 7-entry GDT `g` with the shared kernel/user code+data descriptors and
 // a 64-bit TSS system descriptor (two slots) pointing at `t`. Shared by the BSP
 // (gdt_init) and each AP (gdt_ap_load) so every core's GDT is identical bar its

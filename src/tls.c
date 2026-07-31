@@ -165,11 +165,6 @@ int tls_recv(struct tls_conn* c, void* buf, int cap)
     return r;
 }
 
-int tls_error(struct tls_conn* c)
-{
-    return br_ssl_engine_last_error(&c->sc.eng);
-}
-
 void tls_close(struct tls_conn* c)
 {
     br_sslio_close(&c->ioc); // best-effort close_notify

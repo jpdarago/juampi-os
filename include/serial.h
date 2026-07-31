@@ -10,15 +10,8 @@
 // (`-serial stdio`), which is far friendlier for CI than the VGA text buffer.
 void serial_init(void);
 void serial_putc(char c);
-void serial_print(const char* s);
 // Non-blocking read: returns the next byte, or -1 if the receive FIFO is empty.
 int serial_poll(void);
-// Blocking read: spins until a byte arrives.
-char serial_getc(void);
-// Unformatted number helpers (the formatted printf lives elsewhere); used for
-// boot logging and fault dumps.
-void serial_dec(uint64_t v);
-void serial_hex(uint64_t v);
 
 // Base port and register offsets.
 #define SERIAL_COM1 0x3F8

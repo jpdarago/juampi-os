@@ -14,9 +14,6 @@
 // descriptor rings and bring the link up. Returns false if no card is present.
 bool e1000_init(void);
 
-// True once e1000_init() has found and configured a card.
-bool e1000_present(void);
-
 // Copy the card's 6-byte MAC address into `out`.
 void e1000_mac(uint8_t out[6]);
 

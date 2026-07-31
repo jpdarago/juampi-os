@@ -89,7 +89,6 @@ double atan2(double y, double x)
     return r;
 }
 
-double atan(double x) { return atan2(x, 1.0); }
 double asin(double x) { return atan2(x, sqrt(1.0 - x * x)); }
 double acos(double x) { return atan2(sqrt(1.0 - x * x), x); }
 
@@ -200,11 +199,4 @@ double frexp(double x, int* e)
     *e = (int)((v.u >> 52) & 0x7FF) - 1022;
     v.u = (v.u & ~(0x7FFull << 52)) | (1022ull << 52);
     return v.d;
-}
-
-double modf(double x, double* ip)
-{
-    double t = trunc(x);
-    *ip = t;
-    return x - t;
 }

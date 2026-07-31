@@ -33,15 +33,6 @@ int serial_poll(void)
     return inb(SERIAL_COM1 + SERIAL_RBR);
 }
 
-char serial_getc(void)
-{
-    int c;
-    while ((c = serial_poll()) < 0) {
-        cpu_relax();
-    }
-    return (char)c;
-}
-
 void serial_putc(char c)
 {
     // Bounded wait: a missing or misbehaving UART must never hang the kernel
@@ -50,38 +41,4 @@ void serial_putc(char c)
         ;
     }
     outb(SERIAL_COM1 + SERIAL_THR, c);
-}
-
-void serial_print(const char* s)
-{
-    while (*s) {
-        if (*s == '\n') {
-            serial_putc('\r');
-        }
-        serial_putc(*s);
-        s++;
-    }
-}
-
-void serial_dec(uint64_t v)
-{
-    char buf[21];
-    int i = 20;
-    buf[i--] = '\0';
-    if (v == 0) {
-        buf[i--] = '0';
-    }
-    while (v > 0) {
-        buf[i--] = '0' + (v % 10);
-        v /= 10;
-    }
-    serial_print(&buf[i + 1]);
-}
-
-void serial_hex(uint64_t v)
-{
-    serial_print("0x");
-    for (int shift = 60; shift >= 0; shift -= 4) {
-        serial_putc("0123456789abcdef"[(v >> shift) & 0xF]);
-    }
 }

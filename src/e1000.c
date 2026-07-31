@@ -238,11 +238,6 @@ bool e1000_init(void)
     return true;
 }
 
-bool e1000_present(void)
-{
-    return present;
-}
-
 void e1000_mac(uint8_t out[6])
 {
     for (int i = 0; i < 6; i++) {

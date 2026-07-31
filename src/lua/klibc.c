@@ -331,12 +331,6 @@ void exit(int code)
     }
 }
 
-char* getenv(const char* name)
-{
-    (void)name;
-    return NULL;
-}
-
 // --- stdio.h (everything routes to the console) -----------------------------
 
 struct __FILE {
@@ -362,13 +356,6 @@ int fputs(const char* s, void* f)
     (void)f;
     console_print(s);
     return 0;
-}
-
-int fputc(int c, void* f)
-{
-    (void)f;
-    console_putc((char)c);
-    return c;
 }
 
 int fflush(void* f)
@@ -426,11 +413,6 @@ int getc(void* f)
     (void)f;
     return -1;
 }
-int ungetc(int c, void* f)
-{
-    (void)f;
-    return c;
-}
 int feof(void* f)
 {
     (void)f;
@@ -465,9 +447,3 @@ struct lconv {
 };
 static struct lconv c_locale = {".", ""};
 struct lconv* localeconv(void) { return &c_locale; }
-char* setlocale(int cat, const char* name)
-{
-    (void)cat;
-    (void)name;
-    return "C";
-}
