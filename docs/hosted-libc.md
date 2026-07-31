@@ -96,8 +96,11 @@ rebuilds the ext2 image. Boot with the data disk attached, then `run("doom.elf")
 — it loads `/doom1.wad`, renders 320x200 auto-scaled 2x via `fb_present`, and
 takes input via the raw key events. Our frontend implements doomgeneric's 6
 hooks and stubs the POSIX bits Doom references but doesn't need. Doom is built
-silent (no `FEATURE_SOUND`); WAD load is slow (~80s) because the 4 MiB file is
-read block-by-block over ext2/ATA PIO.
+silent (no `FEATURE_SOUND`). It starts in a few seconds: `make run` attaches the
+data disk as **NVMe** (DMA + MSI-X completions — the ext2 mount prefers NVMe over
+ATA), and the ext2 reader loads the WAD in batched contiguous runs. (The earlier
+~80 s came from ATA PIO transferring one 16-bit word per `inw()` — a VM exit each
+— plus re-reading indirect blocks per data block; both are fixed.)
 
 ## Known limits / follow-ups
 

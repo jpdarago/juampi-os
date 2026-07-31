@@ -427,10 +427,13 @@ doom: doom-wad
 
 .PHONY: doom doom-src doom-wad
 
-# QEMU args attaching the data disk as the primary IDE slave (bus ide.0 unit 1);
-# shared by `run` and the smoke tests.
+# QEMU args attaching the data disk for `make run`. NVMe (not IDE): it's the
+# faster path (DMA + MSI-X completions vs ATA PIO) and matches the real target
+# (the XPS is NVMe-only), so `run("doom.elf")` etc. load from ext2-on-NVMe. The
+# ext2 mount prefers NVMe > USB > ATA. (The smoke tests attach an IDE disk of
+# their own, so ata.c keeps its coverage.)
 DISK_QEMU := -drive file=$(DISK_IMG),format=raw,if=none,id=juampidisk \
-	-device ide-hd,drive=juampidisk,bus=ide.0,unit=1
+	-device nvme,serial=juampidisk,drive=juampidisk
 
 # Boot the OS in QEMU under OVMF. Limine loads the kernel straight into 64-bit
 # long mode. OVMF vars must be writable, so we boot from a private copy.
