@@ -91,14 +91,13 @@ static uint8_t mouse_cmd(uint8_t v)
     return ctrl_read();
 }
 
-static void mouse_irq(struct interrupt_frame* f)
+// Assemble one aux byte into the 3-byte packet stream. Called from the IRQ 12
+// handler below, and from the keyboard IRQ when it finds an aux byte pending in
+// the shared output buffer (see kbd_irq): whichever handler drains port 0x60
+// must route the byte by its status bit, or the mouse stream desyncs and the
+// stray byte becomes a phantom scancode.
+void mouse_handle_byte(uint8_t b)
 {
-    (void)f;
-    uint8_t st = inb(PS2_STATUS);
-    if (!(st & ST_OUTPUT_FULL) || !(st & ST_AUX_DATA)) {
-        return; // not an aux byte (shouldn't happen on IRQ 12, but be safe)
-    }
-    uint8_t b = inb(PS2_DATA);
     switch (pkt_idx) {
     case 0:
         if (!(b & 0x08)) {
@@ -123,6 +122,23 @@ static void mouse_irq(struct interrupt_frame* f)
         buttons = flags & 0x07;
         break;
     }
+}
+
+static void mouse_irq(struct interrupt_frame* f)
+{
+    (void)f;
+    uint8_t st = inb(PS2_STATUS);
+    if (!(st & ST_OUTPUT_FULL) || !(st & ST_AUX_DATA)) {
+        return; // not an aux byte (a keyboard byte pends: leave it for IRQ 1)
+    }
+    mouse_handle_byte(inb(PS2_DATA));
+}
+
+void mouse_flush(void)
+{
+    pkt_idx = 0;
+    acc_dx = acc_dy = 0;
+    buttons = 0;
 }
 
 void mouse_init(void)

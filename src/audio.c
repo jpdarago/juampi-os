@@ -44,6 +44,11 @@ struct voice {
                   // stale handle can't stop/query a slot that was recycled
     voice_kind kind;
     int32_t gain; // Q8 (256 = unity)
+    // Stop fade: audio_stop on a single voice doesn't cut it mid-waveform (an
+    // audible click — Doom reuses SFX channels constantly); it sets `fading`
+    // and the mixer ramps fade_q8 256 -> 0 over ~2.7 ms, then deactivates.
+    bool fading;
+    int32_t fade_q8;
     bool loop;
     // tone
     uint32_t phase, inc, frames_left;
@@ -201,6 +206,8 @@ int audio_tone(uint32_t freq, uint32_t ms, float gain)
         }
         voices[i].kind = VOICE_TONE;
         voices[i].loop = false;
+        voices[i].fading = false;
+        voices[i].fade_q8 = 256;
         voices[i].pcm = NULL;
         voices[i].phase = 0;
         // per-frame phase step, 16.16 in table units: freq * SINE_LEN / rate
@@ -241,6 +248,8 @@ int audio_play_pcm(const int16_t* samples, uint32_t frames, uint32_t rate,
         voices[i].nframes = frames;
         voices[i].channels = ch;
         voices[i].loop = loop;
+        voices[i].fading = false;
+        voices[i].fade_q8 = 256;
         voices[i].pos = 0;
         voices[i].step = (uint32_t)(((uint64_t)rate << 16) / AUDIO_RATE);
         int32_t g = (int32_t)(gain * 256.0f);
@@ -261,13 +270,16 @@ void audio_stop(int voice_id)
     }
     struct voice* v = voice_from_handle(voice_id);
     if (v != NULL) {
-        voice_free(v);
+        // Fade rather than cut (see struct voice): the mixer deactivates the
+        // voice when the ramp reaches zero, and reap_finished() frees it.
+        v->fading = true;
     }
 }
 
 bool audio_voice_active(int voice_id)
 {
-    return voice_from_handle(voice_id) != NULL;
+    struct voice* v = voice_from_handle(voice_id);
+    return v != NULL && !v->fading; // a fading voice is already "stopped"
 }
 
 void audio_music_start(void)
@@ -332,9 +344,21 @@ static int32_t pcm_sample(const struct voice* v, uint32_t idx, uint8_t c,
 // advance its cursor. Deactivates (freeing PCM) when the voice ends.
 static void voice_mix(struct voice* v, int32_t* l, int32_t* r)
 {
+    // Stop fade (see audio_stop): ramp the contribution to zero, then
+    // deactivate. Runs in the ISR, so only flags are touched — reap_finished()
+    // frees the PCM buffer later, from a safe context.
+    int32_t fade = 256;
+    if (v->fading) {
+        if (v->fade_q8 <= 0) {
+            v->active = false;
+            return;
+        }
+        fade = v->fade_q8;
+        v->fade_q8 -= 2; // 128 frames to silence: ~2.7 ms at 48 kHz
+    }
     if (v->kind == VOICE_TONE) {
         uint32_t idx = (v->phase >> 16) & (SINE_LEN - 1);
-        int32_t s = (sine_tab[idx] * v->gain) >> 8;
+        int32_t s = (((sine_tab[idx] * v->gain) >> 8) * fade) >> 8;
         *l += s;
         *r += s;
         v->phase += v->inc;
@@ -360,8 +384,8 @@ static void voice_mix(struct voice* v, int32_t* l, int32_t* r)
     uint32_t frac = (uint32_t)(v->pos & 0xFFFF);
     int32_t sl = pcm_sample(v, idx, 0, frac);
     int32_t sr = v->channels == 2 ? pcm_sample(v, idx, 1, frac) : sl;
-    *l += (sl * v->gain) >> 8;
-    *r += (sr * v->gain) >> 8;
+    *l += (((sl * v->gain) >> 8) * fade) >> 8;
+    *r += (((sr * v->gain) >> 8) * fade) >> 8;
     v->pos += v->step;
 }
 

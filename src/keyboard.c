@@ -1,4 +1,5 @@
 #include <keyboard.h>
+#include <mouse.h> // route stray aux bytes to the mouse parser (shared i8042)
 #include <idt.h>
 #include <ports.h>
 
@@ -6,6 +7,9 @@
 #include <stdbool.h>
 
 #define PS2_DATA 0x60
+#define PS2_STATUS 0x64
+#define ST_OUTPUT_FULL 0x01 // a byte is waiting in the output buffer
+#define ST_AUX_DATA 0x20    // ...and it came from the aux (mouse) port
 #define KBD_IRQ 1
 #define KBD_VECTOR 33 // PIC remap base 0x20 + IRQ 1
 
@@ -118,6 +122,18 @@ void keyboard_inject_seq(char final)
 static void kbd_irq(struct interrupt_frame* f)
 {
     (void)f;
+    // The i8042 output buffer is shared with the mouse. If the pending byte is
+    // an aux byte (a race: its IRQ 12 hasn't been serviced yet), reading it
+    // here as a scancode would both inject a phantom key event AND desync the
+    // mouse packet stream — so route it to the mouse parser instead.
+    uint8_t st = inb(PS2_STATUS);
+    if (!(st & ST_OUTPUT_FULL)) {
+        return;
+    }
+    if (st & ST_AUX_DATA) {
+        mouse_handle_byte(inb(PS2_DATA));
+        return;
+    }
     uint8_t sc = inb(PS2_DATA);
 
     if (sc == SC_EXTENDED) {

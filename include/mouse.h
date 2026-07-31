@@ -18,4 +18,13 @@ bool mouse_poll(int* dx, int* dy, uint8_t* buttons);
 // same accumulators the PS/2 IRQ fills; marks the mouse present.
 void mouse_inject(int dx, int dy, uint8_t buttons);
 
+// Parse one aux-port byte into the packet stream. For the keyboard IRQ handler:
+// the i8042 output buffer is shared, so when IRQ 1 finds an aux byte pending it
+// must route it here rather than treat it as a scancode.
+void mouse_handle_byte(uint8_t b);
+
+// Reset packet-assembly phase and drop accumulated movement/buttons — recovers
+// a (theoretically) desynced stream, e.g. after a fullscreen program exits.
+void mouse_flush(void);
+
 #endif

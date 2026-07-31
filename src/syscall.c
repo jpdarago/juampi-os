@@ -23,6 +23,7 @@
 #include <gfx.h>   // framebuffer for graphical hosted programs
 #include <ui.h> // suspend the desktop compositor while a program owns the screen
 #include <keyboard.h> // raw key events for games
+#include <mouse.h>    // flush/resync the mouse on fullscreen handback
 #include <utils.h>
 
 // The syscall numbers live in the shared ABI header, included verbatim by both
@@ -465,6 +466,15 @@ int hosted_run(const void* image, size_t size, int argc, char** argv)
     brk_cur = brk_base;
     brk_end = brk_base + HOSTED_HEAP_SZ;
 
+    // Drop any input buffered before launch: the raw key ring accumulates
+    // every make/break since boot (nothing else drains it), so without this
+    // the program replays the shell's typing history — run("doom.elf") and
+    // whatever preceded it — as its own input on startup.
+    while (keyboard_poll() >= 0) {
+    }
+    while (keyboard_poll_raw(NULL) >= 0) {
+    }
+
     active = true;
     exit_status = -1;
     if (setjmp(exit_env) == 0) {
@@ -499,6 +509,7 @@ int hosted_run(const void* image, size_t size, int argc, char** argv)
         }
         while (keyboard_poll_raw(NULL) >= 0) {
         }
+        mouse_flush(); // drop buffered motion + resync the packet stream
     }
 
     heap_free(heap_default(), brk_base);
