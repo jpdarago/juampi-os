@@ -8,6 +8,9 @@ set -uo pipefail
 # DMA rings -> Ethernet -> ARP -> IPv4 -> ICMP -> back up to Lua.
 
 QEMU="${QEMU:-qemu-system-x86_64}"
+# Machine realism: q35 (PCIe, like the XPS target) and, when KVM is available,
+# the host CPU model (real CPUID/MSRs/PMU). CI has no /dev/kvm -> TCG fallback.
+QEMU_FLAGS="${QEMU_FLAGS:--machine q35 $([ -w /dev/kvm ] && echo '-accel kvm -cpu host' || echo '-accel tcg')}"
 IMG="${IMG:-boot.img}"
 MARKER="NET_PING_OK"
 out="$(mktemp)"
@@ -34,8 +37,9 @@ chmod +w "$ovmf_copy"
     sleep 1
     printf 'print(net.ping("10.0.2.2") and "NET_PING_OK" or "NET_PING_FAIL")\r'
     sleep 4
-} | timeout 60 "$QEMU" -bios "$ovmf_copy" \
-    -drive file="$IMG",format=raw -m 512 \
+} | timeout 60 "$QEMU" -bios "$ovmf_copy" $QEMU_FLAGS \
+    -drive file="$IMG",format=raw,if=none,id=jboot \
+    -device ide-hd,drive=jboot,bootindex=0 -m 512 \
     -smp "${QEMU_SMP:-4}" \
     -nic user,model=e1000 \
     -vga none -display none -serial stdio -no-reboot >"$out" 2>&1

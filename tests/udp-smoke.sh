@@ -8,6 +8,9 @@ set -uo pipefail
 # CI-safe. Exercises Ethernet -> IPv4 -> UDP -> socket demux -> Lua.
 
 QEMU="${QEMU:-qemu-system-x86_64}"
+# Machine realism: q35 (PCIe, like the XPS target) and, when KVM is available,
+# the host CPU model (real CPUID/MSRs/PMU). CI has no /dev/kvm -> TCG fallback.
+QEMU_FLAGS="${QEMU_FLAGS:--machine q35 $([ -w /dev/kvm ] && echo '-accel kvm -cpu host' || echo '-accel tcg')}"
 IMG="${IMG:-boot.img}"
 MARKER="HELLOUDP42"
 out="$(mktemp)"
@@ -39,8 +42,9 @@ GUEST='s=net.udp() print("BOUND",s:bind(9999)) local d,ip,p=s:recvfrom(20000) pr
           sleep 1
       done ) &
     sleep 22
-} | timeout 60 "$QEMU" -bios "$ovmf_copy" \
-    -drive file="$IMG",format=raw -m 512 \
+} | timeout 60 "$QEMU" -bios "$ovmf_copy" $QEMU_FLAGS \
+    -drive file="$IMG",format=raw,if=none,id=jboot \
+    -device ide-hd,drive=jboot,bootindex=0 -m 512 \
     -smp "${QEMU_SMP:-4}" \
     -netdev user,id=n0,hostfwd=udp:127.0.0.1:15353-10.0.2.15:9999 \
     -device e1000,netdev=n0 \

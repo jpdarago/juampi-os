@@ -8,6 +8,9 @@ set -uo pipefail
 # checksums, and close. Self-contained (host loopback + hostfwd), so CI-safe.
 
 QEMU="${QEMU:-qemu-system-x86_64}"
+# Machine realism: q35 (PCIe, like the XPS target) and, when KVM is available,
+# the host CPU model (real CPUID/MSRs/PMU). CI has no /dev/kvm -> TCG fallback.
+QEMU_FLAGS="${QEMU_FLAGS:--machine q35 $([ -w /dev/kvm ] && echo '-accel kvm -cpu host' || echo '-accel tcg')}"
 IMG="${IMG:-boot.img}"
 out="$(mktemp)"
 hostlog="$(mktemp)"
@@ -41,8 +44,9 @@ G='l=net.listen(9999) print("LISTEN",l~=nil) l:accept(20000) local d=l:recv(300,
       R=$(printf 'PING123' | socat -t6 - TCP:127.0.0.1:15080 2>/dev/null)
       echo "HOSTRESP=[$R]" >"$hostlog" ) &
     sleep 20
-} | timeout 70 "$QEMU" -bios "$ovmf_copy" \
-    -drive file="$IMG",format=raw -m 512 \
+} | timeout 70 "$QEMU" -bios "$ovmf_copy" $QEMU_FLAGS \
+    -drive file="$IMG",format=raw,if=none,id=jboot \
+    -device ide-hd,drive=jboot,bootindex=0 -m 512 \
     -smp "${QEMU_SMP:-4}" \
     -netdev user,id=n0,hostfwd=tcp:127.0.0.1:15080-10.0.2.15:9999 \
     -device e1000,netdev=n0 \

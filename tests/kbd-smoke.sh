@@ -8,6 +8,9 @@ set -uo pipefail
 # keyboard -> IRQ -> ring buffer -> console -> shell path.
 
 QEMU="${QEMU:-qemu-system-x86_64}"
+# Machine realism: q35 (PCIe, like the XPS target) and, when KVM is available,
+# the host CPU model (real CPUID/MSRs/PMU). CI has no /dev/kvm -> TCG fallback.
+QEMU_FLAGS="${QEMU_FLAGS:--machine q35 $([ -w /dev/kvm ] && echo '-accel kvm -cpu host' || echo '-accel tcg')}"
 IMG="${IMG:-boot.img}"
 MARKER="kbdalive4417"
 out="$(mktemp)"
@@ -31,8 +34,9 @@ ovmf_copy="$(mktemp)"
 cp "$OVMF_FD" "$ovmf_copy"
 chmod +w "$ovmf_copy"
 
-timeout 60 "$QEMU" -bios "$ovmf_copy" \
-    -drive file="$IMG",format=raw -m 512 \
+timeout 60 "$QEMU" -bios "$ovmf_copy" $QEMU_FLAGS \
+    -drive file="$IMG",format=raw,if=none,id=jboot \
+    -device ide-hd,drive=jboot,bootindex=0 -m 512 \
     -vga none -display none -serial file:"$out" \
     -qmp unix:"$sock",server,nowait -no-reboot &
 qpid=$!

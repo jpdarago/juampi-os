@@ -155,6 +155,16 @@ FORMAT_FILES := $(filter-out $(INCLUDE_DIR)/limine.h,$(wildcard \
 # QEMU drives both `make run` and `make test`. make run opens a GTK window;
 # override the backend if you prefer, e.g. `make run QEMU_DISPLAY=curses`.
 QEMU         ?= qemu-system-x86_64
+# Machine realism: q35 (PCIe chipset, the same shape as the XPS target) and,
+# when KVM is available, the host CPU model — the dev box IS the XPS, so
+# `-cpu host` exposes the target's real CPUID/MSR surface, including the PMU.
+# Without /dev/kvm (CI) fall back to TCG, where `-cpu host` is unavailable.
+KVM_OK := $(shell test -w /dev/kvm 2>/dev/null && echo 1)
+ifeq ($(KVM_OK),1)
+QEMU_MACHINE := -machine q35 -accel kvm -cpu host
+else
+QEMU_MACHINE := -machine q35 -accel tcg
+endif
 QEMU_DISPLAY ?= gtk
 # Host audio backend for `make run`'s AC'97 device (a QEMU -audiodev driver;
 # see `qemu-system-x86_64 -audiodev help`). Override for your system, e.g.
@@ -470,8 +480,10 @@ DISK_QEMU := -drive file=$(DISK_IMG),format=raw,if=none,id=juampidisk \
 # long mode. OVMF vars must be writable, so we boot from a private copy.
 run: boot.img $(DISK_IMG)
 	cp "$(OVMF_FD)" .ovmf.fd && chmod +w .ovmf.fd
-	$(QEMU) -bios .ovmf.fd -drive file=boot.img,format=raw -m 512 \
-		-smp $(QEMU_SMP) -accel kvm -accel tcg \
+	$(QEMU) -bios .ovmf.fd \
+		-drive file=boot.img,format=raw,if=none,id=jboot \
+		-device ide-hd,drive=jboot,bootindex=0 -m 512 \
+		-smp $(QEMU_SMP) $(QEMU_MACHINE) \
 		$(DISK_QEMU) \
 		-nic user,model=e1000 \
 		-audiodev $(QEMU_AUDIO),id=snd -device AC97,audiodev=snd \
@@ -482,12 +494,13 @@ run: boot.img $(DISK_IMG)
 test: boot.img $(DISK_IMG)
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/boot-smoke.sh
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/kbd-smoke.sh
-	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" DISK="$(DISK_IMG)" \
+	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" DISK="$(DISK_IMG)" DISK_IF=ide \
+		QEMU_FLAGS="-machine pc -accel kvm -accel tcg" \
 		INPUT='run("hello.lua")' MARKER=HELLO_FROM_EXT2 tests/boot-smoke.sh
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" \
 		INPUT='run("hello.elf")' MARKER=LAB_OK tests/boot-smoke.sh
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/net-smoke.sh
-	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" \
+	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" NIC=1 \
 		INPUT='net.ping("10.0.2.2"); local d,c=net.rxirqs(); assert(d and c>0); print("NICIRQ_OK")' \
 		MARKER=NICIRQ_OK tests/boot-smoke.sh
 	OVMF_FD="$(OVMF_FD)" QEMU="$(QEMU)" tests/udp-smoke.sh

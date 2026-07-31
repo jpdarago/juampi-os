@@ -8,6 +8,9 @@ set -uo pipefail
 # tone plays. This is the QEMU stand-in for the real XPS audio controller.
 
 QEMU="${QEMU:-qemu-system-x86_64}"
+# Machine realism: q35 (PCIe, like the XPS target) and, when KVM is available,
+# the host CPU model (real CPUID/MSRs/PMU). CI has no /dev/kvm -> TCG fallback.
+QEMU_FLAGS="${QEMU_FLAGS:--machine q35 $([ -w /dev/kvm ] && echo '-accel kvm -cpu host' || echo '-accel tcg')}"
 IMG="${IMG:-boot.img}"
 out="$(mktemp)"
 
@@ -36,8 +39,9 @@ chmod +w "$ovmf_copy"
     sleep 3
     printf 'print("IRQCHK", select(4, audio.info()))\r'
     sleep 3
-} | timeout 60 "$QEMU" -bios "$ovmf_copy" \
-    -drive file="$IMG",format=raw -m 512 \
+} | timeout 60 "$QEMU" -bios "$ovmf_copy" $QEMU_FLAGS \
+    -drive file="$IMG",format=raw,if=none,id=jboot \
+    -device ide-hd,drive=jboot,bootindex=0 -m 512 \
     -smp "${QEMU_SMP:-4}" \
     -audiodev none,id=snd -device ich9-intel-hda -device hda-output,audiodev=snd \
     -vga none -display none -serial stdio -no-reboot >"$out" 2>&1
