@@ -205,29 +205,91 @@ static uint64_t inode_file_size(const struct inode* in)
     return size;
 }
 
-// Copy an inode's data into a fresh heap buffer of exactly `size` bytes.
+// Resolve all `n` logical->physical block numbers of an inode into `phys[]`
+// (0 = sparse hole), reading each indirect block exactly once. This is the
+// difference between O(n) indirect reads and the naive block_of()-per-block
+// (which re-reads the L1/L2 indirect blocks for every data block).
+static void map_blocks(const struct inode* in, uint32_t n, uint32_t* phys)
+{
+    uint32_t per = block_size / 4;
+    for (uint32_t i = 0; i < n; i++) {
+        phys[i] = 0;
+    }
+    for (uint32_t i = 0; i < 12 && i < n; i++) {
+        phys[i] = in->block[i];
+    }
+    uint32_t* l1 = new (mem(), uint32_t, per);
+    if (n > 12 && in->block[12]) { // single indirect
+        read_block(in->block[12], l1);
+        for (uint32_t i = 0; i < per && 12 + i < n; i++) {
+            phys[12 + i] = l1[i];
+        }
+    }
+    if (n > 12 + per && in->block[13]) { // double indirect
+        uint32_t* l2 = new (mem(), uint32_t, per);
+        read_block(in->block[13], l1); // L1: array of L2-indirect block numbers
+        for (uint32_t j = 0; j < per; j++) {
+            uint32_t base = 12 + per + j * per;
+            if (base >= n) {
+                break;
+            }
+            if (l1[j] == 0) {
+                continue;
+            }
+            read_block(l1[j], l2);
+            for (uint32_t i = 0; i < per && base + i < n; i++) {
+                phys[base + i] = l2[i];
+            }
+        }
+        heap_free(fs_heap, l2);
+    }
+    heap_free(fs_heap, l1);
+}
+
+// Copy an inode's data into a fresh heap buffer of exactly `size` bytes. Reads
+// physically-contiguous block runs in a single device transfer (mke2fs lays
+// files out mostly contiguously), so a multi-MiB file loads in a handful of
+// I/Os instead of thousands of one-block PIO reads.
 static void* read_file(const struct inode* in, uint64_t size, size_t* out_size)
 {
     uint8_t* out = new (mem(), uint8_t, size ? (ptrdiff_t)size : 1);
-    uint8_t* block = new (mem(), uint8_t, block_size);
+    uint32_t spb = block_size / 512;
+    uint32_t nblocks = (uint32_t)((size + block_size - 1) / block_size);
+    uint32_t full = (uint32_t)(size / block_size); // whole blocks
+    uint32_t rem = (uint32_t)(size % block_size);  // bytes in the partial tail
+
+    uint32_t* phys = new (mem(), uint32_t, nblocks ? nblocks : 1);
+    map_blocks(in, nblocks, phys);
+
     uint8_t* p = out;
-    uint64_t remaining = size;
-    uint32_t bi = 0;
-    while (remaining > 0) {
-        uint32_t chunk =
-                remaining < block_size ? (uint32_t)remaining : block_size;
-        uint32_t phys = block_of(in, bi);
-        if (phys == 0) {
-            memset(p, 0, chunk); // sparse hole
-        } else {
-            read_block(phys, block);
-            memcpy(p, block, chunk);
+    uint32_t i = 0;
+    while (i < full) {
+        if (phys[i] == 0) { // sparse hole: one zeroed block
+            memset(p, 0, block_size);
+            p += block_size;
+            i++;
+            continue;
         }
-        p += chunk;
-        remaining -= chunk;
-        bi++;
+        uint32_t run = 1; // extend a physically-contiguous run
+        while (i + run < full && phys[i + run] == phys[i] + run) {
+            run++;
+        }
+        fs_dev->read((uint64_t)phys[i] * spb, run * spb, p);
+        p += (uint64_t)run * block_size;
+        i += run;
     }
-    heap_free(fs_heap, block);
+    if (rem > 0) { // partial last block through a scratch block
+        if (phys[full] == 0) {
+            memset(p, 0, rem);
+        } else {
+            uint8_t* block = new (mem(), uint8_t, block_size);
+            read_block(phys[full], block);
+            memcpy(p, block, rem);
+            heap_free(fs_heap, block);
+        }
+    }
+
+    heap_free(fs_heap, phys);
     if (out_size) {
         *out_size = (size_t)size;
     }
