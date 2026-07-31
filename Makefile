@@ -132,7 +132,7 @@ HOSTED_LIB  := $(HOSTED_DIR)/libnewlib.a
 # the reent layer call our bare-named syscalls; HAVE_MMAP=0 -> sbrk-only malloc.
 HOSTED_CFLAGS := -O2 -std=gnu11 -ffreestanding -nostdinc \
 	-isystem $(shell $(CC) -print-file-name=include) -I$(NEWLIB_DIR)/include \
-	-I$(HOSTED_DIR) \
+	-I$(NEWLIB_DIR)/libm -I$(HOSTED_DIR) \
 	-w -fno-pic -fno-pie -fno-stack-protector -fno-builtin -mno-red-zone \
 	-DMISSING_SYSCALL_NAMES -DHAVE_MMAP=0 -D_LIBC
 LIBGCC       := $(shell $(CC) -print-libgcc-file-name)
@@ -374,7 +374,7 @@ DISK_DIR    := $(BUILD_DIR)/disk
 DISK_RAYTRACER := $(DISK_DIR)/raytracer.elf
 DISK_FILES  := $(filter-out $(DISK_RAYTRACER),$(shell find $(DISK_DIR) -type f 2>/dev/null))
 DISK_IMG    := disk.img
-DISK_BLOCKS ?= 8192   # 1 KiB blocks -> 8 MiB image
+DISK_BLOCKS ?= 16384  # 1 KiB blocks -> 16 MiB image (fits the Doom WAD)
 
 # Build the native raytracer into the disk tree with the lab flags/ABI (entry
 # `bench`, linked at 0x400000), so run("raytracer.elf") loads it from ext2.
@@ -386,6 +386,44 @@ $(DISK_RAYTRACER): $(LAB_DIR)/raytracer.c $(INCLUDE_DIR)/lab.h
 $(DISK_IMG): $(DISK_FILES) $(DISK_RAYTRACER)
 	mke2fs -q -F -t ext2 -b 1024 -O ^resize_inode,^dir_index,^ext_attr \
 		-d $(DISK_DIR) $@ $(DISK_BLOCKS)
+
+# --- Doom (doomgeneric), a hosted program (see docs/hosted-libc.md) ----------
+# The engine sources are fetched (make doom-src) into build/hosted/doom/ and not
+# committed (GPL); our frontend doomgeneric_juampi.c is committed there. doom.elf
+# and the WAD live on the ext2 disk (not the boot image); build with `make doom`,
+# then boot with the data disk and run("doom.elf").
+DOOM_DIR  := $(HOSTED_DIR)/doom
+DOOM_SRCS := $(wildcard $(DOOM_DIR)/*.c)
+DOOM_OBJS := $(patsubst $(HOSTED_DIR)/%.c,$(OBJ_DIR)/hosted/%.o,$(DOOM_SRCS))
+DOOM_WAD_URL ?= https://github.com/Akbar30Bill/DOOM_wads/raw/master/doom1.wad
+
+$(OBJ_DIR)/hosted/doom/%.o: $(DOOM_DIR)/%.c | $(OBJ_DIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(HOSTED_CFLAGS) -I$(DOOM_DIR) -c -o $@ $<
+
+$(DISK_DIR)/doom.elf: $(DOOM_OBJS) $(OBJ_DIR)/hosted/crt0.o \
+		$(OBJ_DIR)/hosted/syscalls.o $(HOSTED_LIB)
+	$(CC) -nostdlib -static -no-pie -Wl,-Ttext-segment=0x400000 \
+		$(OBJ_DIR)/hosted/crt0.o $(DOOM_OBJS) \
+		$(OBJ_DIR)/hosted/syscalls.o $(HOSTED_LIB) $(LIBGCC) -o $@
+
+# Fetch + prune the doomgeneric engine sources (keeps our frontend).
+doom-src:
+	bash $(HOSTED_DIR)/fetch-doom.sh
+
+# Fetch the shareware WAD onto the ext2 disk tree (not committed).
+doom-wad: | $(DISK_DIR)
+	@test -f $(DISK_DIR)/doom1.wad || \
+		curl -fL -o $(DISK_DIR)/doom1.wad "$(DOOM_WAD_URL)"
+	@ls -l $(DISK_DIR)/doom1.wad
+
+# Build Doom onto the data disk (fetch engine + WAD, link, rebuild ext2 image).
+doom: doom-src doom-wad
+	$(MAKE) $(DISK_DIR)/doom.elf
+	$(MAKE) $(DISK_IMG)
+	@echo 'Doom ready. Boot with the data disk, then run("doom.elf")'
+
+.PHONY: doom doom-src doom-wad
 
 # QEMU args attaching the data disk as the primary IDE slave (bus ide.0 unit 1);
 # shared by `run` and the smoke tests.

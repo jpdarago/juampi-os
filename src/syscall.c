@@ -117,7 +117,7 @@ static void hfile_close(struct hfile* h)
     *h = (struct hfile){0};
 }
 
-#define HOSTED_HEAP_SZ (8u * 1024 * 1024) // program heap for sbrk-based malloc
+#define HOSTED_HEAP_SZ (16u * 1024 * 1024) // program heap for sbrk-based malloc
 
 // One hosted program at a time.
 static fault_jmp_buf exit_env; // hosted_run's return point (set before jumping)

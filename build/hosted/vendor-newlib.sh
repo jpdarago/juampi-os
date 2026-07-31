@@ -28,12 +28,27 @@ stdio/fprintf stdio/fputs stdio/fread stdio/fseek stdio/fseeko stdio/fvwrite
 stdio/fwalk stdio/makebuf stdio/printf stdio/puts stdio/refill stdio/snprintf
 stdio/sprint_r stdio/ssprint_r stdio/ssputs_r stdio/stdio stdio/svfprintf
 stdio/vfiprintf stdio/vfprintf stdio/wsetup
+stdio/fwrite stdio/ftell stdio/ftello stdio/putchar stdio/putc stdio/vsnprintf
+stdio/sprintf stdio/wbuf
 stdlib/abort stdlib/assert stdlib/__call_atexit stdlib/callocr stdlib/dtoa
 stdlib/exit stdlib/freer stdlib/malloc stdlib/mallocr stdlib/mbtowc_r
 stdlib/mprec stdlib/reallocr stdlib/wctomb_r
+stdlib/atoi stdlib/strtol stdlib/strtoul stdlib/abs stdlib/labs stdlib/rand
+stdlib/calloc stdlib/realloc
 string/memchr string/memcpy string/memmove string/memset string/strcmp
-string/strlen string/strncmp
+string/strlen string/strncmp string/strchr string/strrchr string/strstr
+string/strcasecmp string/strncasecmp string/strcpy string/strncpy string/strcat
+string/strncat string/strdup string/strdup_r string/strtok_r string/strnlen
+string/strspn
+string/strcspn string/strpbrk string/memcmp
+search/qsort
 "
+
+# fdlibm math functions Doom uses (fabs/atan/tan and the tan reduction chain).
+# Flattened into libm/ with fdlibm.h; compiled by the same per-file rule.
+LM="$ROOT/.newlib/newlib-4.5.0.20241231/newlib/libm"
+libm_files="math/s_fabs math/s_atan math/s_tan math/k_tan math/e_rem_pio2 \
+math/k_rem_pio2 common/s_scalbn common/s_copysign"
 
 rm -rf "$DST"
 mkdir -p "$DST"
@@ -52,6 +67,17 @@ for m in $members; do
 done
 for sub in $touched; do
     cp "$NL/$sub"/*.h "$DST/$sub/" 2>/dev/null || true
+done
+
+# mallocr.c/freer.c/... #include "_mallocr.c" (the shared impl); copy it too. It
+# is compiled-in via those, never on its own (the Makefile filters it out).
+cp "$NL/stdlib/_mallocr.c" "$DST/stdlib/"
+
+# fdlibm math subset: flatten into libm/ with its private header.
+mkdir -p "$DST/libm"
+cp "$LM/common/fdlibm.h" "$LM/common/math_config.h" "$DST/libm/"
+for m in $libm_files; do
+    cp "$LM/$m.c" "$DST/libm/"
 done
 
 # Single-threaded malloc locking: empty stubs (newlib's mlock.c is otherwise
