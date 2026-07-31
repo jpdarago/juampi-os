@@ -135,11 +135,15 @@ bool ata_read(uint64_t lba, uint32_t count, void* buf)
             if (!wait_ready(true)) {
                 return false;
             }
-            uint16_t* w = (uint16_t*)out;
-            for (int i = 0; i < 256; i++) {
-                w[i] = inw(REG_DATA);
-            }
-            out += 512;
+            // Transfer the whole 256-word sector with a single string-I/O
+            // instruction. A per-word inw() loop is one port read (one VM exit
+            // under KVM) per word — ~256x more exits, which dominated large
+            // reads like the Doom WAD.
+            uint32_t words = 256;
+            __asm__ __volatile__("cld; rep insw"
+                                 : "+D"(out), "+c"(words)
+                                 : "d"((uint16_t)REG_DATA)
+                                 : "memory");
         }
         lba += chunk;
         count -= chunk;
@@ -171,11 +175,12 @@ bool ata_write(uint64_t lba, uint32_t count, const void* buf)
             if (!wait_ready(true)) {
                 return false;
             }
-            const uint16_t* w = (const uint16_t*)in;
-            for (int i = 0; i < 256; i++) {
-                outw(REG_DATA, w[i]);
-            }
-            in += 512;
+            // One string-I/O instruction per sector (see ata_read).
+            uint32_t words = 256;
+            __asm__ __volatile__("cld; rep outsw"
+                                 : "+S"(in), "+c"(words)
+                                 : "d"((uint16_t)REG_DATA)
+                                 : "memory");
         }
         lba += chunk;
         count -= chunk;
