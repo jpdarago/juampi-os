@@ -400,7 +400,7 @@ DOOM_WAD_URL ?= https://github.com/Akbar30Bill/DOOM_wads/raw/master/doom1.wad
 
 $(OBJ_DIR)/hosted/doom/%.o: $(DOOM_DIR)/%.c | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
-	$(CC) $(HOSTED_CFLAGS) -I$(DOOM_DIR) -c -o $@ $<
+	$(CC) $(HOSTED_CFLAGS) -I$(DOOM_DIR) -DFEATURE_SOUND -c -o $@ $<
 
 $(DISK_DIR)/doom.elf: $(DOOM_OBJS) $(OBJ_DIR)/hosted/crt0.o \
 		$(OBJ_DIR)/hosted/syscalls.o $(HOSTED_LIB)

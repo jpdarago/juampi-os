@@ -26,6 +26,9 @@
 #define SYS_fb_present 11
 #define SYS_getkey 12
 #define SYS_ticks_ms 13
+#define SYS_audio_play 14
+#define SYS_audio_stop 15
+#define SYS_audio_active 16
 
 static long trap(long n, long a, long b, long c)
 {
@@ -80,6 +83,19 @@ int juampi_getkey(int* pressed)
 unsigned long juampi_ticks_ms(void)
 {
     return (unsigned long)trap(SYS_ticks_ms, 0, 0, 0);
+}
+int juampi_audio_play(const void* pcm, int nsamples, int rate, int vol)
+{
+    long ratevol = (rate & 0xFFFF) | ((long)(vol & 0xFF) << 16);
+    return (int)trap(SYS_audio_play, (long)pcm, nsamples, ratevol);
+}
+void juampi_audio_stop(int voice)
+{
+    trap(SYS_audio_stop, voice, 0, 0);
+}
+int juampi_audio_playing(int voice)
+{
+    return (int)trap(SYS_audio_active, voice, 0, 0);
 }
 
 int write(int fd, const char* buf, int len)

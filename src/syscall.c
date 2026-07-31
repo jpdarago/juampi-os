@@ -18,8 +18,9 @@
 #include <rtc.h>
 #include <ktime.h>
 #include <elf64.h>
-#include <ext2.h> // file-backed descriptors
-#include <gfx.h>  // framebuffer for graphical hosted programs
+#include <ext2.h>  // file-backed descriptors
+#include <audio.h> // PCM playback for games (Doom SFX)
+#include <gfx.h>   // framebuffer for graphical hosted programs
 #include <ui.h> // suspend the desktop compositor while a program owns the screen
 #include <keyboard.h> // raw key events for games
 #include <utils.h>
@@ -42,6 +43,9 @@
     11                  // blit a w*h 0x00RRGGBB buffer, centered, to the screen
 #define SYS_getkey 12   // -> raw key event (make code, bit7=ext), *pressed
 #define SYS_ticks_ms 13 // -> milliseconds since boot
+#define SYS_audio_play 14 // play 8-bit unsigned mono PCM -> voice handle, or -1
+#define SYS_audio_stop 15 // stop a voice handle
+#define SYS_audio_active 16 // -> 1 if a voice handle is still playing
 
 // errno values returned as negatives (must match newlib's <errno.h>).
 #define E_NOENT 2
@@ -317,6 +321,42 @@ static void fb_blit_centered(const uint32_t* px, int w, int h)
     }
 }
 
+// Play 8-bit unsigned mono PCM (Doom's sound format) through the mixer, which
+// resamples to the mixer rate and mixes it with other voices. `ratevol` packs
+// the sample rate (low 16 bits) and volume 0-127 (bits 16-23). Returns the
+// mixer voice handle, or -1.
+static long sys_audio_play(const uint8_t* u8, long count, long ratevol)
+{
+    if (u8 == NULL || count <= 0 || !audio_present()) {
+        return -1;
+    }
+    uint32_t rate = (uint32_t)(ratevol & 0xFFFF);
+    uint32_t vol = (uint32_t)((ratevol >> 16) & 0xFF);
+    if (rate == 0) {
+        rate = 11025; // Doom's usual DMX rate
+    }
+    int16_t* s16 = new (&heap_default()->base, int16_t, (ptrdiff_t)count);
+    for (long i = 0; i < count; i++) {
+        s16[i] = (int16_t)(((int)u8[i] - 128) << 8); // u8 [0,255] -> s16
+    }
+    // Declick: DMX samples rarely start/end exactly at the DC midpoint, so a
+    // one-shot that stops on a nonzero sample snaps to silence with an audible
+    // click. Ramp a short window (~2 ms) in from and out to zero so both edges
+    // are continuous. These are one-shots (never looped), so this is safe.
+    long fade = (long)rate / 500;
+    if (fade > count / 2) {
+        fade = count / 2;
+    }
+    for (long i = 0; i < fade; i++) {
+        s16[i] = (int16_t)((int32_t)s16[i] * i / fade);
+        s16[count - 1 - i] = (int16_t)((int32_t)s16[count - 1 - i] * i / fade);
+    }
+    float gain = (float)vol / 127.0f;
+    int h = audio_play_pcm(s16, (uint32_t)count, rate, 1, false, gain);
+    heap_free(heap_default(), s16); // audio_play_pcm copies into a voice buffer
+    return h;
+}
+
 static void syscall_handler(struct interrupt_frame* f)
 {
     long n = (long)f->rax;
@@ -384,6 +424,16 @@ static void syscall_handler(struct interrupt_frame* f)
     }
     case SYS_ticks_ms:
         r = (long)ktime_ms();
+        break;
+    case SYS_audio_play:
+        r = sys_audio_play((const uint8_t*)a, b, c);
+        break;
+    case SYS_audio_stop:
+        audio_stop((int)a);
+        r = 0;
+        break;
+    case SYS_audio_active:
+        r = audio_voice_active((int)a) ? 1 : 0;
         break;
     default:
         r = -E_NOSYS;

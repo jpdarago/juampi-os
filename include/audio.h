@@ -62,7 +62,12 @@ int audio_tone(uint32_t freq, uint32_t ms, float gain);
 int audio_play_pcm(const int16_t* samples, uint32_t frames, uint32_t rate,
                    uint8_t ch, bool loop, float gain);
 
-// Stop a voice (id from audio_tone), or all voices when id < 0.
+// Stop a voice (id from audio_tone/audio_play_pcm), or all voices when id < 0.
 void audio_stop(int voice);
+
+// Whether a voice handle refers to a still-playing sound. False once it
+// finished or its slot was recycled by a later sound (the handle carries a
+// generation).
+bool audio_voice_active(int voice);
 
 #endif

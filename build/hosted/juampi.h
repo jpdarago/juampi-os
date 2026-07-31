@@ -35,4 +35,12 @@ int juampi_getkey(int* pressed);
 // Milliseconds since boot (monotonic).
 unsigned long juampi_ticks_ms(void);
 
+// Play 8-bit unsigned mono PCM (`nsamples` at `rate` Hz, volume 0-127) through
+// the kernel mixer, which resamples and mixes it with other sounds. Returns a
+// voice handle (>=0) or -1. juampi_audio_stop() halts it; juampi_audio_playing()
+// reports whether it's still going. Doom's sound effects use this.
+int juampi_audio_play(const void* pcm_u8, int nsamples, int rate, int vol);
+void juampi_audio_stop(int voice);
+int juampi_audio_playing(int voice);
+
 #endif

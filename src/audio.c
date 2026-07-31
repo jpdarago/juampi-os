@@ -35,10 +35,13 @@ static int16_t sine_tab[SINE_LEN];
 //    `pos`/`step` are a 16.16 fixed-point source-frame cursor advanced by
 //    src_rate/AUDIO_RATE per output frame, linearly interpolated and (for mono)
 //    duplicated to stereo. Freed when it finishes or is stopped.
-#define MAX_VOICES 8
+#define MAX_VOICES                                                             \
+    16 // enough for Doom's SFX channels (default 8) with headroom
 typedef enum { VOICE_TONE, VOICE_PCM } voice_kind;
 struct voice {
     bool active;
+    uint32_t gen; // bumped on each (re)use; part of the returned handle so a
+                  // stale handle can't stop/query a slot that was recycled
     voice_kind kind;
     int32_t gain; // Q8 (256 = unity)
     bool loop;
@@ -52,6 +55,31 @@ struct voice {
     uint32_t step; // source frames per output frame, 16.16
 };
 static struct voice voices[MAX_VOICES];
+static uint32_t voice_seq; // monotonic generation source
+
+// A voice handle: slot index in the low 8 bits, generation above (kept positive
+// so audio_stop's <0 "all" sentinel is unambiguous). Bump gen + return this on
+// each (re)use; decode it to safely stop/query a specific play, ignoring a
+// handle whose slot has since been recycled by another sound.
+static int voice_handle(int i)
+{
+    voices[i].gen = ++voice_seq;
+    return (int)(((voices[i].gen & 0x7FFFFFu) << 8) | (uint32_t)i);
+}
+static struct voice* voice_from_handle(int h)
+{
+    if (h < 0) {
+        return NULL;
+    }
+    uint32_t i = (uint32_t)h & 0xFF;
+    if (i >= MAX_VOICES || !voices[i].active) {
+        return NULL;
+    }
+    if ((voices[i].gen & 0x7FFFFFu) != ((uint32_t)h >> 8)) {
+        return NULL; // slot recycled since this handle was issued
+    }
+    return &voices[i];
+}
 
 // Release a voice's resources and mark it free. Deactivate FIRST so a
 // completion ISR (which skips inactive voices) can never touch the buffer being
@@ -168,7 +196,7 @@ int audio_tone(uint32_t freq, uint32_t ms, float gain)
         int32_t g = (int32_t)(gain * 256.0f);
         voices[i].gain = g < 0 ? 0 : (g > 256 ? 256 : g);
         voices[i].active = true;
-        return i;
+        return voice_handle(i);
     }
     return -1; // no free voice
 }
@@ -204,7 +232,7 @@ int audio_play_pcm(const int16_t* samples, uint32_t frames, uint32_t rate,
         int32_t g = (int32_t)(gain * 256.0f);
         voices[i].gain = g < 0 ? 0 : (g > 256 ? 256 : g);
         voices[i].active = true;
-        return i;
+        return voice_handle(i);
     }
     return -1;
 }
@@ -215,9 +243,17 @@ void audio_stop(int voice_id)
         for (int i = 0; i < MAX_VOICES; i++) {
             voice_free(&voices[i]);
         }
-    } else if (voice_id < MAX_VOICES) {
-        voice_free(&voices[voice_id]);
+        return;
     }
+    struct voice* v = voice_from_handle(voice_id);
+    if (v != NULL) {
+        voice_free(v);
+    }
+}
+
+bool audio_voice_active(int voice_id)
+{
+    return voice_from_handle(voice_id) != NULL;
 }
 
 static inline int16_t clamp16(int32_t v)

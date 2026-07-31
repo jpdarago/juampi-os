@@ -88,15 +88,30 @@ served by `src/syscall.c`) for interactive graphics:
 
 `build/hosted/gfxdemo.c` (a bouncing ball) is the minimal example.
 
-**Doom** runs on this: `make doom` fetches the doomgeneric engine
-(`make doom-src`, GPL — gitignored, not committed; only our frontend
-`build/hosted/doom/doomgeneric_juampi.c` is in git) and the shareware WAD
-(`make doom-wad`, onto the ext2 disk), links `doom.elf` onto the disk, and
-rebuilds the ext2 image. Boot with the data disk attached, then `run("doom.elf")`
-— it loads `/doom1.wad`, renders 320x200 auto-scaled 2x via `fb_present`, and
-takes input via the raw key events. Our frontend implements doomgeneric's 6
-hooks and stubs the POSIX bits Doom references but doesn't need. Doom is built
-silent (no `FEATURE_SOUND`). It starts in a few seconds: `make run` attaches the
+**Doom** runs on this: the doomgeneric engine is vendored (GPLv2, committed under
+`build/hosted/doom/`; `make doom-src` re-fetches it), and `make doom` fetches the
+shareware WAD (`make doom-wad`, onto the ext2 disk), links `doom.elf` onto the
+disk, and rebuilds the ext2 image. Boot with the data disk attached, then
+`run("doom.elf")` — it loads `/doom1.wad`, renders 320x200 auto-scaled 2x via
+`fb_present`, and takes input via the raw key events. Our frontend implements
+doomgeneric's 6 hooks and stubs the POSIX bits Doom references but doesn't need.
+
+Doom has **sound effects**: built with `-DFEATURE_SOUND`, our backend
+`build/hosted/doom/i_juampisound.c` implements doomgeneric's `DG_sound_module`.
+Each logical channel maps to a kernel mixer voice: `StartSound` parses the DMX
+lump (8-bit unsigned mono PCM, 16-sample pad stripped each end) and hands it to
+`juampi_audio_play()` (a new syscall), which the kernel resamples (11 kHz →
+48 kHz) and mixes; the AC'97/HDA completion IRQ keeps it fed while Doom runs its
+own loop. Stop/IsPlaying use **generation-tagged** voice handles (`gen<<8 | slot`)
+so a recycled slot can't be mistaken for the original play. `sys_audio_play`
+applies a ~2 ms declick ramp to each one-shot, since DMX samples rarely rest at
+the DC midpoint and would otherwise snap to silence with a click. Music is **not**
+implemented (a null `DG_music_module`) — it needs an OPL/MIDI synth. To enable
+`FEATURE_SOUND` we dropped i_sound.c's unused `<SDL_mixer.h>` include and defined
+the two `use_libsamplerate`/`libsamplerate_scale` config knobs the (unbuilt) SDL
+backend would have provided.
+
+It starts in a few seconds: `make run` attaches the
 data disk as **NVMe** (DMA + MSI-X completions — the ext2 mount prefers NVMe over
 ATA), and the ext2 reader loads the WAD in batched contiguous runs. (The earlier
 ~80 s came from ATA PIO transferring one 16-bit word per `inw()` — a VM exit each

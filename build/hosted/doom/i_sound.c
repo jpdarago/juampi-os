@@ -18,9 +18,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#if defined(FEATURE_SOUND) && !defined(__DJGPP__)
-#include <SDL_mixer.h>
-#endif
+// juampiOS port: the original SDL sound backend is not built here; sound is
+// provided by DG_sound_module/DG_music_module (i_juampisound.c) over the kernel
+// mixer. FEATURE_SOUND only gates those DG modules below, so we drop the
+// (otherwise unused) <SDL_mixer.h> include that this file carried for it.
 
 #include "config.h"
 #include "doomfeatures.h"
@@ -142,7 +143,7 @@ static void InitMusicModule(void)
 //
 
 void I_InitSound(boolean use_sfx_prefix)
-{  
+{
     boolean nosound, nosfx, nomusic;
 
     //!
