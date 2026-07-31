@@ -43,7 +43,9 @@ Features
 * **Hosted C programs:** ordinary ANSI-C programs (**newlib** — stdio,
   `malloc`, math, ext2 file I/O) run in ring 0 with few/no changes, reaching the
   kernel through an `int 0x80` syscall layer (console, `sbrk` heap, RTC clock,
-  files). `run("prog.elf")` launches them.
+  files) plus a small graphics/input/timer platform (framebuffer present, raw
+  key events, ms clock). `run("prog.elf")` launches them — and **`make doom`
+  runs Doom** (doomgeneric) from the shareware WAD on the ext2 disk.
 * **Storage:** **NVMe** (zero-copy PRP transfers, MSI-X completions), **USB
   mass storage** (SCSI over Bulk-Only Transport), and ATA PIO — all behind one
   block-device interface, with a read/write **ext2** filesystem that mounts

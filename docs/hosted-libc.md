@@ -72,6 +72,33 @@ from the shell with `run("chello.elf")` / `run("filetest.elf")`. Both are in
 To add a program: drop a `.c` in `build/hosted/`, add its name to `HOSTED_PROGS`
 in the Makefile, and add a `module_path` line to `build/limine.conf`.
 
+## Graphical programs + Doom
+
+Beyond POSIX, hosted programs get a small platform layer (`build/hosted/juampi.h`,
+served by `src/syscall.c`) for interactive graphics:
+
+- `juampi_fb_present(pixels, w, h)` — blit a `w*h` `0x00RRGGBB` buffer, centered
+  and channel-packed, to the framebuffer. The first call takes the screen from
+  the desktop compositor (`ui_fullscreen_begin`); it's handed back on exit, so
+  text programs stay windowed and only graphical ones go fullscreen.
+- `juampi_getkey(&pressed)` — a raw key event (PS/2 make code, bit 0x80 =
+  E0-extended) with press **and** release, from a second keyboard ring
+  (`keyboard_poll_raw`) that the ASCII line-editing ring doesn't expose.
+- `juampi_ticks_ms()` — a millisecond clock; `juampi_fb_info()` — screen size.
+
+`build/hosted/gfxdemo.c` (a bouncing ball) is the minimal example.
+
+**Doom** runs on this: `make doom` fetches the doomgeneric engine
+(`make doom-src`, GPL — gitignored, not committed; only our frontend
+`build/hosted/doom/doomgeneric_juampi.c` is in git) and the shareware WAD
+(`make doom-wad`, onto the ext2 disk), links `doom.elf` onto the disk, and
+rebuilds the ext2 image. Boot with the data disk attached, then `run("doom.elf")`
+— it loads `/doom1.wad`, renders 320x200 auto-scaled 2x via `fb_present`, and
+takes input via the raw key events. Our frontend implements doomgeneric's 6
+hooks and stubs the POSIX bits Doom references but doesn't need. Doom is built
+silent (no `FEATURE_SOUND`); WAD load is slow (~80s) because the 4 MiB file is
+read block-by-block over ext2/ATA PIO.
+
 ## Known limits / follow-ups
 
 - This newlib's `printf` mishandles the **`%z`** length modifier — use `%u`/`%lu`.
