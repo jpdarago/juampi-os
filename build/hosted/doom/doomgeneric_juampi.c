@@ -65,18 +65,44 @@ static unsigned char to_doomkey(int code)
     case JK_TAB:
         return KEY_TAB;
     case JK_CTRL:
-        return KEY_FIRE; // left ctrl
+    case (JK_CTRL | 0x80): // right ctrl (E0) — either ctrl fires
+        return KEY_FIRE;
     case JK_SPACE:
         return KEY_USE;
     case JK_SHIFT:
-    case (0x36): // right shift
+    case (0x36): // right shift — either shift runs
         return KEY_RSHIFT;
     case JK_ALT:
+    case (JK_ALT | 0x80): // right alt (E0) — either alt strafes
         return KEY_RALT;
+    case (JK_ENTER | 0x80): // keypad enter
+        return KEY_ENTER;
+    // The keypad with NumLock off doubles as movement (non-extended nav
+    // codes; the extended variants above are the dedicated arrow keys).
+    case 0x48:
+        return KEY_UPARROW;
+    case 0x50:
+        return KEY_DOWNARROW;
+    case 0x4B:
+        return KEY_LEFTARROW;
+    case 0x4D:
+        return KEY_RIGHTARROW;
     case 0x0E: // backspace
         return KEY_BACKSPACE;
     default:
         break;
+    }
+    // Function keys: help (F1), save/load (F2/F3), quicksave/quickload
+    // (F6/F9), detail (F5), messages (F8), quit (F10), gamma (F11). Doom's
+    // KEY_Fn values are the PS/2 make codes + 0x80, so the map is arithmetic.
+    if (code >= 0x3B && code <= 0x44) {
+        return (unsigned char)(KEY_F1 + (code - 0x3B)); // F1..F10
+    }
+    if (code == 0x57) {
+        return KEY_F11;
+    }
+    if (code == 0x58) {
+        return KEY_F12;
     }
     if (code >= 0 && code < 128) {
         return sc_ascii[code]; // letters/digits for menus & weapon select
