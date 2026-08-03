@@ -32,15 +32,15 @@ Every capability is reusable by any future hosted program.
 
 ## Terminology
 
-| Term | Meaning |
-|------|---------|
+| Term           | Meaning                                                                                                                                                                 |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Hosted program | A C binary built against the vendored newlib, entered via crt0 `_start`, run in ring 0, and served by the `int 0x80` dispatcher (`src/syscall.c`). See [[hosted-libc]]. |
-| doomgeneric | A Doom source port that isolates all platform work behind a small set of `DG_*` hooks and two sound-module vtables. |
-| WAD | Doom's data archive. The shareware `doom1.wad` lives on the ext2 data disk, not in the repository. |
-| DMX lump | A sound-effect lump: header plus 8-bit unsigned mono PCM, padded with 16 samples at each end. |
-| MUS lump | Doom's music format, a compact MIDI variant: channelized note events with variable-length delays at 140 ticks per second. |
-| GENMIDI lump | A WAD lump that maps each General MIDI instrument to an OPL FM patch. |
-| OPL3 | The Yamaha FM-synthesis chip (YMF262) that produced DOS-era Doom music. The port emulates it with the vendored Nuked-OPL3. |
+| doomgeneric    | A Doom source port that isolates all platform work behind a small set of `DG_*` hooks and two sound-module vtables.                                                     |
+| WAD            | Doom's data archive. The shareware `doom1.wad` lives on the ext2 data disk, not in the repository.                                                                      |
+| DMX lump       | A sound-effect lump: header plus 8-bit unsigned mono PCM, padded with 16 samples at each end.                                                                           |
+| MUS lump       | Doom's music format, a compact MIDI variant: channelized note events with variable-length delays at 140 ticks per second.                                               |
+| GENMIDI lump   | A WAD lump that maps each General MIDI instrument to an OPL FM patch.                                                                                                   |
+| OPL3           | The Yamaha FM-synthesis chip (YMF262) that produced DOS-era Doom music. The port emulates it with the vendored Nuked-OPL3.                                              |
 
 ## Architecture
 
