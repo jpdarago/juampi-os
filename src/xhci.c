@@ -1267,7 +1267,7 @@ void xhci_init(void)
 
     // MSI-X: deliver interrupter-0 events as interrupts so event waits can
     // sleep on hlt; without it the waits fall back to polling.
-    evt_irq.enabled = pci_msix_setup(a, XHCI_VECTOR);
+    evt_irq.enabled = pci_msix_setup(a, XHCI_VECTOR, NULL);
     if (evt_irq.enabled) {
         register_interrupt_handler(XHCI_VECTOR, xhci_irq);
         w32(rt, IR0 + IR_IMAN, IMAN_IP | IMAN_IE); // enable interrupter 0

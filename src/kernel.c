@@ -139,6 +139,31 @@ static void sum_worker(void* p)
     j->result = s;
 }
 
+// Read a file off the mounted filesystem from whichever core runs this. Used to
+// prove disk I/O works from an application processor: the coarse fs lock, the
+// private fs heap, and — when the fs sits on NVMe — the AP completion path
+// (mask + poll, since the completion IRQ targets the BSP) all get exercised on
+// a non-BSP core. Kept small: reads a known file, records the size and a few
+// bytes so the BSP can sanity-check the content actually came back.
+struct fsread_job {
+    const char* path;
+    bool ok;
+    size_t size;
+    char head[8];
+};
+static void fsread_worker(void* p)
+{
+    struct fsread_job* j = p;
+    size_t n = 0;
+    void* d = ext2_read_path(j->path, &n);
+    j->ok = d != NULL && n > 0;
+    if (d != NULL) {
+        memcpy(j->head, d, n < sizeof(j->head) ? n : sizeof(j->head));
+        ext2_free(d);
+    }
+    j->size = n;
+}
+
 // Stress the segregated heap: many allocations across small size classes and
 // large runs, each stamped with a per-block sentinel; free half, allocate more,
 // then verify every survivor is intact (catching overlaps/corruption) and that
@@ -383,7 +408,8 @@ void kmain(void)
     // IDE slave, separate from the Limine boot master) is the fallback.
     ata_init();
     if (ata_present()) {
-        console_printf("juampiOS: ata sectors=%lu\n", ata_sectors());
+        console_printf("juampiOS: ata sectors=%lu xfer=%s\n", ata_sectors(),
+                       ata_dma_active() ? "dma" : "pio");
     } else {
         console_print("juampiOS: ata absent\n");
     }
@@ -521,6 +547,30 @@ void kmain(void)
     console_printf("juampiOS: SMP %s: %lu cores (parallel sum %s)\n",
                    smp_ok ? "OK" : "FAILED", ncores,
                    smp_ok ? "verified" : "MISMATCH");
+
+    // Prove disk I/O works from an application processor now that the storage
+    // stack is thread-safe (fs lock + private fs heap + NVMe AP completion
+    // path). Dispatch a real file read onto the first online AP and check the
+    // bytes come back; on a uniprocessor there is no AP, so skip.
+    if (ext2_mounted()) {
+        uint32_t ap = bsp;
+        for (uint64_t i = 0; i < ncores; i++) {
+            if (i != bsp && smp_online((uint32_t)i)) {
+                ap = (uint32_t)i;
+                break;
+            }
+        }
+        if (ap != bsp) {
+            struct fsread_job fj = {.path = "/etc/motd.txt"};
+            smp_run_on(ap, fsread_worker, &fj);
+            smp_join(ap);
+            console_printf(
+                    "juampiOS: AP disk I/O %s: core %u read %s (%lu bytes)\n",
+                    fj.ok ? "OK" : "FAILED", ap, fj.path, (uint64_t)fj.size);
+        } else {
+            console_print("juampiOS: AP disk I/O skipped (uniprocessor)\n");
+        }
+    }
 
     // --- Milestone 9: parallel Lua. A lua_State per core (each with its own
     // --- heap, so allocation is lock-free), driven from Lua via the thread/mem

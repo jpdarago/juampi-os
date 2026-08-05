@@ -13,9 +13,13 @@
 // own GDT/TSS and per-CPU data, and work is handed to a core by posting a
 // function to its mailbox (the SPMD dispatch M9 will build thread.spawn on).
 //
-// M8 scope: APs run with interrupts disabled, never allocate, and never touch
-// Lua — so the single-threaded kernel heap stays safe. No LAPIC/IPI: cores are
-// driven by spin-polled mailboxes, not interrupts.
+// M8 scope: APs run with interrupts disabled and are driven by spin-polled
+// mailboxes, not IPIs. Each AP does enable its own Local APIC (apic_init_ap),
+// so lapic_id()/lapic_eoi() work on it and it can service a masked-poll device
+// path, but with interrupts disabled it still takes no interrupts on its own.
+// (The M8-era "never allocate / never touch Lua" rule is relaxed only through
+// paths that bring their own synchronisation, e.g. the filesystem's own lock
+// and private heap.)
 
 // One work item handed to a core: run fn(arg) and report completion.
 enum { CPU_MBOX_IDLE = 0, CPU_MBOX_PENDING, CPU_MBOX_DONE };

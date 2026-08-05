@@ -72,6 +72,21 @@ uint32_t lapic_id(void)
     return x2mode ? v : (v >> 24); // xAPIC id lives in bits 31:24
 }
 
+// Enable THIS core's Local APIC: set the enable (and, in x2APIC mode, the EXTD)
+// bit in its IA32_APIC_BASE MSR, then software-enable it via the
+// spurious-vector register. `x2mode` and the xAPIC MMIO mapping are chosen once
+// by apic_init on the BSP before any other core runs here, so every core
+// enables the same mode.
+static void lapic_enable_self(void)
+{
+    uint64_t base = rdmsr(IA32_APIC_BASE) | APIC_BASE_ENABLE;
+    if (x2mode) {
+        base |= APIC_BASE_EXTD;
+    }
+    wrmsr(IA32_APIC_BASE, base);
+    lapic_write(REG_SVR, SVR_ENABLE | SPURIOUS_VECTOR);
+}
+
 static bool cpu_has_x2apic(void)
 {
     uint32_t a, b, c, d;
@@ -93,15 +108,18 @@ void apic_init(void)
         lapic = iomap((uintptr_t)phys, PAGE_SZ, PAGEF_P | PAGEF_RW | PAGEF_UC);
     }
 
-    // Enable the LAPIC in the base MSR (and enter x2APIC mode if supported).
-    uint64_t base = rdmsr(IA32_APIC_BASE) | APIC_BASE_ENABLE;
-    if (x2mode) {
-        base |= APIC_BASE_EXTD;
-    }
-    wrmsr(IA32_APIC_BASE, base);
+    // Enable this (bootstrap) core's LAPIC now that the mode is chosen.
+    lapic_enable_self();
+}
 
-    // Software-enable + set the spurious-interrupt vector.
-    lapic_write(REG_SVR, SVR_ENABLE | SPURIOUS_VECTOR);
+void apic_init_ap(void)
+{
+    // Runs on each application processor. apic_init has already selected
+    // x2APIC/xAPIC mode and (in xAPIC mode) mapped the shared LAPIC page, so
+    // the AP just enables its own LAPIC. This makes lapic_id()/lapic_eoi() work
+    // on that core; the AP still keeps interrupts disabled (it is driven by the
+    // polled mailbox), so enabling the LAPIC delivers no interrupts by itself.
+    lapic_enable_self();
 }
 
 void lapic_timer_start(uint32_t hz)

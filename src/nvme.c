@@ -12,8 +12,11 @@
 // advertises no MSI-X.
 //
 // Reads and writes are both supported; nvme_blockdev() exposes the namespace as
-// a generic blockdev so ext2 can mount on NVMe (see blockdev.h). BSP-only, like
-// the other drivers.
+// a generic blockdev so ext2 can mount on NVMe (see blockdev.h). I/O may be
+// issued from any core: the MSI-X completion targets the BSP, so a submission
+// from another core masks the vector and polls the completion queue instead of
+// waiting on the (undelivered) interrupt — see submit_io. ext2's fs lock keeps
+// those submissions serialised.
 
 #include <nvme.h>
 #include <pci.h>
@@ -171,6 +174,8 @@ static struct {
     volatile bool done;            // set by the ISR when the command posts
     volatile int status;           // that completion's status code
     volatile uint64_t completions; // total completions the ISR has handled
+    volatile uint32_t* table;      // mapped MSI-X vector table (for masking)
+    uint32_t target_lapic;         // LAPIC id the vector delivers to (the BSP)
 } io_irq;
 
 static uint32_t reg32(uint32_t off)
@@ -274,19 +279,42 @@ static int submit_io_irq(struct nvme_command* cmd)
     return io_irq.status;
 }
 
-// One command on the I/O queue: interrupt-driven when MSI-X is up, else polled.
+// One command on the I/O queue. The completion IRQ is affine to a single core
+// (the BSP): only that core can wake on the `hlt` in submit_io_irq. So the
+// interrupt-driven path is used only when running there; any other core (an
+// application processor) instead masks the vector — so the BSP's ISR cannot
+// drain the completion out from under it — and polls the completion queue
+// directly, which needs no interrupt on the calling core. ext2's g_fs_lock
+// serialises all I/O submissions, so there is never an overlapping command and
+// the mask/poll/unmask window is safe. Falls back to plain polling with no
+// MSI-X at all.
 static int submit_io(struct nvme_command* cmd)
 {
-    return io_irq.enabled ? submit_io_irq(cmd) : submit(&io_q, cmd);
+    if (!io_irq.enabled) {
+        return submit(&io_q, cmd);
+    }
+    if (lapic_id() == io_irq.target_lapic) {
+        return submit_io_irq(cmd);
+    }
+    pci_msix_mask(io_irq.table, 0, true);
+    int status = submit(&io_q, cmd);
+    pci_msix_mask(io_irq.table, 0, false);
+    return status;
 }
 
 // Enable MSI-X delivery of I/O completions to NVME_VECTOR on this core.
 // Returns false (polled fallback) if the controller advertises no MSI-X.
 static bool msix_setup(struct pci_addr a)
 {
-    if (!pci_msix_setup(a, NVME_VECTOR)) {
+    if (!pci_msix_setup(a, NVME_VECTOR, &io_irq.table)) {
         return false;
     }
+    // pci_msix_setup pointed the vector at whichever core ran it — the BSP,
+    // since nvme_init runs before smp_init. Record that so submit_io knows
+    // which core the completion IRQ wakes. (lapic_id() is valid on every core
+    // once apic_init_ap has enabled its LAPIC, which happens before it runs any
+    // job.)
+    io_irq.target_lapic = lapic_id();
     register_interrupt_handler(NVME_VECTOR, nvme_irq);
     return true;
 }

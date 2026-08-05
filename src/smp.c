@@ -1,5 +1,6 @@
 #include <smp.h>
 #include <limine.h>
+#include <apic.h>
 #include <idt.h>
 #include <console.h>
 #include <ktime.h>
@@ -61,6 +62,7 @@ void ap_main(struct limine_smp_info* info)
     set_gs_base(c);
     gdt_ap_load(c->gdt, &c->tss, c->kstack_top);
     idt_load();
+    apic_init_ap(); // enable this core's LAPIC (lapic_id/eoi usable hereafter)
     __atomic_store_n(&c->ready, 1, __ATOMIC_RELEASE);
 
     for (;;) {
