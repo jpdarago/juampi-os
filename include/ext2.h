@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <memory.h>
 #include <blockdev.h>
+#include <bcache.h>
 
 // A small ext2 driver over a generic block device (blockdev.h) — the ATA data
 // disk today, any 512-byte-sector device tomorrow. Enough to load scripts and
@@ -58,5 +59,14 @@ bool ext2_mkdir(const char* path);
 // Delete a regular file, or an empty directory. Returns false if missing, if a
 // directory is non-empty, or on error.
 bool ext2_remove(const char* path);
+
+// Flush the write-back block cache to disk. The public mutators above already
+// sync on completion, so this is for explicit checkpoints (e.g. before power
+// off). Returns false if a write-back failed; true when nothing is mounted.
+bool ext2_sync(void);
+
+// Fill *out with the block cache's hit/miss counters (for the performance lab).
+// Returns false if nothing is mounted.
+bool ext2_cache_stats(struct bcache_stats* out);
 
 #endif

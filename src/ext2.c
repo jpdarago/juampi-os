@@ -1,14 +1,25 @@
 #include <ext2.h>
 #include <ata.h>
+#include <bcache.h>
 #include <memory.h>
+#include <spinlock.h>
 #include <utils.h>
 #include <str.h>
 
 // ext2 read + write. On-disk layout is little-endian and x86-64 is too, so the
-// packed structs below map straight onto the bytes read from disk. Writes are
-// read-modify-write straight to disk (no cache, no journal); the primary
-// superblock and group descriptors are kept consistent, but sparse_super
-// backups are not (e2fsck -f refreshes them).
+// packed structs below map straight onto the bytes read from disk. All block
+// I/O goes through a write-back block cache (bcache.h): metadata the driver
+// re-reads constantly (group descriptors, inode tables, indirect and directory
+// blocks) is served from RAM, and the several block writes a single mutation
+// makes are coalesced and flushed together. Each public mutation ends with a
+// sync, so durability still matches the old straight-to-disk behaviour: the
+// data is on disk when the call returns (no journal; sparse_super backups are
+// still not maintained — e2fsck -f refreshes them).
+
+// Cache size in blocks. A few hundred blocks easily holds the hot working set —
+// the group descriptors, the inode-table blocks in use, and a file's indirect
+// blocks — which is where the repeated I/O was.
+#define EXT2_CACHE_BLOCKS 256
 
 #define EXT2_MAGIC 0xEF53
 #define EXT2_ROOT_INO 2
@@ -104,15 +115,40 @@ static uint32_t inode_size;
 static uint32_t groups; // number of block groups
 static bool has_filetype;
 
-// The fs's scratch/result allocator, injected once at mount (from kmain) so the
-// module never reaches for the global heap_default(). Block buffers are alloc'd
-// and freed within an operation; ext2_read_path's result outlives the call and
-// is released by the caller via ext2_free().
-static struct heap_allocator* fs_heap;
+// Concurrency: every public filesystem operation (read, stat, list, write,
+// mkdir, remove, sync, free) takes g_fs_lock for its whole duration, so at most
+// one core is ever inside the filesystem. That single lock — not a per-driver
+// one — is what makes the stack safe to call from an application processor: it
+// covers ext2's own state (superblock, scratch buffers), the block cache's
+// LRU/hash structures, and the driver's shared DMA state together. So the APs
+// can read and write; the polled ATA path works from any core. (NVMe from an AP
+// still needs its completion IRQ re-affined — a follow-up — so today AP I/O
+// uses ATA.) ext2_mount runs once at boot, before the APs start, and
+// ext2_mounted is a lone boolean read, so neither takes the lock. The raw
+// `disk` Lua library (lua_disk.c) bypasses ext2 and this lock, so it stays a
+// BSP-only tool. A plain spinlock suffices because no interrupt handler ever
+// enters the filesystem, so none can contend for the lock.
+static struct spinlock g_fs_lock;
+
+// The fs's scratch/result allocator: a PRIVATE heap carved once at mount out of
+// the heap kmain injects. Private because the shared kernel heap is not
+// thread-safe, and fs allocations now happen on application processors too; a
+// dedicated heap, only ever touched under g_fs_lock, keeps them from racing the
+// BSP's allocator. Block buffers are alloc'd and freed within an operation;
+// ext2_read_path's result outlives the call and is released via ext2_free().
+// Whole-file reads are therefore bounded by FS_HEAP_SZ.
+#define FS_HEAP_SZ (16u << 20) // 16 MiB — comfortably over the ~4 MiB Doom WAD
+static struct heap_allocator g_fs_heap;
+static struct heap_allocator* fs_heap; // -> &g_fs_heap once mounted
 
 // The block device this filesystem is mounted on (set by ext2_mount). All
 // sector I/O goes through it, so ext2 is decoupled from any one driver.
 static const struct blockdev* fs_dev;
+
+// The write-back cache over fs_dev, created at mount once block_size is known.
+// NULL before mount / after a failed mount; the block helpers fall back to the
+// raw device then so the bootstrap superblock read still works.
+static struct bcache* cache;
 
 static struct allocator* mem(void)
 {
@@ -123,6 +159,9 @@ static struct allocator* mem(void)
 // 512-byte LBAs.
 static bool read_block(uint32_t blk, void* buf)
 {
+    if (cache) {
+        return bcache_read(cache, blk, buf);
+    }
     uint32_t spb = block_size / 512;
     return fs_dev->read((uint64_t)blk * spb, spb, buf);
 }
@@ -274,7 +313,11 @@ static void* read_file(const struct inode* in, uint64_t size, size_t* out_size)
         while (i + run < full && phys[i + run] == phys[i] + run) {
             run++;
         }
-        fs_dev->read((uint64_t)phys[i] * spb, run * spb, p);
+        if (cache) {
+            bcache_read_run(cache, phys[i], run, p);
+        } else {
+            fs_dev->read((uint64_t)phys[i] * spb, run * spb, p);
+        }
         p += (uint64_t)run * block_size;
         i += run;
     }
@@ -396,7 +439,10 @@ static bool resolve(const char* path, uint32_t* out_ino, struct inode* out)
 bool ext2_mount(const struct blockdev* dev, struct heap_allocator* heap)
 {
     mounted = false;
-    fs_heap = heap; // must be set before any mem()/read below
+    if (cache) { // re-mount: drop the previous device's cache
+        bcache_destroy(cache);
+        cache = NULL;
+    }
     fs_dev = dev;
     if (dev == NULL || dev->sectors() == 0) {
         return false; // no device / no media
@@ -419,6 +465,20 @@ bool ext2_mount(const struct blockdev* dev, struct heap_allocator* heap)
     has_filetype = (sb.feature_incompat & INCOMPAT_FILETYPE) != 0;
     groups = (sb.blocks_count - sb.first_data_block + sb.blocks_per_group - 1) /
              sb.blocks_per_group;
+    // Carve the private fs heap once, now that this device is confirmed as the
+    // one we mount (so a failed nvme/usb probe doesn't waste it). Boot-time and
+    // single-threaded, so the carve itself needs no lock.
+    if (fs_heap == NULL) {
+        void* region = new (&heap->base, uint8_t, FS_HEAP_SZ);
+        g_fs_heap = heap_init(region, FS_HEAP_SZ);
+        fs_heap = &g_fs_heap;
+    }
+    // From here on read_block/write_block use the cache. The superblock itself
+    // stays on the raw-device path (write_superblock): it lives at a fixed LBA
+    // and its block is never addressed through read_block, so it can't alias a
+    // cached block. The cache draws from the private fs heap too, so its
+    // structures are covered by g_fs_lock like everything else.
+    cache = bcache_create(dev, block_size, EXT2_CACHE_BLOCKS, fs_heap);
     mounted = true;
     return true;
 }
@@ -428,16 +488,18 @@ bool ext2_mounted(void)
     return mounted;
 }
 
-// Free a buffer returned by ext2_read_path (from the injected fs heap), so
+// Free a buffer returned by ext2_read_path (from the private fs heap), so
 // callers never name heap_default() either.
 void ext2_free(void* p)
 {
     if (p != NULL) {
+        spin_lock(&g_fs_lock);
         heap_free(fs_heap, p);
+        spin_unlock(&g_fs_lock);
     }
 }
 
-void* ext2_read_path(const char* path, size_t* size)
+static void* read_path_impl(const char* path, size_t* size)
 {
     if (!mounted) {
         return NULL;
@@ -453,7 +515,15 @@ void* ext2_read_path(const char* path, size_t* size)
     return read_file(&in, inode_file_size(&in), size);
 }
 
-bool ext2_stat_path(const char* path, struct ext2_stat* out)
+void* ext2_read_path(const char* path, size_t* size)
+{
+    spin_lock(&g_fs_lock);
+    void* r = read_path_impl(path, size);
+    spin_unlock(&g_fs_lock);
+    return r;
+}
+
+static bool stat_path_impl(const char* path, struct ext2_stat* out)
 {
     if (!mounted) {
         return false;
@@ -468,6 +538,14 @@ bool ext2_stat_path(const char* path, struct ext2_stat* out)
     out->mode = in.mode;
     out->is_dir = (in.mode & S_IFMT) == S_IFDIR;
     return true;
+}
+
+bool ext2_stat_path(const char* path, struct ext2_stat* out)
+{
+    spin_lock(&g_fs_lock);
+    bool r = stat_path_impl(path, out);
+    spin_unlock(&g_fs_lock);
+    return r;
 }
 
 struct emit_ctx {
@@ -492,10 +570,10 @@ static bool emit_entry(void* ctx, uint32_t ino, uint8_t type, const char* name,
     return false;
 }
 
-int ext2_list(const char* path,
-              void (*emit)(void* ctx, const char* name, uint32_t inode,
-                           uint8_t type),
-              void* ctx)
+static int list_impl(const char* path,
+                     void (*emit)(void* ctx, const char* name, uint32_t inode,
+                                  uint8_t type),
+                     void* ctx)
 {
     if (!mounted) {
         return -1;
@@ -513,6 +591,19 @@ int ext2_list(const char* path,
     return e.count;
 }
 
+int ext2_list(const char* path,
+              void (*emit)(void* ctx, const char* name, uint32_t inode,
+                           uint8_t type),
+              void* ctx)
+{
+    // emit() runs with g_fs_lock held (the spinlock is not recursive), so the
+    // callback must not re-enter ext2. Today's callbacks only copy names out.
+    spin_lock(&g_fs_lock);
+    int r = list_impl(path, emit, ctx);
+    spin_unlock(&g_fs_lock);
+    return r;
+}
+
 // --- Write support ---------------------------------------------------------
 // Every operation is read-modify-write straight to disk (no cache, no journal),
 // keeping the primary superblock, group descriptors, bitmaps, inode table, and
@@ -525,6 +616,9 @@ static uint32_t roundup4(uint32_t x)
 
 static bool write_block(uint32_t blk, const void* buf)
 {
+    if (cache) {
+        return bcache_write(cache, blk, buf);
+    }
     uint32_t spb = block_size / 512;
     return fs_dev->write((uint64_t)blk * spb, spb, buf);
 }
@@ -928,7 +1022,7 @@ static bool resolve_parent(const char* path, uint32_t* parent_ino,
     return (parent->mode & S_IFMT) == S_IFDIR;
 }
 
-bool ext2_write_file(const char* path, const void* data, size_t size)
+static bool write_file_impl(const char* path, const void* data, size_t size)
 {
     if (!mounted) {
         return false;
@@ -993,7 +1087,7 @@ bool ext2_write_file(const char* path, const void* data, size_t size)
     return ok;
 }
 
-bool ext2_mkdir(const char* path)
+static bool mkdir_impl(const char* path)
 {
     if (!mounted) {
         return false;
@@ -1072,7 +1166,7 @@ static bool count_cb(void* ctx, uint32_t ino, uint8_t type, const char* name,
     return true; // a real entry: stop early
 }
 
-bool ext2_remove(const char* path)
+static bool remove_impl(const char* path)
 {
     if (!mounted) {
         return false;
@@ -1128,4 +1222,62 @@ bool ext2_remove(const char* path)
         }
     }
     return true;
+}
+
+// Flush the cache with g_fs_lock already held (used by the mutator wrappers,
+// which must not re-acquire the non-recursive lock via the public ext2_sync).
+static bool sync_locked(void)
+{
+    return cache ? bcache_sync(cache) : true;
+}
+
+bool ext2_sync(void)
+{
+    spin_lock(&g_fs_lock);
+    bool ok = sync_locked();
+    spin_unlock(&g_fs_lock);
+    return ok;
+}
+
+// The public mutators wrap their _impl and flush on the way out, whatever path
+// _impl took: dirty blocks a mutation produced (bitmaps, group descriptors,
+// inode table, directory and data blocks) reach disk before the call returns,
+// so durability matches the pre-cache straight-to-disk behaviour. The whole
+// sequence runs under g_fs_lock.
+bool ext2_write_file(const char* path, const void* data, size_t size)
+{
+    spin_lock(&g_fs_lock);
+    bool ok = write_file_impl(path, data, size);
+    sync_locked();
+    spin_unlock(&g_fs_lock);
+    return ok;
+}
+
+bool ext2_mkdir(const char* path)
+{
+    spin_lock(&g_fs_lock);
+    bool ok = mkdir_impl(path);
+    sync_locked();
+    spin_unlock(&g_fs_lock);
+    return ok;
+}
+
+bool ext2_remove(const char* path)
+{
+    spin_lock(&g_fs_lock);
+    bool ok = remove_impl(path);
+    sync_locked();
+    spin_unlock(&g_fs_lock);
+    return ok;
+}
+
+bool ext2_cache_stats(struct bcache_stats* out)
+{
+    spin_lock(&g_fs_lock);
+    bool ok = cache != NULL;
+    if (ok) {
+        bcache_get_stats(cache, out);
+    }
+    spin_unlock(&g_fs_lock);
+    return ok;
 }
