@@ -47,6 +47,10 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
 - [[perf-lab]] — the Intel PMU (fixed + architectural events) as a `perf.*`
   Lua module and an upgraded `bench()` for noise-free measurement, over the
   q35/`-cpu host` QEMU realism work. *Status: complete.*
+- [[software-rasterizer]] — graphics roadmap: a shared software 2D rasterizer
+  as the keystone, the tracks on top (fonts, windowing, 3D, image formats, Lua
+  canvas), quick wins, and the raylib connection. *Status: planned (fonts +
+  quick wins in progress).*
 
 ## By status
 
@@ -64,6 +68,7 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
 | [[api-layers]]       | review            | —         |
 | [[doom-port]]        | complete          | —         |
 | [[perf-lab]]         | complete          | —         |
+| [[software-rasterizer]] | planned        | —         |
 
 ## Conventions
 
