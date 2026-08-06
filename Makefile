@@ -97,6 +97,11 @@ HTTP_OBJS := $(OBJ_DIR)/http/picohttpparser.o
 # include path (it needs sprintf/qsort/memcpy, all provided by the shim).
 MICROUI_OBJS := $(OBJ_DIR)/microui/microui.o
 
+# Vendored stb_truetype (src/stb/): the font rasteriser behind src/ttf.c. Built
+# verbatim (-w); every libc dependency is routed through STBTT_* macros to
+# kernel facilities in stb_truetype_impl.c, so it needs no klibc include.
+STB_OBJS := $(OBJ_DIR)/stb/stb_truetype_impl.o
+
 # Vendored BearSSL (src/bearssl/): the TLS library for HTTPS. Its whole src/ tree
 # compiles freestanding (no malloc, no OS deps); built verbatim (-w) with its own
 # includes + the klibc <string.h>. sysrng.c (the /dev/urandom seeder) was dropped
@@ -141,8 +146,8 @@ HOSTED_PROGS := chello filetest gfxdemo
 HOSTED_ELVES := $(patsubst %,$(HOSTED_DIR)/%.elf,$(HOSTED_PROGS))
 
 VENDOR_OBJS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(VENDOR_CSOURCES))
-OBJS       := $(COBJS) $(ASMOBJS) $(VENDOR_OBJS) $(LUA_OBJS) $(LUA_ASM_OBJ) $(HL_OBJS) $(HTTP_OBJS) $(MICROUI_OBJS) $(BEARSSL_OBJS) $(UACPI_OBJS)
-DEPS       := $(COBJS:.o=.d) $(VENDOR_OBJS:.o=.d) $(LUA_OBJS:.o=.d) $(HL_OBJS:.o=.d) $(HTTP_OBJS:.o=.d) $(MICROUI_OBJS:.o=.d) $(BEARSSL_OBJS:.o=.d) $(UACPI_OBJS:.o=.d)
+OBJS       := $(COBJS) $(ASMOBJS) $(VENDOR_OBJS) $(LUA_OBJS) $(LUA_ASM_OBJ) $(HL_OBJS) $(HTTP_OBJS) $(MICROUI_OBJS) $(STB_OBJS) $(BEARSSL_OBJS) $(UACPI_OBJS)
+DEPS       := $(COBJS:.o=.d) $(VENDOR_OBJS:.o=.d) $(LUA_OBJS:.o=.d) $(HL_OBJS:.o=.d) $(HTTP_OBJS:.o=.d) $(MICROUI_OBJS:.o=.d) $(STB_OBJS:.o=.d) $(BEARSSL_OBJS:.o=.d) $(UACPI_OBJS:.o=.d)
 
 KERNEL := kernel.bin
 
@@ -270,6 +275,14 @@ $(OBJ_DIR)/http/%.o: $(SRC_DIR)/http/%.c $(OBJ_DIR)/.flags.kernel | $(OBJ_DIR)
 
 # Vendored microui: same treatment (verbatim, klibc headers for sprintf/qsort).
 $(OBJ_DIR)/microui/%.o: $(SRC_DIR)/microui/%.c $(OBJ_DIR)/.flags.kernel \
+		| $(OBJ_DIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -w -I$(SRC_DIR)/lua/klibc $(CPPFLAGS) -c -o $@ $<
+
+# Vendored stb_truetype: verbatim (-w) with the klibc <string.h>/<math.h> shims
+# on the include path (same as microui), so stb's defaults reach the kernel's
+# strlen/memcpy/floor/sqrt/… ; only its allocator is overridden (kernel heap).
+$(OBJ_DIR)/stb/%.o: $(SRC_DIR)/stb/%.c $(OBJ_DIR)/.flags.kernel \
 		| $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w -I$(SRC_DIR)/lua/klibc $(CPPFLAGS) -c -o $@ $<
@@ -423,7 +436,17 @@ $(DISK_RAYTRACER): $(LAB_DIR)/raytracer.c $(INCLUDE_DIR)/lab.h
 	$(LD) -melf_x86_64 -e bench -Ttext 0x400000 -o $@ $(@:.elf=.o)
 	rm -f $(@:.elf=.o)
 
-$(DISK_IMG): $(DISK_FILES) $(DISK_RAYTRACER)
+# A scalable font on the data disk for the TrueType rasteriser (src/ttf.c) and
+# its boot self-test. Copied deterministically from the committed source asset
+# (assets/fonts/) so a fresh clone / CI always has it — DejaVu Sans Mono is
+# freely redistributable (assets/fonts/DejaVuSansMono-LICENSE.txt). The disk copy
+# is generated (gitignored); the source in assets/ is what's version-controlled.
+FONT_SRC  := assets/fonts/DejaVuSansMono.ttf
+DISK_FONT := $(DISK_DIR)/font.ttf
+$(DISK_FONT): $(FONT_SRC) | $(DISK_DIR)
+	cp $< $@
+
+$(DISK_IMG): $(DISK_FILES) $(DISK_RAYTRACER) $(DISK_FONT)
 	mke2fs -q -F -t ext2 -b 1024 -O ^resize_inode,^dir_index,^ext_attr \
 		-d $(DISK_DIR) $@ $(DISK_BLOCKS)
 

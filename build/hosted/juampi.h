@@ -34,6 +34,19 @@ int juampi_fb_present(const void* pixels, int w, int h);
 #define JK_RIGHT (0x4D | 0x80) // extended
 int juampi_getkey(int* pressed);
 
+// Mouse state. `x`/`y` are the absolute cursor position clamped to the screen
+// (seeded to the centre when the program first queries); `dx`/`dy` are the
+// motion since the previous query (useful for relative/FPS-style input);
+// `buttons` is a bitmask (bit0 left, bit1 right, bit2 middle).
+struct juampi_mouse {
+    int x, y;
+    int dx, dy;
+    int buttons;
+};
+// Fill *m with the current mouse state. Returns 1 if a mouse is present, 0 if
+// not (m is left untouched then). Non-blocking.
+int juampi_mouse(struct juampi_mouse* m);
+
 // Milliseconds since boot (monotonic).
 unsigned long juampi_ticks_ms(void);
 

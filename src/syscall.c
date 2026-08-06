@@ -104,7 +104,13 @@ static void hfile_close(struct hfile* h)
     *h = (struct hfile){0};
 }
 
-#define HOSTED_HEAP_SZ (16u * 1024 * 1024) // program heap for sbrk-based malloc
+// Program heap for sbrk-based malloc. 64 MiB (up from 16): raylib-class
+// programs hold textures, an offscreen framebuffer, a z-buffer, and decoded
+// assets all at once, which the old 16 MiB could not. Carved from the kernel
+// heap per run and freed on exit, so it costs nothing between programs;
+// KHEAP_SIZE was grown to leave room alongside the fs heap and the per-core
+// worker heaps.
+#define HOSTED_HEAP_SZ (64u * 1024 * 1024)
 
 // One hosted program at a time.
 static fault_jmp_buf exit_env; // hosted_run's return point (set before jumping)
@@ -116,6 +122,13 @@ static int exit_status;
 static uint8_t* brk_base;
 static uint8_t* brk_cur;
 static uint8_t* brk_end;
+
+// Absolute mouse position exposed to a hosted program (SYS_getmouse). The PS/2
+// driver reports *relative* motion; we integrate it into a screen-clamped
+// cursor, seeded to the screen centre on the program's first query. Reset each
+// hosted_run so a program never inherits the previous one's cursor.
+static int mouse_x, mouse_y;
+static bool mouse_seeded;
 
 static long sys_write(long fd, const char* buf, long len)
 {
@@ -284,22 +297,38 @@ static void fb_blit_centered(const uint32_t* px, int w, int h)
     gfx_shifts(&rs, &gs, &bs);
     int ox = (sw - w) / 2;
     int oy = (sh - h) / 2;
+
+    // Clip the horizontal span once instead of testing every pixel: destination
+    // columns [x0, x1) are visible, and source column = (screen x) - ox.
+    int x0 = ox < 0 ? 0 : ox;
+    int x1 = ox + w > sw ? sw : ox + w;
+    if (x1 <= x0) {
+        return;
+    }
+    size_t n = (size_t)(x1 - x0);
+
+    // Fast path: when the framebuffer already stores 0x00RRGGBB (red at bit 16,
+    // green at 8, blue at 0) our internal pixels need no channel repack, so
+    // each visible row is a single memcpy instead of a per-pixel shift-and-or.
+    // This is the common QEMU/OVMF layout; it roughly halves present cost.
+    bool direct = (rs == 16 && gs == 8 && bs == 0);
+
     for (int y = 0; y < h; y++) {
         int dy = oy + y;
         if (dy < 0 || dy >= sh) {
             continue;
         }
-        uint32_t* dst = (uint32_t*)(base + (uint64_t)dy * pitch);
-        const uint32_t* src = px + (size_t)y * (size_t)w;
-        for (int x = 0; x < w; x++) {
-            int dx = ox + x;
-            if (dx < 0 || dx >= sw) {
-                continue;
+        uint32_t* dst = (uint32_t*)(base + (uint64_t)dy * pitch) + x0;
+        const uint32_t* src = px + (size_t)y * (size_t)w + (size_t)(x0 - ox);
+        if (direct) {
+            memcpy(dst, src, n * sizeof(uint32_t));
+        } else {
+            for (size_t i = 0; i < n; i++) {
+                uint32_t p = src[i];
+                dst[i] = (uint32_t)(((p >> 16) & 0xFF) << rs) |
+                         (uint32_t)(((p >> 8) & 0xFF) << gs) |
+                         (uint32_t)((p & 0xFF) << bs);
             }
-            uint32_t p = src[x];
-            dst[dx] = (uint32_t)(((p >> 16) & 0xFF) << rs) |
-                      (uint32_t)(((p >> 8) & 0xFF) << gs) |
-                      (uint32_t)((p & 0xFF) << bs);
         }
     }
 }
@@ -338,6 +367,52 @@ static long sys_audio_play(const uint8_t* u8, long count, long ratevol)
     int h = audio_play_pcm(s16, (uint32_t)count, rate, 1, false, gain);
     heap_free(heap_default(), s16); // audio_play_pcm copies into a voice buffer
     return h;
+}
+
+// Report the mouse to a hosted program: integrate the PS/2 driver's relative
+// motion into a screen-clamped absolute cursor and fill the caller's int[5]
+// {x, y, dx, dy, buttons}. Returns 1 if a mouse is present, else 0. During a
+// fullscreen hosted program the desktop compositor is suspended, so nothing
+// else drains mouse_poll and the deltas are ours alone.
+static long sys_getmouse(long ptr)
+{
+    if (gfx_framebuffer(NULL, NULL) == NULL) {
+        return 0; // headless: no screen to place a cursor on
+    }
+    int dx = 0, dy = 0;
+    uint8_t btn = 0;
+    if (!mouse_poll(&dx, &dy, &btn)) {
+        return 0; // no mouse device
+    }
+    int sw = (int)gfx_width();
+    int sh = (int)gfx_height();
+    if (!mouse_seeded) {
+        mouse_x = sw / 2;
+        mouse_y = sh / 2;
+        mouse_seeded = true;
+        dx = dy = 0; // discard motion accumulated before the program started
+    }
+    mouse_x += dx;
+    mouse_y += dy;
+    if (mouse_x < 0) {
+        mouse_x = 0;
+    } else if (mouse_x >= sw) {
+        mouse_x = sw - 1;
+    }
+    if (mouse_y < 0) {
+        mouse_y = 0;
+    } else if (mouse_y >= sh) {
+        mouse_y = sh - 1;
+    }
+    if (ptr != 0) {
+        int* m = (int*)ptr;
+        m[0] = mouse_x;
+        m[1] = mouse_y;
+        m[2] = dx;
+        m[3] = dy;
+        m[4] = (int)btn;
+    }
+    return 1;
 }
 
 static void syscall_handler(struct interrupt_frame* f)
@@ -408,6 +483,9 @@ static void syscall_handler(struct interrupt_frame* f)
     case SYS_ticks_ms:
         r = (long)ktime_ms();
         break;
+    case SYS_getmouse:
+        r = sys_getmouse(a);
+        break;
     case SYS_audio_play:
         r = sys_audio_play((const uint8_t*)a, b, c);
         break;
@@ -474,6 +552,8 @@ int hosted_run(const void* image, size_t size, int argc, char** argv)
     }
     while (keyboard_poll_raw(NULL) >= 0) {
     }
+    mouse_seeded =
+            false; // re-centre the cursor for this program on first query
 
     active = true;
     exit_status = -1;

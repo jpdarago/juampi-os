@@ -40,5 +40,9 @@
 #define SYS_audio_music_write 18 // enqueue stereo 48 kHz frames -> accepted
 #define SYS_audio_music_space 19 // -> free stereo frames in the music ring
 #define SYS_audio_music_stop 20  // disable streaming music
+// SYS_getmouse -> 1 if a mouse is present (else 0); fills a caller int[5] with
+// {x, y, dx, dy, buttons}: absolute position clamped to the screen, the delta
+// since the last call, and the button bitmask (bit0 left, 1 right, 2 middle).
+#define SYS_getmouse 21
 
 #endif

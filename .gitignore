@@ -68,4 +68,5 @@ build/hosted/*.elf
 build/disk/filetest.elf
 build/hosted/libnewlib.a
 build/disk/doom1.wad
+build/disk/font.ttf
 build/disk/doom.elf
