@@ -437,18 +437,14 @@ $(DISK_RAYTRACER): $(LAB_DIR)/raytracer.c $(INCLUDE_DIR)/lab.h
 	rm -f $(@:.elf=.o)
 
 # A scalable font on the data disk for the TrueType rasteriser (src/ttf.c) and
-# its boot self-test. Copied from the host font set via fontconfig (not
-# committed — a binary asset, like the Doom WAD). If no host font is found the
-# copy is skipped and the self-test reports the font absent, so the build still
-# works everywhere.
+# its boot self-test. Copied deterministically from the committed source asset
+# (assets/fonts/) so a fresh clone / CI always has it — DejaVu Sans Mono is
+# freely redistributable (assets/fonts/DejaVuSansMono-LICENSE.txt). The disk copy
+# is generated (gitignored); the source in assets/ is what's version-controlled.
+FONT_SRC  := assets/fonts/DejaVuSansMono.ttf
 DISK_FONT := $(DISK_DIR)/font.ttf
-FONT_SRC  := $(shell fc-match -f '%{file}' 'DejaVu Sans Mono' 2>/dev/null)
-$(DISK_FONT): | $(DISK_DIR)
-	@if [ -n "$(FONT_SRC)" ] && [ -f "$(FONT_SRC)" ]; then \
-		cp "$(FONT_SRC)" $@ && echo "copied font: $(FONT_SRC)"; \
-	else \
-		echo "note: no host font found (fc-match); /font.ttf omitted from disk"; \
-	fi
+$(DISK_FONT): $(FONT_SRC) | $(DISK_DIR)
+	cp $< $@
 
 $(DISK_IMG): $(DISK_FILES) $(DISK_RAYTRACER) $(DISK_FONT)
 	mke2fs -q -F -t ext2 -b 1024 -O ^resize_inode,^dir_index,^ext_attr \
