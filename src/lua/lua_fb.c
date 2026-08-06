@@ -136,6 +136,23 @@ static int l_ttf(lua_State* L)
     return 1;
 }
 
+// fb.blend(x, y, w, h, argb [,mode]) — filled rectangle blended over what's
+// there. `argb` is 0xAARRGGBB (alpha 0 = opaque). Mode names index the enum:
+// GFX_COPY/OVER/ADD/MUL in that order.
+static const char* const blend_names[] = { "copy", "over", "add", "mul", NULL };
+static int l_blend(lua_State* L)
+{
+    int64_t x = luaL_checkinteger(L, 1);
+    int64_t y = luaL_checkinteger(L, 2);
+    int64_t w = luaL_checkinteger(L, 3);
+    int64_t h = luaL_checkinteger(L, 4);
+    uint32_t argb = (uint32_t)luaL_checkinteger(L, 5);
+    enum gfx_blend mode =
+            (enum gfx_blend)luaL_checkoption(L, 6, "over", blend_names);
+    gfx_fill_blend(fb_cur(), x, y, w, h, argb, mode);
+    return 0;
+}
+
 // fb.buffer([on]) -> bool. Turn double buffering on (default) or off, returning
 // whether it is now active. While on, drawing goes to an off-screen buffer and
 // nothing appears until fb.flip(), so animations don't flicker.
@@ -291,6 +308,13 @@ static const struct lua_fndoc fblib[] = {
                   {"y", "number", "top"},
                   {"str", "string", "text to draw"},
                   {"color", "number?", "0xRRGGBB, default white"}}},
+        {"blend", l_blend, "Fill a rectangle with an alpha-blended colour.",
+         .args = {{"x", "number", "left"},
+                  {"y", "number", "top"},
+                  {"w", "number", "width"},
+                  {"h", "number", "height"},
+                  {"argb", "number", "0xAARRGGBB (alpha 0 = opaque)"},
+                  {"mode", "string?", "over (default) | add | mul | copy"}}},
         {"loadfont", l_loadfont,
          "Load a TrueType font off the disk (GC-freed when dropped).",
          .args = {{"path", "string", "font file path, e.g. /font.ttf"}},

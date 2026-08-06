@@ -234,6 +234,108 @@ void gfx_fill(struct gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
     }
 }
 
+void gfx_plot(struct gfx_surface* s, int64_t x, int64_t y, uint32_t argb,
+              unsigned coverage, enum gfx_blend blend)
+{
+    if (s == NULL || x < s->cx0 || x >= s->cx1 || y < s->cy0 || y >= s->cy1 ||
+        x < 0 || y < 0 || (uint64_t)x >= s->w || (uint64_t)y >= s->h) {
+        return;
+    }
+    uint32_t* px = surf_row(s, (uint64_t)y) + x;
+    int sr = (int)((argb >> 16) & 0xFF);
+    int sg = (int)((argb >> 8) & 0xFF);
+    int sb = (int)(argb & 0xFF);
+    if (blend == GFX_COPY) {
+        *px = surf_pack(s, (uint32_t)((sr << 16) | (sg << 8) | sb));
+        return;
+    }
+    // Effective source alpha: the colour's alpha (0 -> opaque, so a legacy
+    // 0xRRGGBB overwrites) scaled by the coverage.
+    unsigned a = (argb >> 24) & 0xFF;
+    if (a == 0) {
+        a = 255;
+    }
+    a = (a * coverage) / 255;
+    if (a == 0) {
+        return; // nothing to contribute
+    }
+    if (a == 255 && blend == GFX_OVER) {
+        *px = surf_pack(s, (uint32_t)((sr << 16) | (sg << 8) | sb));
+        return;
+    }
+    uint32_t d = *px;
+    int dr = (int)((d >> s->r_shift) & 0xFF);
+    int dg = (int)((d >> s->g_shift) & 0xFF);
+    int db = (int)((d >> s->b_shift) & 0xFF);
+    int nr, ng, nb;
+    switch (blend) {
+    case GFX_ADD:
+        nr = dr + sr * (int)a / 255;
+        ng = dg + sg * (int)a / 255;
+        nb = db + sb * (int)a / 255;
+        break;
+    case GFX_MUL: {
+        int mr = dr * sr / 255, mg = dg * sg / 255, mb = db * sb / 255;
+        nr = dr + (mr - dr) * (int)a / 255;
+        ng = dg + (mg - dg) * (int)a / 255;
+        nb = db + (mb - db) * (int)a / 255;
+        break;
+    }
+    case GFX_OVER:
+    default:
+        nr = dr + (sr - dr) * (int)a / 255;
+        ng = dg + (sg - dg) * (int)a / 255;
+        nb = db + (sb - db) * (int)a / 255;
+        break;
+    }
+    if (nr > 255) {
+        nr = 255;
+    }
+    if (ng > 255) {
+        ng = 255;
+    }
+    if (nb > 255) {
+        nb = 255;
+    }
+    *px = ((uint32_t)nr << s->r_shift) | ((uint32_t)ng << s->g_shift) |
+          ((uint32_t)nb << s->b_shift);
+}
+
+void gfx_fill_blend(struct gfx_surface* s, int64_t x, int64_t y, int64_t w,
+                    int64_t h, uint32_t argb, enum gfx_blend blend)
+{
+    if (s == NULL) {
+        return;
+    }
+    unsigned a = (argb >> 24) & 0xFF;
+    // Opaque over/copy is just a plain (fast) fill.
+    if ((blend == GFX_OVER || blend == GFX_COPY) && (a == 255 || a == 0)) {
+        gfx_fill(s, x, y, w, h, argb & 0xFFFFFF);
+        return;
+    }
+    int64_t x0 = x < s->cx0 ? s->cx0 : x;
+    int64_t y0 = y < s->cy0 ? s->cy0 : y;
+    int64_t x1 = x + w > s->cx1 ? s->cx1 : x + w;
+    int64_t y1 = y + h > s->cy1 ? s->cy1 : y + h;
+    if (x0 < 0) {
+        x0 = 0;
+    }
+    if (y0 < 0) {
+        y0 = 0;
+    }
+    if (x1 > (int64_t)s->w) {
+        x1 = (int64_t)s->w;
+    }
+    if (y1 > (int64_t)s->h) {
+        y1 = (int64_t)s->h;
+    }
+    for (int64_t yy = y0; yy < y1; yy++) {
+        for (int64_t xx = x0; xx < x1; xx++) {
+            gfx_plot(s, xx, yy, argb, 255, blend);
+        }
+    }
+}
+
 void gfx_glyph(struct gfx_surface* s, int64_t x, int64_t y, unsigned char c,
                uint32_t rgb)
 {
@@ -273,26 +375,16 @@ void gfx_text(struct gfx_surface* s, int64_t x, int64_t y, const char* str,
 void gfx_blit(struct gfx_surface* s, int64_t x, int64_t y, uint64_t w,
               uint64_t h, const uint32_t* pixels)
 {
-    if (s == NULL) {
+    if (s == NULL || pixels == NULL) {
         return;
     }
+    // A 0xAARRGGBB image, alpha-blended over the surface. Through gfx_plot now,
+    // so it honors the clip box and real partial alpha (was: bounds-only, with
+    // any alpha>0 treated as opaque).
     for (uint64_t j = 0; j < h; j++) {
-        int64_t py = y + (int64_t)j;
-        if (py < 0 || (uint64_t)py >= s->h) {
-            continue;
-        }
-        uint32_t* row = surf_row(s, (uint64_t)py);
         const uint32_t* src = pixels + j * w;
         for (uint64_t i = 0; i < w; i++) {
-            int64_t px = x + (int64_t)i;
-            if (px < 0 || (uint64_t)px >= s->w) {
-                continue;
-            }
-            uint32_t p = src[i];
-            if ((p >> 24) == 0) {
-                continue; // fully transparent
-            }
-            row[px] = surf_pack(s, p & 0xffffff);
+            gfx_plot(s, x + (int64_t)i, y + (int64_t)j, src[i], 255, GFX_OVER);
         }
     }
 }

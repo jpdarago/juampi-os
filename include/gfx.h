@@ -60,6 +60,12 @@ static inline uint32_t gfx_unpack_rgb(uint32_t native, uint8_t rs, uint8_t gs,
            ((native >> bs) & 0xFF);
 }
 
+// Blend modes. Colours are 0xAARRGGBB; a 0 alpha byte (i.e. a legacy 0xRRGGBB)
+// is read as opaque, so "translucent" is simply "alpha < 255." GFX_COPY
+// overwrites (the default for opaque draws); GFX_OVER is src-over-dst by the
+// source alpha; GFX_ADD is additive (glows); GFX_MUL modulates (tints/shadows).
+enum gfx_blend { GFX_COPY, GFX_OVER, GFX_ADD, GFX_MUL };
+
 // The screen as a surface (the back buffer when double-buffering, else the
 // hardware framebuffer). Its clip persists across calls; the UI renderer sets
 // it per microui CLIP command. NULL if headless.
@@ -83,6 +89,18 @@ void gfx_line(struct gfx_surface* s, int64_t x0, int64_t y0, int64_t x1,
               int64_t y1, uint32_t rgb);
 void gfx_fill(struct gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
               uint32_t rgb);
+// The blend engine: plot one clipped pixel, blending `argb` (0xAARRGGBB) at
+// (x,y) under `blend`, with `coverage` in [0,255] scaling the source alpha — so
+// anti-aliased glyph/edge coverage feeds the same path. Every translucent draw
+// bottoms out here; gfx_glyph/gfx_fill's opaque paths stay their own fast
+// loops.
+void gfx_plot(struct gfx_surface* s, int64_t x, int64_t y, uint32_t argb,
+              unsigned coverage, enum gfx_blend blend);
+// Blended rectangle fill: like gfx_fill but honours the source alpha + blend
+// mode. Opaque (alpha 255 / legacy 0xRRGGBB, GFX_OVER|COPY) takes gfx_fill's
+// fast path; otherwise it's a per-pixel blend.
+void gfx_fill_blend(struct gfx_surface* s, int64_t x, int64_t y, int64_t w,
+                    int64_t h, uint32_t argb, enum gfx_blend blend);
 // Draw one 8x16 glyph / an n-byte string at pixel (x, y), honoring the clip.
 void gfx_glyph(struct gfx_surface* s, int64_t x, int64_t y, unsigned char c,
                uint32_t rgb);

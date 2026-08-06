@@ -20,6 +20,9 @@ local function frame()
   fb.ttf(font, 20, y + 16, "the quick brown fox jumps over the lazy dog", 20,
     0xffd080)
   fb.text(20, y + 36, "fb.text: the built-in 8x16 bitmap font", 0x00ff88)
+  -- A translucent panel over the text (the phase-2 blend pipeline): 0xAARRGGBB,
+  -- alpha 0x80 ~= 50%, so you read the text through it.
+  fb.blend(210, 54, 360, 96, 0x8030b0ff, "over")
 end
 
 print("TTF_DEMO_OK") -- marker for tests/boot-smoke.sh

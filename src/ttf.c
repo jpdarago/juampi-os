@@ -68,32 +68,6 @@ int ttf_text_width(struct ttf_font* f, const char* s, float px)
     return (int)(x + 0.5f);
 }
 
-// Alpha-blend colour `rgb` (0xRRGGBB) over one surface pixel at (x, y) with
-// coverage `a` (0-255), honouring the surface clip box and bounds.
-static void blend_pixel(struct gfx_surface* d, int x, int y, uint32_t rgb,
-                        unsigned a)
-{
-    if (a == 0 || x < 0 || y < 0 || (uint64_t)x >= d->w ||
-        (uint64_t)y >= d->h) {
-        return;
-    }
-    if (x < d->cx0 || x >= d->cx1 || y < d->cy0 || y >= d->cy1) {
-        return;
-    }
-    uint32_t* px = (uint32_t*)(d->pixels + (uint64_t)y * d->pitch) + x;
-    uint32_t p = *px;
-    int dr = (int)((p >> d->r_shift) & 0xFF);
-    int dg = (int)((p >> d->g_shift) & 0xFF);
-    int db = (int)((p >> d->b_shift) & 0xFF);
-    int cr = (int)((rgb >> 16) & 0xFF);
-    int cg = (int)((rgb >> 8) & 0xFF);
-    int cb = (int)(rgb & 0xFF);
-    unsigned nr = (unsigned)(dr + ((cr - dr) * (int)a) / 255);
-    unsigned ng = (unsigned)(dg + ((cg - dg) * (int)a) / 255);
-    unsigned nb = (unsigned)(db + ((cb - db) * (int)a) / 255);
-    *px = (nr << d->r_shift) | (ng << d->g_shift) | (nb << d->b_shift);
-}
-
 int ttf_draw(struct ttf_font* f, struct gfx_surface* dst, int x, int y,
              const char* s, float px, uint32_t rgb)
 {
@@ -114,7 +88,9 @@ int ttf_draw(struct ttf_font* f, struct gfx_surface* dst, int x, int y,
                 for (int gx = 0; gx < gw; gx++) {
                     unsigned a = bmp[gy * gw + gx];
                     if (a != 0) {
-                        blend_pixel(dst, ox + gx, oy + gy, rgb, a);
+                        // Opaque text colour (alpha 0 -> opaque in gfx_plot),
+                        // the glyph's coverage as the blend weight.
+                        gfx_plot(dst, ox + gx, oy + gy, rgb, a, GFX_OVER);
                     }
                 }
             }

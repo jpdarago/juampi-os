@@ -182,6 +182,14 @@ localized optimization if a profile says the triangle path is hot.
 Each phase builds, ships, and is independently useful. Order chosen so the
 riskiest new code (triangles) lands last, on top of a de-duplicated base.
 
+> [!success] Phases 1 and 2 landed (2026-08-06)
+> The scoped work is done: the packer is unified and clipping is consistent
+> (phase 1); the blend pipeline — `gfx_plot` + `enum gfx_blend`, `gfx_fill_blend`,
+> `ttf` moved onto it, `gfx_blit` generalised to real alpha, and a `fb.blend`
+> Lua binding with a translucent-panel demo — is in (phase 2). Phases 3–4 (the
+> transform + textured-triangle rasterizer and the `rlgl` shim) remain a
+> follow-up tied to the raylib decision.
+
 1. **Unify packing + fix clipping.** Hoist the packer to a `gfx.h` inline
    (`gfx_pack_rgb`/`gfx_unpack_rgb`) and route the kernel's two copies —
    `gfx.c:surf_pack` and `syscall.c:fb_blit_centered` — through it; make
