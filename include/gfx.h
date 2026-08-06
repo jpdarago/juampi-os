@@ -41,6 +41,25 @@ struct gfx_surface {
     int64_t cx0, cy0, cx1, cy1;
 };
 
+// The one place channel packing lives. `gfx_pack_rgb` packs a 0xRRGGBB colour
+// into a native framebuffer pixel with the given channel shifts;
+// `gfx_unpack_rgb` is the inverse. Every surface primitive and the
+// hosted-present blit go through these instead of open-coding
+// `(r<<rs)|(g<<gs)|(b<<bs)`. Inline so there's no call cost in the per-pixel
+// loops.
+static inline uint32_t gfx_pack_rgb(uint32_t rgb, uint8_t rs, uint8_t gs,
+                                    uint8_t bs)
+{
+    return (((rgb >> 16) & 0xFF) << rs) | (((rgb >> 8) & 0xFF) << gs) |
+           ((rgb & 0xFF) << bs);
+}
+static inline uint32_t gfx_unpack_rgb(uint32_t native, uint8_t rs, uint8_t gs,
+                                      uint8_t bs)
+{
+    return (((native >> rs) & 0xFF) << 16) | (((native >> gs) & 0xFF) << 8) |
+           ((native >> bs) & 0xFF);
+}
+
 // The screen as a surface (the back buffer when double-buffering, else the
 // hardware framebuffer). Its clip persists across calls; the UI renderer sets
 // it per microui CLIP command. NULL if headless.

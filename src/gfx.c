@@ -134,10 +134,7 @@ struct gfx_surface* gfx_screen(void)
 
 static uint32_t surf_pack(const struct gfx_surface* s, uint32_t rgb)
 {
-    uint32_t r = (rgb >> 16) & 0xFF;
-    uint32_t g = (rgb >> 8) & 0xFF;
-    uint32_t b = rgb & 0xFF;
-    return (r << s->r_shift) | (g << s->g_shift) | (b << s->b_shift);
+    return gfx_pack_rgb(rgb, s->r_shift, s->g_shift, s->b_shift);
 }
 
 static inline uint32_t* surf_row(const struct gfx_surface* s, uint64_t y)
@@ -147,8 +144,8 @@ static inline uint32_t* surf_row(const struct gfx_surface* s, uint64_t y)
 
 void gfx_pixel(struct gfx_surface* s, int64_t x, int64_t y, uint32_t rgb)
 {
-    if (s == NULL || x < 0 || y < 0 || (uint64_t)x >= s->w ||
-        (uint64_t)y >= s->h) {
+    if (s == NULL || x < s->cx0 || x >= s->cx1 || y < s->cy0 || y >= s->cy1 ||
+        x < 0 || y < 0 || (uint64_t)x >= s->w || (uint64_t)y >= s->h) {
         return;
     }
     surf_row(s, (uint64_t)y)[x] = surf_pack(s, rgb);
@@ -157,29 +154,26 @@ void gfx_pixel(struct gfx_surface* s, int64_t x, int64_t y, uint32_t rgb)
 void gfx_rect(struct gfx_surface* s, int64_t x, int64_t y, int64_t w, int64_t h,
               uint32_t rgb)
 {
-    if (s == NULL) {
-        return;
-    }
-    uint32_t px = surf_pack(s, rgb);
-    // Clip the rectangle to the surface once, so the inner loop is a tight,
-    // branch-free fill the compiler can vectorize (this is the per-frame
-    // clear).
-    int64_t x0 = x < 0 ? 0 : x;
-    int64_t y0 = y < 0 ? 0 : y;
-    int64_t x1 = x + w > (int64_t)s->w ? (int64_t)s->w : x + w;
-    int64_t y1 = y + h > (int64_t)s->h ? (int64_t)s->h : y + h;
-    for (int64_t yy = y0; yy < y1; yy++) {
-        uint32_t* row = surf_row(s, (uint64_t)yy);
-        for (int64_t xx = x0; xx < x1; xx++) {
-            row[xx] = px;
-        }
-    }
+    // A filled rectangle is just gfx_fill — clip-aware like every other
+    // primitive. (It used to skip the clip box, which let a clipped fb.rect
+    // scribble outside its canvas.)
+    gfx_fill(s, x, y, w, h, rgb);
 }
 
 void gfx_clear(struct gfx_surface* s, uint32_t rgb)
 {
-    if (s != NULL) {
-        gfx_rect(s, 0, 0, (int64_t)s->w, (int64_t)s->h, rgb);
+    if (s == NULL) {
+        return;
+    }
+    // Clear means the WHOLE surface, ignoring any clip box — so this is its own
+    // tight, branch-free full-bounds fill (the per-frame compositor clear), not
+    // a clipped gfx_fill.
+    uint32_t px = surf_pack(s, rgb);
+    for (uint64_t yy = 0; yy < s->h; yy++) {
+        uint32_t* row = surf_row(s, yy);
+        for (uint64_t xx = 0; xx < s->w; xx++) {
+            row[xx] = px;
+        }
     }
 }
 

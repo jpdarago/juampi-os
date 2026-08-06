@@ -324,10 +324,7 @@ static void fb_blit_centered(const uint32_t* px, int w, int h)
             memcpy(dst, src, n * sizeof(uint32_t));
         } else {
             for (size_t i = 0; i < n; i++) {
-                uint32_t p = src[i];
-                dst[i] = (uint32_t)(((p >> 16) & 0xFF) << rs) |
-                         (uint32_t)(((p >> 8) & 0xFF) << gs) |
-                         (uint32_t)((p & 0xFF) << bs);
+                dst[i] = gfx_pack_rgb(src[i], rs, gs, bs); // shared packer
             }
         }
     }

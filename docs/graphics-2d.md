@@ -182,10 +182,17 @@ localized optimization if a profile says the triangle path is hot.
 Each phase builds, ships, and is independently useful. Order chosen so the
 riskiest new code (triangles) lands last, on top of a de-duplicated base.
 
-1. **Unify packing + fix clipping.** Extract `surf_pack`/`surf_unpack`; route
-   `fb_blit_centered`, Doom's `cmap_to_fb`, and the raytracer through them; make
-   `gfx_pixel`/`rect`/`line` clip-correct. *Pure cleanup + a bug fix; no API
-   change.* Regression = existing UI/Doom/boing smoke tests.
+1. **Unify packing + fix clipping.** Hoist the packer to a `gfx.h` inline
+   (`gfx_pack_rgb`/`gfx_unpack_rgb`) and route the kernel's two copies —
+   `gfx.c:surf_pack` and `syscall.c:fb_blit_centered` — through it; make
+   `gfx_pixel`/`rect`/`line` clip-correct (via the clip box, with `gfx_clear`
+   keeping its own clip-ignoring full fill). *Pure cleanup + a latent-bug fix; no
+   API change.* Regression = existing UI/Doom/boing/ttf smoke tests.
+   > [!note] Doom's `cmap_to_fb` and the native raytracer pack pixels too, but
+   > they are **separate binaries** (a hosted program and a lab ELF), not linked
+   > against the kernel — they can't call `gfx_pack_rgb`. Folding them in would
+   > need a standalone dependency-free `pixelfmt.h` shared across the kernel and
+   > the hosted/lab include paths; deferred as its own small step.
 2. **Blend pipeline.** Add `gfx_plot` + `enum gfx_blend`; move `ttf_draw` onto
    it; add blended fill + the unified `gfx_blit`; give the UI translucent
    popups/shadows as the proof.
