@@ -1,24 +1,43 @@
 -- ttfdemo.lua — scalable anti-aliased text via the TrueType rasterizer.
--- Draws the same string at a range of sizes plus a paragraph, to show off the
--- coverage-based anti-aliasing (fb.ttf) versus the fixed 8x16 bitmap (fb.text).
--- Run from the shell with:  run("ttfdemo.lua")
+-- Shows the same string at a range of sizes plus a paragraph, comparing the
+-- coverage-based anti-aliasing (fb.ttf) with the fixed 8x16 bitmap (fb.text).
+-- On the windowed desktop it opens a window; with no desktop it draws
+-- full-screen. Run from the shell:  run("ttfdemo.lua")
 
-local font = fb.loadfont("/font.ttf") -- GC-freed when this goes out of scope
+local font = fb.loadfont("/font.ttf") -- GC-freed when it goes out of scope
+local W, H = 600, 340
 
-fb.buffer(true) -- draw off-screen, show it in one flip (no flicker)
-fb.clear(0x101018)
-
--- The same word at growing sizes; y is the text baseline.
-local y = 64
-for _, sz in ipairs({ 16, 24, 36, 54, 80 }) do
-  local adv = fb.ttf(font, 30, y, "juampiOS  Ag!?", sz, 0x9fe0ff)
-  fb.ttf(font, 30 + adv + 20, y, tostring(sz) .. "px", math.floor(sz / 2), 0x556070)
-  y = y + sz + 10
+-- Draw the sample into the current target (the window canvas, or the fb).
+local function frame()
+  fb.clear(0x101018)
+  local y = 40
+  for _, sz in ipairs({ 16, 22, 30, 42, 54 }) do
+    local adv = fb.ttf(font, 20, y, "juampiOS  Ag!?", sz, 0x9fe0ff)
+    fb.ttf(font, 20 + adv + 16, y, tostring(sz) .. "px", math.floor(sz / 2),
+      0x556070)
+    y = y + sz + 8
+  end
+  fb.ttf(font, 20, y + 16, "the quick brown fox jumps over the lazy dog", 20,
+    0xffd080)
+  fb.text(20, y + 36, "fb.text: the built-in 8x16 bitmap font", 0x00ff88)
 end
 
--- A paragraph in a warm colour, and the bitmap font underneath for comparison.
-fb.ttf(font, 30, y + 24, "the quick brown fox jumps over the lazy dog", 22, 0xffd080)
-fb.text(30, y + 44, "fb.text: the built-in 8x16 bitmap font", 0x00ff88)
+print("TTF_DEMO_OK") -- marker for tests/boot-smoke.sh
 
-fb.flip()
-print("TTF_DEMO_OK") -- marker so tests/boot-smoke.sh can assert it ran
+if ui and ui.available and ui.available() then
+  -- Desktop: the compositor owns the screen, so drawing straight to the
+  -- framebuffer would be painted over — render into a canvas and show it in a
+  -- window instead (built once, blitted each desktop frame).
+  local cv = ui.canvas(W, H)
+  cv:draw(frame)
+  ui.open("TrueType demo", function() cv:show() end, W, H + 28)
+else
+  -- No desktop: draw straight to the framebuffer, double-buffered, and hold it
+  -- briefly so it's visible before the shell prompt returns.
+  if fb.width() == 0 then return end
+  fb.buffer(true)
+  frame()
+  fb.flip()
+  if k and k.sleep then k.sleep(4000) end
+  fb.buffer(false)
+end
