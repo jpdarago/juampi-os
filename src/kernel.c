@@ -28,6 +28,7 @@
 #include <audio.h>
 #include <pmu.h>
 #include <ext2.h>
+#include <ttf.h>
 #include <smp.h>
 #include <parallel.h>
 #include <acpi.h>
@@ -569,6 +570,59 @@ void kmain(void)
                     fj.ok ? "OK" : "FAILED", ap, fj.path, (uint64_t)fj.size);
         } else {
             console_print("juampiOS: AP disk I/O skipped (uniprocessor)\n");
+        }
+    }
+
+    // TrueType rasteriser self-test (src/ttf.c): load /font.ttf off the disk,
+    // render sample glyphs into an offscreen surface, and confirm the
+    // rasteriser produced coverage — including partial-coverage (anti-aliased)
+    // pixels, which is the point of it over the 8x16 bitmap. Uses its own
+    // buffer, so it runs headless; skipped when no font shipped on the disk.
+    if (ext2_mounted()) {
+        size_t flen = 0;
+        void* ttf = ext2_read_path("/font.ttf", &flen);
+        if (ttf == NULL) {
+            console_print("juampiOS: ttf /font.ttf absent, skipped\n");
+        } else {
+            struct ttf_font* fnt = ttf_load(ttf, flen, &heap);
+            ext2_free(ttf);
+            if (fnt == NULL) {
+                console_print("juampiOS: ttf load FAILED\n");
+            } else {
+                enum { FW = 96, FH = 32 };
+                static uint32_t fbuf[FW * FH];
+                for (int i = 0; i < FW * FH; i++) {
+                    fbuf[i] = 0; // black background
+                }
+                struct gfx_surface s = {
+                        .pixels = (uint8_t*)fbuf,
+                        .w = FW,
+                        .h = FH,
+                        .pitch = FW * sizeof(uint32_t),
+                        .r_shift = 16,
+                        .g_shift = 8,
+                        .b_shift = 0,
+                        .cx0 = 0,
+                        .cy0 = 0,
+                        .cx1 = FW,
+                        .cy1 = FH,
+                };
+                int adv = ttf_draw(fnt, &s, 2, 24, "Agq!", 22.0f, 0xFFFFFF);
+                int lit = 0, aa = 0;
+                for (int i = 0; i < FW * FH; i++) {
+                    uint32_t v = fbuf[i] & 0xFFFFFF;
+                    if (v != 0) {
+                        lit++;
+                    }
+                    if (v != 0 && v != 0xFFFFFF) {
+                        aa++; // partial coverage: anti-aliased edge pixel
+                    }
+                }
+                console_printf("juampiOS: ttf %s: %d px lit, %d AA, adv=%d\n",
+                               (lit > 0 && aa > 0) ? "OK" : "FAILED", lit, aa,
+                               adv);
+                ttf_free(fnt);
+            }
         }
     }
 

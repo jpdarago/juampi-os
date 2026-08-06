@@ -97,6 +97,11 @@ HTTP_OBJS := $(OBJ_DIR)/http/picohttpparser.o
 # include path (it needs sprintf/qsort/memcpy, all provided by the shim).
 MICROUI_OBJS := $(OBJ_DIR)/microui/microui.o
 
+# Vendored stb_truetype (src/stb/): the font rasteriser behind src/ttf.c. Built
+# verbatim (-w); every libc dependency is routed through STBTT_* macros to
+# kernel facilities in stb_truetype_impl.c, so it needs no klibc include.
+STB_OBJS := $(OBJ_DIR)/stb/stb_truetype_impl.o
+
 # Vendored BearSSL (src/bearssl/): the TLS library for HTTPS. Its whole src/ tree
 # compiles freestanding (no malloc, no OS deps); built verbatim (-w) with its own
 # includes + the klibc <string.h>. sysrng.c (the /dev/urandom seeder) was dropped
@@ -141,8 +146,8 @@ HOSTED_PROGS := chello filetest gfxdemo
 HOSTED_ELVES := $(patsubst %,$(HOSTED_DIR)/%.elf,$(HOSTED_PROGS))
 
 VENDOR_OBJS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(VENDOR_CSOURCES))
-OBJS       := $(COBJS) $(ASMOBJS) $(VENDOR_OBJS) $(LUA_OBJS) $(LUA_ASM_OBJ) $(HL_OBJS) $(HTTP_OBJS) $(MICROUI_OBJS) $(BEARSSL_OBJS) $(UACPI_OBJS)
-DEPS       := $(COBJS:.o=.d) $(VENDOR_OBJS:.o=.d) $(LUA_OBJS:.o=.d) $(HL_OBJS:.o=.d) $(HTTP_OBJS:.o=.d) $(MICROUI_OBJS:.o=.d) $(BEARSSL_OBJS:.o=.d) $(UACPI_OBJS:.o=.d)
+OBJS       := $(COBJS) $(ASMOBJS) $(VENDOR_OBJS) $(LUA_OBJS) $(LUA_ASM_OBJ) $(HL_OBJS) $(HTTP_OBJS) $(MICROUI_OBJS) $(STB_OBJS) $(BEARSSL_OBJS) $(UACPI_OBJS)
+DEPS       := $(COBJS:.o=.d) $(VENDOR_OBJS:.o=.d) $(LUA_OBJS:.o=.d) $(HL_OBJS:.o=.d) $(HTTP_OBJS:.o=.d) $(MICROUI_OBJS:.o=.d) $(STB_OBJS:.o=.d) $(BEARSSL_OBJS:.o=.d) $(UACPI_OBJS:.o=.d)
 
 KERNEL := kernel.bin
 
@@ -273,6 +278,14 @@ $(OBJ_DIR)/microui/%.o: $(SRC_DIR)/microui/%.c $(OBJ_DIR)/.flags.kernel \
 		| $(OBJ_DIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w -I$(SRC_DIR)/lua/klibc $(CPPFLAGS) -c -o $@ $<
+
+# Vendored stb_truetype: verbatim (-w). No klibc include — the STBTT_* macros in
+# stb_truetype_impl.c route every dependency to kernel headers already on
+# $(CFLAGS)'s -Iinclude path.
+$(OBJ_DIR)/stb/%.o: $(SRC_DIR)/stb/%.c $(OBJ_DIR)/.flags.kernel \
+		| $(OBJ_DIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -w $(CPPFLAGS) -c -o $@ $<
 
 # Vendored BearSSL: verbatim (-w) with its own includes; objects mirror the tree.
 $(OBJ_DIR)/bearssl/%.o: $(SRC_DIR)/bearssl/%.c $(OBJ_DIR)/.flags.kernel \
@@ -423,7 +436,21 @@ $(DISK_RAYTRACER): $(LAB_DIR)/raytracer.c $(INCLUDE_DIR)/lab.h
 	$(LD) -melf_x86_64 -e bench -Ttext 0x400000 -o $@ $(@:.elf=.o)
 	rm -f $(@:.elf=.o)
 
-$(DISK_IMG): $(DISK_FILES) $(DISK_RAYTRACER)
+# A scalable font on the data disk for the TrueType rasteriser (src/ttf.c) and
+# its boot self-test. Copied from the host font set via fontconfig (not
+# committed — a binary asset, like the Doom WAD). If no host font is found the
+# copy is skipped and the self-test reports the font absent, so the build still
+# works everywhere.
+DISK_FONT := $(DISK_DIR)/font.ttf
+FONT_SRC  := $(shell fc-match -f '%{file}' 'DejaVu Sans Mono' 2>/dev/null)
+$(DISK_FONT): | $(DISK_DIR)
+	@if [ -n "$(FONT_SRC)" ] && [ -f "$(FONT_SRC)" ]; then \
+		cp "$(FONT_SRC)" $@ && echo "copied font: $(FONT_SRC)"; \
+	else \
+		echo "note: no host font found (fc-match); /font.ttf omitted from disk"; \
+	fi
+
+$(DISK_IMG): $(DISK_FILES) $(DISK_RAYTRACER) $(DISK_FONT)
 	mke2fs -q -F -t ext2 -b 1024 -O ^resize_inode,^dir_index,^ext_attr \
 		-d $(DISK_DIR) $@ $(DISK_BLOCKS)
 
