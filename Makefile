@@ -279,13 +279,13 @@ $(OBJ_DIR)/microui/%.o: $(SRC_DIR)/microui/%.c $(OBJ_DIR)/.flags.kernel \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w -I$(SRC_DIR)/lua/klibc $(CPPFLAGS) -c -o $@ $<
 
-# Vendored stb_truetype: verbatim (-w). No klibc include — the STBTT_* macros in
-# stb_truetype_impl.c route every dependency to kernel headers already on
-# $(CFLAGS)'s -Iinclude path.
+# Vendored stb_truetype: verbatim (-w) with the klibc <string.h>/<math.h> shims
+# on the include path (same as microui), so stb's defaults reach the kernel's
+# strlen/memcpy/floor/sqrt/… ; only its allocator is overridden (kernel heap).
 $(OBJ_DIR)/stb/%.o: $(SRC_DIR)/stb/%.c $(OBJ_DIR)/.flags.kernel \
 		| $(OBJ_DIR)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -w $(CPPFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) -w -I$(SRC_DIR)/lua/klibc $(CPPFLAGS) -c -o $@ $<
 
 # Vendored BearSSL: verbatim (-w) with its own includes; objects mirror the tree.
 $(OBJ_DIR)/bearssl/%.o: $(SRC_DIR)/bearssl/%.c $(OBJ_DIR)/.flags.kernel \

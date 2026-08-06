@@ -74,30 +74,64 @@ static int l_text(lua_State* L)
     return 0;
 }
 
-// The TrueType rasteriser's font, loaded once from the disk on first use of
-// fb.ttf and kept for the session (rasterisation itself is per-call).
-static struct ttf_font* g_ttf;
+// A loaded TrueType font is a Lua userdata (metatable FONT_MT) holding a
+// ttf_font*, so its lifetime is GC-managed — __gc frees it when the script drops
+// the reference — and any number of fonts can coexist. No module-global font.
+#define FONT_MT "fb.font"
+
+// The heap this Lua state allocates from: its allocator's userdata is a
+// heap_allocator in this kernel (worker states, lua_thread.c); the BSP's default
+// state has none, so fall back to the shared kernel heap its allocator uses.
+static struct heap_allocator* lua_heap(lua_State* L)
+{
+    void* ud = NULL;
+    lua_getallocf(L, &ud);
+    return ud != NULL ? (struct heap_allocator*)ud : heap_default();
+}
+
+// fb.loadfont(path) -> font. Read a TTF off the disk and wrap it as a font
+// userdata drawn from this state's heap.
+static int l_loadfont(lua_State* L)
+{
+    const char* path = luaL_checkstring(L, 1);
+    size_t n = 0;
+    void* data = ext2_read_path(path, &n);
+    if (data == NULL) {
+        return luaL_error(L, "fb.loadfont: '%s' not found on the disk", path);
+    }
+    struct ttf_font* fnt = ttf_load(data, n, lua_heap(L));
+    ext2_free(data);
+    if (fnt == NULL) {
+        return luaL_error(L, "fb.loadfont: '%s' is not a usable font", path);
+    }
+    struct ttf_font** ud = lua_newuserdatauv(L, sizeof(*ud), 0);
+    *ud = fnt;
+    luaL_setmetatable(L, FONT_MT);
+    return 1;
+}
+
+static int l_font_gc(lua_State* L)
+{
+    struct ttf_font** ud = luaL_checkudata(L, 1, FONT_MT);
+    if (*ud != NULL) {
+        ttf_free(*ud);
+        *ud = NULL;
+    }
+    return 0;
+}
+
 static int l_ttf(lua_State* L)
 {
-    int x = (int)luaL_checkinteger(L, 1);
-    int y = (int)luaL_checkinteger(L, 2);
-    const char* str = luaL_checkstring(L, 3);
-    double px = luaL_checknumber(L, 4);
-    uint32_t color = (uint32_t)luaL_optinteger(L, 5, 0xFFFFFF);
-    if (g_ttf == NULL) {
-        size_t n = 0;
-        void* data = ext2_read_path("/font.ttf", &n);
-        if (data == NULL) {
-            return luaL_error(L, "fb.ttf: /font.ttf not found on the disk");
-        }
-        g_ttf = ttf_load(data, n, heap_default());
-        ext2_free(data);
-        if (g_ttf == NULL) {
-            return luaL_error(L, "fb.ttf: /font.ttf is not a usable font");
-        }
-    }
+    struct ttf_font** ud = luaL_checkudata(L, 1, FONT_MT);
+    int x = (int)luaL_checkinteger(L, 2);
+    int y = (int)luaL_checkinteger(L, 3);
+    const char* str = luaL_checkstring(L, 4);
+    double px = luaL_checknumber(L, 5);
+    uint32_t color = (uint32_t)luaL_optinteger(L, 6, 0xFFFFFF);
     struct gfx_surface* s = fb_cur();
-    int adv = s != NULL ? ttf_draw(g_ttf, s, x, y, str, (float)px, color) : 0;
+    int adv = (s != NULL && *ud != NULL)
+                      ? ttf_draw(*ud, s, x, y, str, (float)px, color)
+                      : 0;
     lua_pushinteger(L, adv);
     return 1;
 }
@@ -257,9 +291,13 @@ static const struct lua_fndoc fblib[] = {
                   {"y", "number", "top"},
                   {"str", "string", "text to draw"},
                   {"color", "number?", "0xRRGGBB, default white"}}},
-        {"ttf", l_ttf,
-         "Draw a string in scalable anti-aliased text (loads /font.ttf once).",
-         .args = {{"x", "number", "left (pen origin)"},
+        {"loadfont", l_loadfont,
+         "Load a TrueType font off the disk (GC-freed when dropped).",
+         .args = {{"path", "string", "font file path, e.g. /font.ttf"}},
+         .rets = {{"font", "userdata", "font handle for fb.ttf"}}},
+        {"ttf", l_ttf, "Draw a string in scalable anti-aliased text.",
+         .args = {{"font", "userdata", "a font from fb.loadfont"},
+                  {"x", "number", "left (pen origin)"},
                   {"y", "number", "baseline"},
                   {"str", "string", "text to draw"},
                   {"px", "number", "text height in pixels"},
@@ -298,6 +336,15 @@ static const struct lua_fndoc fblib[] = {
 
 int luaopen_fb(lua_State* L)
 {
+    // Metatable for fb.loadfont's font userdata: __gc frees the ttf_font, __name
+    // gives it a readable type in errors/tostring.
+    if (luaL_newmetatable(L, FONT_MT)) {
+        lua_pushcfunction(L, l_font_gc);
+        lua_setfield(L, -2, "__gc");
+        lua_pushstring(L, FONT_MT);
+        lua_setfield(L, -2, "__name");
+    }
+    lua_pop(L, 1);
     luadoc_newlib(L, fblib);
     return 1;
 }
