@@ -6,6 +6,8 @@
 #include <luafb.h>
 #include <luadoc.h>
 #include <qoi.h>
+#include <ttf.h>  // scalable anti-aliased text (fb.ttf)
+#include <ext2.h> // load /font.ttf off the disk
 #include <kmodule.h>
 #include <memory.h>
 #include <parallel.h> // mem_push_view, for fb.canvas
@@ -70,6 +72,34 @@ static int l_text(lua_State* L)
     gfx_text(fb_cur(), luaL_checkinteger(L, 1), luaL_checkinteger(L, 2), str, n,
              (uint32_t)luaL_optinteger(L, 4, 0xFFFFFF));
     return 0;
+}
+
+// The TrueType rasteriser's font, loaded once from the disk on first use of
+// fb.ttf and kept for the session (rasterisation itself is per-call).
+static struct ttf_font* g_ttf;
+static int l_ttf(lua_State* L)
+{
+    int x = (int)luaL_checkinteger(L, 1);
+    int y = (int)luaL_checkinteger(L, 2);
+    const char* str = luaL_checkstring(L, 3);
+    double px = luaL_checknumber(L, 4);
+    uint32_t color = (uint32_t)luaL_optinteger(L, 5, 0xFFFFFF);
+    if (g_ttf == NULL) {
+        size_t n = 0;
+        void* data = ext2_read_path("/font.ttf", &n);
+        if (data == NULL) {
+            return luaL_error(L, "fb.ttf: /font.ttf not found on the disk");
+        }
+        g_ttf = ttf_load(data, n, heap_default());
+        ext2_free(data);
+        if (g_ttf == NULL) {
+            return luaL_error(L, "fb.ttf: /font.ttf is not a usable font");
+        }
+    }
+    struct gfx_surface* s = fb_cur();
+    int adv = s != NULL ? ttf_draw(g_ttf, s, x, y, str, (float)px, color) : 0;
+    lua_pushinteger(L, adv);
+    return 1;
 }
 
 // fb.buffer([on]) -> bool. Turn double buffering on (default) or off, returning
@@ -227,6 +257,14 @@ static const struct lua_fndoc fblib[] = {
                   {"y", "number", "top"},
                   {"str", "string", "text to draw"},
                   {"color", "number?", "0xRRGGBB, default white"}}},
+        {"ttf", l_ttf,
+         "Draw a string in scalable anti-aliased text (loads /font.ttf once).",
+         .args = {{"x", "number", "left (pen origin)"},
+                  {"y", "number", "baseline"},
+                  {"str", "string", "text to draw"},
+                  {"px", "number", "text height in pixels"},
+                  {"color", "number?", "0xRRGGBB, default white"}},
+         .rets = {{"adv", "number", "advance width drawn, in pixels"}}},
         {"image", l_image, "Decode a QOI module image and blit it.",
          .args = {{"name", "string", "image module name"},
                   {"x", "number?", "left (default: centre)"},
