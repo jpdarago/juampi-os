@@ -12,9 +12,11 @@
 // device IRQ lines to LAPIC vectors. Everything is discovered from ACPI/CPUID,
 // never hardcoded.
 
-void apic_init(void);    // bring up + software-enable the Local APIC
+void apic_init(void);    // bring up + software-enable the BSP's Local APIC
+void apic_init_ap(void); // enable an application processor's Local APIC
 void lapic_eoi(void);    // signal end-of-interrupt to the LAPIC
-uint32_t lapic_id(void); // this core's Local APIC id
+uint32_t lapic_id(void); // this core's Local APIC id (valid on any core that
+                         // has run apic_init/apic_init_ap)
 void lapic_timer_start(uint32_t hz); // periodic LAPIC timer -> vector 32
 
 // I/O APIC (routes external device IRQs). ioapic_init() must run after

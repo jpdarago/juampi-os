@@ -129,7 +129,8 @@ uint8_t pci_find_capability(struct pci_addr a, uint8_t cap_id)
     return 0;
 }
 
-bool pci_msix_setup(struct pci_addr a, uint8_t vector)
+bool pci_msix_setup(struct pci_addr a, uint8_t vector,
+                    volatile uint32_t** table_out)
 {
     uint8_t cap = pci_find_capability(a, PCI_CAP_MSIX);
     if (cap == 0) {
@@ -149,6 +150,12 @@ bool pci_msix_setup(struct pci_addr a, uint8_t vector)
     table[2] = vector;                             // message data
     table[3] = 0;                                  // vector control: unmasked
 
+    // Hand back the mapped table so a driver can later re-mask or re-target the
+    // entry (e.g. to poll a completion on a core the vector doesn't point at).
+    if (table_out != NULL) {
+        *table_out = table;
+    }
+
     // Enable MSI-X and clear the global function mask (message control is the
     // high half of the capability's first dword).
     uint32_t mc = pci_read32(a.bus, a.dev, a.func, cap);
@@ -156,4 +163,12 @@ bool pci_msix_setup(struct pci_addr a, uint8_t vector)
     mc |= (uint32_t)MSIX_MC_ENABLE << 16;
     pci_write32(a.bus, a.dev, a.func, cap, mc);
     return true;
+}
+
+void pci_msix_mask(volatile uint32_t* table, unsigned entry, bool masked)
+{
+    // Vector control is dword 3 of each 16-byte entry; bit 0 is the mask bit.
+    // When set, the function withholds that message (and records it pending)
+    // instead of delivering the interrupt.
+    table[entry * 4 + 3] = masked ? 1u : 0u;
 }

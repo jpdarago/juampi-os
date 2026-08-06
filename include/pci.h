@@ -45,7 +45,16 @@ uint8_t pci_find_capability(struct pci_addr a, uint8_t cap_id);
 
 // Program MSI-X vector table entry 0 to deliver `vector` to this core's LAPIC
 // and enable MSI-X on the function. Returns false if the device advertises no
-// MSI-X capability (caller falls back to polling / line interrupts).
-bool pci_msix_setup(struct pci_addr a, uint8_t vector);
+// MSI-X capability (caller falls back to polling / line interrupts). On
+// success, if `table_out` is non-NULL it receives the mapped vector table base,
+// so the caller can later mask or re-target the entry (see pci_msix_mask).
+bool pci_msix_setup(struct pci_addr a, uint8_t vector,
+                    volatile uint32_t** table_out);
+
+// Mask/unmask MSI-X `entry` in a table returned by pci_msix_setup. A masked
+// entry delivers no interrupt (the message is held pending), which lets a core
+// the vector does not target poll the completion queue without the target
+// core's ISR draining it first.
+void pci_msix_mask(volatile uint32_t* table, unsigned entry, bool masked);
 
 #endif
