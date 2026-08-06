@@ -14,6 +14,7 @@
 #include <stdint.h>
 
 #include "juampi_abi.h" // the SYS_* numbers, shared with src/syscall.c
+#include "juampi.h"     // the juampi_* platform API prototypes (struct juampi_mouse)
 
 static long trap(long n, long a, long b, long c)
 {
@@ -64,6 +65,10 @@ int juampi_fb_present(const void* pixels, int w, int h)
 int juampi_getkey(int* pressed)
 {
     return (int)trap(SYS_getkey, (long)pressed, 0, 0);
+}
+int juampi_mouse(struct juampi_mouse* m)
+{
+    return (int)trap(SYS_getmouse, (long)m, 0, 0);
 }
 unsigned long juampi_ticks_ms(void)
 {
