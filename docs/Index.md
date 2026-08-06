@@ -49,8 +49,12 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
   q35/`-cpu host` QEMU realism work. *Status: complete.*
 - [[software-rasterizer]] — graphics roadmap: a shared software 2D rasterizer
   as the keystone, the tracks on top (fonts, windowing, 3D, image formats, Lua
-  canvas), quick wins, and the raylib connection. *Status: planned (fonts +
-  quick wins in progress).*
+  canvas), quick wins, and the raylib connection. *Status: in progress (fonts +
+  quick wins done; keystone rasterizer in design).*
+- [[graphics-2d]] — design for the keystone: evolving `gfx_surface` into a
+  complete software rasterizer (consistent clip, a real blend pipeline, a
+  transform stack, a textured-triangle core, AA), unifying the four duplicated
+  packers, with a phased migration. *Status: design.*
 
 ## By status
 
@@ -68,7 +72,8 @@ frontmatter properties (`tags`, `status`, `milestone`), and callouts. Open the
 | [[api-layers]]       | review            | —         |
 | [[doom-port]]        | complete          | —         |
 | [[perf-lab]]         | complete          | —         |
-| [[software-rasterizer]] | planned        | —         |
+| [[software-rasterizer]] | in progress    | —         |
+| [[graphics-2d]]      | design            | —         |
 
 ## Conventions
 

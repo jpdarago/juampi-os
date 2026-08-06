@@ -1,7 +1,7 @@
 ---
 title: Software rasterizer & graphics roadmap
 tags: [design, graphics, rasterizer, fonts, ui, hosted, roadmap]
-status: planned
+status: in-progress
 related: ["[[hosted-libc]]", "[[doom-port]]", "[[ui]]", "[[api-layers]]", "[[Index]]"]
 created: 2026-08-05
 ---
@@ -57,6 +57,11 @@ Surface (roughly, grown as needed):
 
 Why it is the keystone: the text rasterizer, the windowing upgrade, a Lua
 canvas, and the raylib port are all *thin* on top of this, and *fat* without it.
+
+> [!info] Design in progress
+> The keystone now has its own design note — [[graphics-2d]] — covering the
+> surface model, the blend pipeline, the transform + textured-triangle core, AA,
+> and a phased migration that first unifies the four duplicated pixel-packers.
 
 > [!tip] Design bias
 > Match the existing software-framebuffer ethos (Doom, `gfx.c`). Keep the
