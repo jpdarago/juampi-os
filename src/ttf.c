@@ -29,6 +29,9 @@ struct ttf_font* ttf_load(const void* ttf, size_t len,
         heap_free(heap, f);
         return NULL;
     }
+    // stb passes this through to every STBTT_malloc/free during rasterisation,
+    // so glyph scratch is drawn from this font's injected heap, not a global.
+    f->info.userdata = heap;
     return f;
 }
 

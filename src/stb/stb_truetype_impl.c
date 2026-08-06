@@ -24,14 +24,21 @@ extern double cos(double);
 extern double acos(double);
 extern double pow(double, double);
 
-static void* stb_malloc(size_t n)
+// stb threads an allocation context (stbtt_fontinfo.userdata) through every
+// STBTT_malloc/free call. src/ttf.c sets that to the font's injected heap, so
+// all rasterisation scratch is drawn from the caller's allocator rather than a
+// global — matching the kernel's allocator-injection convention. heap_default()
+// is only a fallback for any stb call that somehow arrives without a context.
+static void* stb_malloc(size_t n, void* u)
 {
-    return new (&heap_default()->base, uint8_t, (ptrdiff_t)n);
+    struct heap_allocator* h =
+            u != NULL ? (struct heap_allocator*)u : heap_default();
+    return new (&h->base, uint8_t, (ptrdiff_t)n);
 }
-static void stb_free(void* p)
+static void stb_free(void* p, void* u)
 {
     if (p != NULL) {
-        heap_free(heap_default(), p);
+        heap_free(u != NULL ? (struct heap_allocator*)u : heap_default(), p);
     }
 }
 static size_t stb_strlen(const char* s)
@@ -51,8 +58,8 @@ static size_t stb_strlen(const char* s)
 #define STBTT_cos(x) cos(x)
 #define STBTT_acos(x) acos(x)
 #define STBTT_fabs(x) fabs(x)
-#define STBTT_malloc(x, u) ((void)(u), stb_malloc(x))
-#define STBTT_free(x, u) ((void)(u), stb_free(x))
+#define STBTT_malloc(x, u) stb_malloc((x), (u))
+#define STBTT_free(x, u) stb_free((x), (u))
 #define STBTT_assert(x) ((void)0)
 #define STBTT_strlen(x) stb_strlen(x)
 #define STBTT_memcpy memcpy
