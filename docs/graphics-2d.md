@@ -209,24 +209,22 @@ and canvas paths.
 - **A general 3D engine:** the triangle rasterizer plus a z-buffer (a later add).
 - **Less code:** four packers and three blit loops collapse to one each.
 
-## Open decisions (want a call before phase 2)
+## Decisions (2026-08-06)
 
-1. **Blend as a per-call argument vs. surface state.** Per-call
-   (`gfx_fill_blend(..., GFX_OVER)`) is stateless and simple; surface-state
-   (GL-like `gfx_set_blend(s, mode)`) reads cleaner for the triangle/rlgl path.
-   *Proposed: per-call for primitives, transform+blend as surface state for the
-   triangle layer* (matches how rlgl batches).
-2. **Namespace.** Keep growing `gfx_*`, or split the pure rasterizer into a
-   `raster_*` module that `gfx` (the display/compositor layer) sits on top of?
-   *Proposed: keep `gfx_*`* — one surface type, least churn — and treat "display"
-   (screen, flip, mode-set) as a thin sub-area of the same module.
-3. **Color width everywhere.** Commit the whole API to `0xAARRGGBB` (alpha 0 =
-   opaque for legacy callers), or keep `0xRRGGBB` and pass coverage/alpha
-   separately? *Proposed: `0xAARRGGBB`, legacy opaque* — one color type, blend is
-   just "alpha < 255."
-4. **How far in this pass.** Everything through phase 3, or stop after phase 2
-   (de-dup + blend + AA on the primitive layer) and treat the triangle/rlgl core
-   as its own follow-up tied to the raylib decision?
+1. **Blend granularity** — per-call argument for the primitive layer
+   (`gfx_fill_blend(..., GFX_OVER)`); the triangle/rlgl layer (phase 3) will
+   carry blend as surface state, matching how rlgl batches.
+2. **Namespace** — keep growing `gfx_*` (one surface type, least churn); treat
+   "display" (screen, flip, mode-set) as a thin sub-area of the same module. No
+   separate `raster_*`.
+3. **Color** — commit the API to `0xAARRGGBB`; legacy `0xRRGGBB` is read as
+   opaque, so existing callers are unaffected. Blend is just "alpha < 255."
+4. **Scope of this pass — phases 1 and 2 only:** unify the four packers, make
+   clipping consistent, and land the blend pipeline (with `ttf` moved onto it and
+   translucent UI as the proof). The rasterizer layer — transform stack,
+   textured triangle, AA — and the `rlgl` shim (phases 3–4) are a **follow-up**,
+   tied to the raylib decision. AA slips to that follow-up with the triangle
+   work; text AA already exists and is unaffected.
 
 ## Non-goals (for this library)
 
