@@ -443,8 +443,10 @@ $(DISK_RAYTRACER): $(LAB_DIR)/raytracer.c $(INCLUDE_DIR)/lab.h
 # is generated (gitignored); the source in assets/ is what's version-controlled.
 FONT_SRC  := assets/fonts/DejaVuSansMono.ttf
 DISK_FONT := $(DISK_DIR)/font.ttf
+# -f so a stale read-only copy (font files are often mode 0444) is replaced
+# rather than failing the whole disk build.
 $(DISK_FONT): $(FONT_SRC) | $(DISK_DIR)
-	cp $< $@
+	cp -f $< $@
 
 $(DISK_IMG): $(DISK_FILES) $(DISK_RAYTRACER) $(DISK_FONT)
 	mke2fs -q -F -t ext2 -b 1024 -O ^resize_inode,^dir_index,^ext_attr \
